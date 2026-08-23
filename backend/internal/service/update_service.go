@@ -29,7 +29,7 @@ var (
 
 const (
 	updateCacheTTL = 1200 // 20 minutes
-	githubRepo     = "luckykuang/sub2api-plus"
+	githubRepo     = "Tiantianr/sub2api-plus"
 
 	// Security: allowed download domains for updates
 	allowedDownloadHost = "github.com"

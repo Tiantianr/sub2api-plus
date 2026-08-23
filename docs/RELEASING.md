@@ -16,6 +16,12 @@ commit proof plus protected GitHub Actions before merging and tagging.
 Increment `NNN` on the same upstream baseline and reset it to `001` after
 merging a newer official baseline. `NNN` is always three digits.
 
+The `Tiantianr/sub2api-plus` distribution reserves iterations `901` through
+`999` and resets to `901` after importing a newer Plus release. Its release
+commands must set `SUB2API_CUSTOM_ITERATION_MIN=901`; inherited Plus tags below
+that range remain historical or mirrored rollback inputs, not new personal
+release versions.
+
 ## Repository Prerequisites
 
 Before automatic PR promotion is enabled, repository administrators must:
@@ -200,10 +206,15 @@ python3 skills/release-cli/scripts/release_cli.py verify \
 ```
 
 Verification requires a successful workflow, a non-draft/non-prerelease GitHub
-Release, and both immutable pricing assets:
+Release, `checksums.txt`, every declared platform archive, both immutable
+pricing assets, and a publicly pullable GHCR multi-platform index containing
+`linux/amd64` and `linux/arm64`:
 
+- `checksums.txt`
+- `sub2api_<version>_<os>_<arch>.<archive>` for every release platform
 - `model-pricing.json`
 - `model-pricing-manifest.json`
+- `ghcr.io/<owner>/sub2api-plus:<OCI version>`
 
 The workflow accepts an existing pricing asset only when its bytes are
 identical. Correct a bad asset with a new custom version, never by replacement

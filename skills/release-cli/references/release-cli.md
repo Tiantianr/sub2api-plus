@@ -40,8 +40,10 @@ strictness, a protected rule, or a context is missing. It invokes
 `push-cli submit-pr` owns the proof. Release promotion requires exactly one PR
 marker with 40-character base/head SHAs, a matching current PR base/head, and a
 successful `sub2api/local-validation` status on the head. The PR must come from
-`LuckyKuang/sub2api-plus`, remain open and non-draft, and target the GitHub
-default branch.
+the repository selected by the repository gate (default
+`LuckyKuang/sub2api-plus`, or the explicit
+`SUB2API_EXPECTED_REPOSITORY=owner/repository` override), remain open and
+non-draft, and target the GitHub default branch.
 
 After required checks complete, promotion refetches the default branch and PR.
 Any head or base change stops the merge and requires another `submit-pr`.
@@ -85,8 +87,11 @@ drift and fails with its URL; release-cli never approves or bypasses it.
 completed successfully, and checks:
 
 - a non-draft, non-prerelease GitHub Release for the exact tag;
+- `checksums.txt` and every declared platform archive;
 - `model-pricing.json`;
-- `model-pricing-manifest.json`.
+- `model-pricing-manifest.json`;
+- an anonymously pullable GHCR multi-platform index containing
+  `linux/amd64` and `linux/arm64`.
 
 ## Recovery
 

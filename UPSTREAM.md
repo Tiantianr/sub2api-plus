@@ -41,6 +41,7 @@ procedures are documented in [`docs/RELEASING.md`](docs/RELEASING.md).
 | `v0.1.177+custom.002` | `v0.1.177` | `073e92d17178a1ccdb0a27017f572f10c9c7ab62` | published |
 | `v0.1.177+custom.003` | `v0.1.177` | `073e92d17178a1ccdb0a27017f572f10c9c7ab62` | published |
 | `v0.1.178+custom.001` | `v0.1.178` | `e0c48a19ed794a565e3858662520afe0a1f9f0ba` | published |
+| `v0.1.178+custom.901` | `v0.1.178` | `e0c48a19ed794a565e3858662520afe0a1f9f0ba` | planned |
 
 `v0.1.166+custom.007` is marked invalid because its tag contains embedded and
 documented version `0.1.166+custom.006`. Remote Release and OCI artifact status
@@ -49,9 +50,9 @@ still require a maintainer audit. Do not reuse or retag `.007`.
 ## Current Version
 
 ```text
-Git/GitHub: v0.1.178+custom.001
-Application: 0.1.178+custom.001
-GHCR: ghcr.io/luckykuang/sub2api-plus:v0.1.178-custom.001
+Git/GitHub: v0.1.178+custom.901
+Application: 0.1.178+custom.901
+GHCR: ghcr.io/tiantianr/sub2api-plus:v0.1.178-custom.901
 ```
 
 ## Naming
@@ -61,18 +62,21 @@ GHCR: ghcr.io/luckykuang/sub2api-plus:v0.1.178-custom.001
 - OCI tags: `vX.Y.Z-custom.NNN`
 - `NNN` is a three-digit iteration from `001` to `999`.
 
-Increment the iteration on the same official baseline and reset it to `001`
-after importing a newer official release.
+The inherited Plus release history uses its published iteration. This personal
+fork reserves `901` through `999`; increment within the same official baseline
+and reset to `901` after importing a newer Plus release.
 
 ## Distribution and Repository Roles
 
-- `origin` is the custom repository:
+- `origin` is the personal distribution repository:
+  `https://github.com/Tiantianr/sub2api-plus.git`.
+- `upstream` is the Plus source:
   `https://github.com/LuckyKuang/sub2api-plus.git`.
-- `upstream` is the official source:
+- The official source tracked by Plus is:
   `https://github.com/Wei-Shaw/sub2api.git`.
 - Installation, update, rollback, and release links use the custom repository.
-- The official repository is an input for maintainers, not a distribution
-  source for Sub2API Plus.
+- LuckyKuang releases are inputs for this fork, not its production distribution
+  source. Do not bypass Plus by merging the official repository directly.
 
 Local clones may need to add the `upstream` remote before an upstream sync.
 Preserve intentional Plus changes during merges and update this mapping in the

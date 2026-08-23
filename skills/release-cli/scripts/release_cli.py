@@ -5,12 +5,16 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import shlex
 import shutil
 import subprocess
 import sys
 import time
+import urllib.error
+import urllib.parse
+import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Sequence
@@ -18,7 +22,11 @@ from typing import Sequence
 
 ROOT = Path(__file__).resolve().parents[3]
 DEFAULT_REMOTE = "origin"
-EXPECTED_REPOSITORY = "LuckyKuang/sub2api-plus"
+EXPECTED_REPOSITORY = os.environ.get(
+    "SUB2API_EXPECTED_REPOSITORY",
+    "LuckyKuang/sub2api-plus",
+)
+CUSTOM_ITERATION_MIN = int(os.environ.get("SUB2API_CUSTOM_ITERATION_MIN", "1"))
 LOCAL_VALIDATION_CONTEXT = "sub2api/local-validation"
 VALIDATION_MARKER_RE = re.compile(
     r"<!--\s*sub2api-submit-pr:\s*(\{.*?\})\s*-->", re.DOTALL
@@ -44,6 +52,13 @@ REQUIRED_PR_STATUS_CONTEXTS = frozenset(
     }
 )
 PRICING_ASSETS = frozenset({"model-pricing.json", "model-pricing-manifest.json"})
+RELEASE_PLATFORMS = (
+    ("darwin", "amd64", "tar.gz"),
+    ("darwin", "arm64", "tar.gz"),
+    ("linux", "amd64", "tar.gz"),
+    ("linux", "arm64", "tar.gz"),
+    ("windows", "amd64", "zip"),
+)
 FINALIZATION_ALLOWED_PATHS = frozenset(
     {
         "UPSTREAM.md",
@@ -485,6 +500,16 @@ def validate_tag(tag: str) -> None:
     if not TAG_RE.fullmatch(tag):
         raise ReleaseCliError(
             "tag must match vX.Y.Z+custom.NNN with NNN from 001 through 999"
+        )
+    if not 1 <= CUSTOM_ITERATION_MIN <= 999:
+        raise ReleaseCliError(
+            "SUB2API_CUSTOM_ITERATION_MIN must be between 1 and 999"
+        )
+    iteration = int(tag.rsplit(".", 1)[1])
+    if iteration < CUSTOM_ITERATION_MIN:
+        raise ReleaseCliError(
+            "tag custom iteration must be between "
+            f"{CUSTOM_ITERATION_MIN:03d} and 999"
         )
 
 
@@ -1028,8 +1053,6 @@ def find_release_run(repository: str, tag: str, sha: str) -> WorkflowRun:
                 repository,
                 "--workflow",
                 "Release",
-                "--event",
-                "push",
                 "--limit",
                 "50",
                 "--json",
@@ -1164,6 +1187,89 @@ def require_release_workflow_success(repository: str, tag: str, sha: str) -> Non
         )
 
 
+def required_release_assets(tag: str) -> frozenset[str]:
+    version = tag.removeprefix("v")
+    binaries = {
+        f"sub2api_{version}_{os_name}_{architecture}.{archive_format}"
+        for os_name, architecture, archive_format in RELEASE_PLATFORMS
+    }
+    return PRICING_ASSETS | frozenset({"checksums.txt"}) | frozenset(binaries)
+
+
+def fetch_public_registry_json(
+    url: str,
+    *,
+    headers: dict[str, str] | None = None,
+) -> dict[str, object]:
+    request = urllib.request.Request(url, headers=headers or {})
+    try:
+        with urllib.request.urlopen(request, timeout=30) as response:
+            payload = response.read()
+    except (urllib.error.HTTPError, urllib.error.URLError, TimeoutError) as error:
+        raise ReleaseCliError(
+            f"public GHCR request failed for {url}: {error}"
+        ) from error
+    try:
+        data = json.loads(payload)
+    except json.JSONDecodeError as error:
+        raise ReleaseCliError(f"public GHCR returned invalid JSON for {url}") from error
+    if not isinstance(data, dict):
+        raise ReleaseCliError(f"public GHCR returned an unexpected value for {url}")
+    return data
+
+
+def verify_public_ghcr(repository: str, tag: str) -> None:
+    owner, separator, _ = repository.partition("/")
+    if not separator or not owner:
+        raise ReleaseCliError(f"invalid GitHub repository name: {repository}")
+    image = f"{owner.lower()}/sub2api-plus"
+    scope = f"repository:{image}:pull"
+    query = urllib.parse.urlencode({"service": "ghcr.io", "scope": scope})
+    token_data = fetch_public_registry_json(f"https://ghcr.io/token?{query}")
+    token = token_data.get("token") or token_data.get("access_token")
+    if not isinstance(token, str) or not token:
+        raise ReleaseCliError("public GHCR did not issue an anonymous pull token")
+
+    oci_tag = tag.replace("+", "-")
+    manifest_url = f"https://ghcr.io/v2/{image}/manifests/{oci_tag}"
+    manifest = fetch_public_registry_json(
+        manifest_url,
+        headers={
+            "Authorization": f"Bearer {token}",
+            "Accept": ", ".join(
+                (
+                    "application/vnd.oci.image.index.v1+json",
+                    "application/vnd.docker.distribution.manifest.list.v2+json",
+                )
+            ),
+        },
+    )
+    entries = manifest.get("manifests")
+    if not isinstance(entries, list):
+        raise ReleaseCliError(
+            f"GHCR tag ghcr.io/{image}:{oci_tag} is not a multi-platform index"
+        )
+    platforms: set[tuple[str, str]] = set()
+    for entry in entries:
+        if not isinstance(entry, dict):
+            continue
+        platform_data = entry.get("platform")
+        if not isinstance(platform_data, dict):
+            continue
+        os_name = platform_data.get("os")
+        architecture = platform_data.get("architecture")
+        if isinstance(os_name, str) and isinstance(architecture, str):
+            platforms.add((os_name, architecture))
+    required = {("linux", "amd64"), ("linux", "arm64")}
+    missing = sorted(required - platforms)
+    if missing:
+        formatted = ", ".join(f"{os_name}/{arch}" for os_name, arch in missing)
+        raise ReleaseCliError(
+            f"GHCR tag ghcr.io/{image}:{oci_tag} is missing platforms: {formatted}"
+        )
+    print(f"Public GHCR image verified: ghcr.io/{image}:{oci_tag}")
+
+
 def verify_release(repository: str, tag: str) -> None:
     release = release_details(repository, tag, required=True)
     assert release is not None
@@ -1183,13 +1289,14 @@ def verify_release(repository: str, tag: str) -> None:
         for asset in assets
         if isinstance(asset, dict) and asset.get("name")
     }
-    missing = sorted(PRICING_ASSETS - names)
+    missing = sorted(required_release_assets(tag) - names)
     if missing:
         raise ReleaseCliError(
-            "GitHub Release is missing required immutable pricing assets: "
+            "GitHub Release is missing required immutable assets: "
             + ", ".join(missing)
         )
     print(f"GitHub Release verified: {release.get('url', tag)}")
+    verify_public_ghcr(repository, tag)
 
 
 def inspect(repository: str, tag: str, pr_number: int | None) -> None:

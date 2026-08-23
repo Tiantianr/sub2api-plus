@@ -34,6 +34,68 @@ def marker(base: str = BASE, head: str = HEAD) -> str:
     return f"<!-- sub2api-submit-pr: {payload} -->"
 
 
+class ReleaseArtifactValidationTests(unittest.TestCase):
+    def test_personal_iteration_floor_is_enforced(self) -> None:
+        with mock.patch.object(release_cli, "CUSTOM_ITERATION_MIN", 901):
+            release_cli.validate_tag("v1.2.3+custom.901")
+            with self.assertRaisesRegex(
+                release_cli.ReleaseCliError,
+                "between 901 and 999",
+            ):
+                release_cli.validate_tag("v1.2.3+custom.900")
+
+    def test_verify_release_requires_all_binary_assets_and_ghcr(self) -> None:
+        assets = [
+            {"name": name}
+            for name in sorted(release_cli.required_release_assets(TAG))
+        ]
+        release = {
+            "tagName": TAG,
+            "isDraft": False,
+            "isPrerelease": False,
+            "url": "https://github.com/example/release",
+            "assets": assets,
+        }
+        with (
+            mock.patch.object(release_cli, "release_details", return_value=release),
+            mock.patch.object(release_cli, "verify_public_ghcr") as verify_ghcr,
+        ):
+            release_cli.verify_release(REPOSITORY, TAG)
+        verify_ghcr.assert_called_once_with(REPOSITORY, TAG)
+
+    def test_verify_public_ghcr_requires_both_linux_architectures(self) -> None:
+        responses = [
+            {"token": "anonymous-token"},
+            {
+                "manifests": [
+                    {"platform": {"os": "linux", "architecture": "amd64"}},
+                    {"platform": {"os": "linux", "architecture": "arm64"}},
+                ]
+            },
+        ]
+        with mock.patch.object(
+            release_cli,
+            "fetch_public_registry_json",
+            side_effect=responses,
+        ):
+            release_cli.verify_public_ghcr(REPOSITORY, TAG)
+
+        responses[-1] = {
+            "manifests": [
+                {"platform": {"os": "linux", "architecture": "amd64"}}
+            ]
+        }
+        with (
+            mock.patch.object(
+                release_cli,
+                "fetch_public_registry_json",
+                side_effect=responses,
+            ),
+            self.assertRaisesRegex(release_cli.ReleaseCliError, "linux/arm64"),
+        ):
+            release_cli.verify_public_ghcr(REPOSITORY, TAG)
+
+
 def protected_rules(
     *,
     strict: bool = True,

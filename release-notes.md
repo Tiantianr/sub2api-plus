@@ -1,48 +1,37 @@
-Sub2API Plus v0.1.178+custom.001
+Sub2API Plus v0.1.178+custom.901
 
 ## Highlights
 
-- Import official v0.1.178 channel-monitor quota modes, Chinese-provider
-  balance/quota support, and time-based channel pricing.
-- Preserve the latest Plus Codex mode-only behavior, including the explicit
-  `device` default, prompt-cache, compaction, and WebSocket relay safeguards,
-  while adopting the upstream protocol fixes.
-- Add the upstream account, scheduler, billing, and platform UI updates with
-  synchronized English and Chinese locales.
+- Establish the first `Tiantianr/sub2api-plus` release while preserving the
+  complete `v0.1.178+custom.001` Plus application behavior.
+- Publish checksummed release binaries and multi-architecture GHCR images from
+  the personal GitHub release channel.
+- Document the fork, upstream synchronization, custom development, release,
+  ID3 deployment, and rollback workflow.
 
 ## Changed
 
-- Add forward-only migrations for platform quotas, the Plus Codex mode backfill,
-  channel time pricing, and monitor quota configuration.
-- Keep the custom Go module identity and Plus outbound identity precedence
-  while importing the official v0.1.178 baseline.
-- Make delayed release finalization resumable after a newer version has already
-  been prepared, while keeping rollback documentation synchronized.
-
-## Fixed
-
-- Converge the selected Codex fingerprint identity across HTTP, WebSocket,
-  compaction, and account-test transports without changing source precedence.
-- Localize the dashboard prompt-cache hit-rate label consistently in English
-  and Chinese.
+- Point update checks, rollback links, installers, pricing manifests, user-facing
+  repository links, and deployment examples to `Tiantianr/sub2api-plus`.
+- Allow the protected push and release CLIs to target an explicitly trusted fork
+  through `SUB2API_EXPECTED_REPOSITORY`, while retaining the original fail-closed
+  default.
+- Reserve custom iterations `901` through `999` for personal releases so they
+  remain distinct from the inherited Plus release history.
 
 ## Compatibility and migration
 
-- Existing data remains compatible. Startup applies migrations 224, 225, 226,
-  and 228 in lexical order; no manual migration command is required. Migration
-  224 normalizes the Codex fingerprint mode for top-level OpenAI OAuth
-  accounts (defaulting missing or invalid values to `device`) and removes that
-  field from non-applicable accounts. Migrations 225, 226, and 228 add channel
-  time pricing, monitor quota modes, and the expanded platform-quota constraint;
-  migration 227 is intentionally unused.
-- Migrations are forward-only. Rolling back the application does not undo the
-  migration or its database trigger; back up PostgreSQL before upgrading. A
-  database rollback requires restoring a backup or applying an audited
-  compensating SQL migration.
+- Database schema and application behavior are unchanged from
+  `v0.1.178+custom.001`; this release adds no migration.
+- Existing deployments remain compatible. Back up PostgreSQL and configuration
+  before replacing an older application version because inherited migrations
+  remain forward-only.
 
 ## Known issues
 
-- None known.
+- Docker in-place binary updates live in the container writable layer. Keep the
+  Compose image tag aligned with the running release before recreating a
+  production container.
 
 ## Upstream baseline
 

@@ -60,6 +60,21 @@ class ReleaseNotesTests(unittest.TestCase):
     def test_valid_notes_pass(self) -> None:
         self.assertEqual(self.validate(valid_notes()), [])
 
+    def test_personal_iteration_floor_is_enforced(self) -> None:
+        errors: list[str] = []
+        with mock.patch.object(check_release, "CUSTOM_ITERATION_MIN", 901):
+            check_release.validate_custom_iteration("900", errors)
+        self.assertEqual(
+            errors,
+            ["custom iteration must be between 901 and 999"],
+        )
+
+    def test_personal_iteration_floor_accepts_901(self) -> None:
+        errors: list[str] = []
+        with mock.patch.object(check_release, "CUSTOM_ITERATION_MIN", 901):
+            check_release.validate_custom_iteration("901", errors)
+        self.assertEqual(errors, [])
+
     def test_wrong_subject_fails(self) -> None:
         notes = valid_notes().replace(
             f"Sub2API Plus {TAG}",

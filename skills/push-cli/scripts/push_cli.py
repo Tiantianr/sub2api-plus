@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import platform
 import re
 import shlex
@@ -25,7 +26,10 @@ if str(TOOLS) not in sys.path:
 import validation_runtime
 
 DEFAULT_REMOTE = "origin"
-EXPECTED_REPOSITORY = "LuckyKuang/sub2api-plus"
+EXPECTED_REPOSITORY = os.environ.get(
+    "SUB2API_EXPECTED_REPOSITORY",
+    "LuckyKuang/sub2api-plus",
+)
 LOCAL_VALIDATION_CONTEXT = "sub2api/local-validation"
 VALIDATION_MARKER_RE = re.compile(
     r"<!--\s*sub2api-submit-pr:\s*(\{.*?\})\s*-->", re.DOTALL

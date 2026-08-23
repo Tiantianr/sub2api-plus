@@ -84,9 +84,9 @@ RUN VERSION_VALUE="${VERSION}" && \
 FROM ${ALPINE_IMAGE}
 
 # Labels
-LABEL maintainer="LuckyKuang <https://github.com/luckykuang>"
+LABEL maintainer="Tiantianr <https://github.com/Tiantianr>"
 LABEL description="Sub2API Plus - AI API Gateway Platform"
-LABEL org.opencontainers.image.source="https://github.com/luckykuang/sub2api-plus"
+LABEL org.opencontainers.image.source="https://github.com/Tiantianr/sub2api-plus"
 LABEL org.opencontainers.image.licenses="LGPL-3.0-or-later"
 
 # Install runtime dependencies
