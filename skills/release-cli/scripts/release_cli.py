@@ -1053,8 +1053,6 @@ def find_release_run(repository: str, tag: str, sha: str) -> WorkflowRun:
                 repository,
                 "--workflow",
                 "Release",
-                "--event",
-                "push",
                 "--limit",
                 "50",
                 "--json",
