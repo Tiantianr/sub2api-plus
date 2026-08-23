@@ -25,7 +25,7 @@ container --version
 ## Quick Start
 
 ```bash
-git clone https://github.com/luckykuang/sub2api-plus.git
+git clone https://github.com/Tiantianr/sub2api-plus.git
 cd sub2api-plus/deploy
 
 # Creates .env with random PostgreSQL, JWT, and TOTP secrets.
@@ -244,7 +244,7 @@ export SUB2API_ENV_FILE=/absolute/path/to/sub2api.env
 Apple-specific image overrides are available:
 
 ```dotenv
-APPLE_CONTAINER_SUB2API_IMAGE=ghcr.io/luckykuang/sub2api-plus:latest
+APPLE_CONTAINER_SUB2API_IMAGE=ghcr.io/tiantianr/sub2api-plus:latest
 APPLE_CONTAINER_SUB2API_BINARY=
 APPLE_CONTAINER_SUB2API_RESOURCES_DIR=
 APPLE_CONTAINER_POSTGRES_IMAGE=postgres:18-alpine
@@ -262,22 +262,22 @@ the release workflow preserves the leading `v` and replaces only `+` with
 `-`. The current mapping is:
 
 ```text
-Git/GitHub:         v0.1.178+custom.001
-Application:        0.1.178+custom.001
-Apple/OCI image:    ghcr.io/luckykuang/sub2api-plus:v0.1.178-custom.001
+Git/GitHub:         v0.1.178+custom.901
+Application:        0.1.178+custom.901
+Apple/OCI image:    ghcr.io/tiantianr/sub2api-plus:v0.1.178-custom.901
 ```
 
 Use the following values when building or publishing this OCI image:
 
 ```bash
 docker build \
-  --build-arg VERSION=0.1.178+custom.001 \
-  --tag ghcr.io/luckykuang/sub2api-plus:v0.1.178-custom.001 \
+  --build-arg VERSION=0.1.178+custom.901 \
+  --tag ghcr.io/tiantianr/sub2api-plus:v0.1.178-custom.901 \
   .
 ```
 
 After that image is available to the Apple `container` runtime, set
-`APPLE_CONTAINER_SUB2API_IMAGE=ghcr.io/luckykuang/sub2api-plus:v0.1.178-custom.001`. Until then, keep
+`APPLE_CONTAINER_SUB2API_IMAGE=ghcr.io/tiantianr/sub2api-plus:v0.1.178-custom.901`. Until then, keep
 the published image as the runtime base and use `APPLE_CONTAINER_SUB2API_BINARY`
 for the custom binary.
 
@@ -402,7 +402,7 @@ To restore these backups into an existing stack, first ensure the image versions
 
 # Remove only the app container so a helper can mount its named volume.
 container delete sub2api-apple
-SUB2API_IMAGE=ghcr.io/luckykuang/sub2api-plus:latest # Match APPLE_CONTAINER_SUB2API_IMAGE in .env.
+SUB2API_IMAGE=ghcr.io/tiantianr/sub2api-plus:latest # Match APPLE_CONTAINER_SUB2API_IMAGE in .env.
 container run --rm --name sub2api-apple-data-restore \
   --entrypoint /bin/sh \
   --volume sub2api-apple-data:/restore \

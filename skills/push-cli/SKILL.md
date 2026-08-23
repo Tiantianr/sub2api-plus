@@ -42,11 +42,12 @@ push-triggered Actions for the current branch and SHA.
 
 ## Mandatory GitHub CLI Gate
 
-Every action requires an installed and authenticated GitHub CLI. Resolve the
-origin repository exactly as `LuckyKuang/sub2api-plus`, verify repository
-access and push permission, and resolve the default branch from GitHub. Never
-run `gh auth login` automatically or fall back to another credential or HTTP
-client.
+Every action requires an installed and authenticated GitHub CLI. By default,
+resolve the origin repository exactly as `LuckyKuang/sub2api-plus`. An
+explicitly trusted fork may set `SUB2API_EXPECTED_REPOSITORY=owner/repository`;
+the same exact-repository, access, and push-permission checks still apply.
+Resolve the default branch from GitHub. Never run `gh auth login` automatically
+or fall back to another credential or HTTP client.
 
 Before an authorized push, configure Git transport with `gh auth setup-git`.
 Git transfers only `HEAD:<current-branch>`. Never use `--force`, `--all`,

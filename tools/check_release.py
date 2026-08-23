@@ -14,6 +14,7 @@ import release_docs
 
 ROOT = Path(__file__).resolve().parents[1]
 TAG_RE = re.compile(r"^v(\d+\.\d+\.\d+\+custom\.(\d{3}))$")
+CUSTOM_ITERATION_MIN = int(os.environ.get("SUB2API_CUSTOM_ITERATION_MIN", "1"))
 REQUIRED_NOTE_SECTIONS = (
     "Highlights",
     "Compatibility and migration",
@@ -40,6 +41,17 @@ def validate_required_status(
     if required is not None and actual != required:
         fail(
             f"{tag} is marked {actual!r} in UPSTREAM.md; expected {required!r}",
+            errors,
+        )
+
+
+def validate_custom_iteration(iteration: str, errors: list[str]) -> None:
+    value = int(iteration)
+    if not 1 <= CUSTOM_ITERATION_MIN <= 999:
+        fail("SUB2API_CUSTOM_ITERATION_MIN must be between 1 and 999", errors)
+    elif value < CUSTOM_ITERATION_MIN:
+        fail(
+            f"custom iteration must be between {CUSTOM_ITERATION_MIN:03d} and 999",
             errors,
         )
 
@@ -196,6 +208,8 @@ def main() -> int:
         version, iteration = match.groups()
         if iteration == "000":
             fail("custom iteration must be between 001 and 999", errors)
+        else:
+            validate_custom_iteration(iteration, errors)
 
     if not args.mapping_only:
         if embedded != version:

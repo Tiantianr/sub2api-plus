@@ -14,6 +14,11 @@ All actions run the GitHub CLI repository gate. `push` and `submit-pr` also
 resolve and reject the default branch and require a clean worktree with no
 unfinished Git operation.
 
+The repository gate defaults to `LuckyKuang/sub2api-plus`. Maintainers of an
+explicitly trusted fork must set `SUB2API_EXPECTED_REPOSITORY=owner/repository`
+for every command; the override changes the exact expected repository and does
+not disable any safety check.
+
 ## Fast Push
 
 The only branch transfer is:

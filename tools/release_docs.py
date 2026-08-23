@@ -29,7 +29,7 @@ APPLICATION_MAPPING_RE = re.compile(
     re.MULTILINE,
 )
 GHCR_IMAGE_RE = re.compile(
-    rf"(ghcr\.io/luckykuang/sub2api-plus:)({OCI_TAG_TEXT})()"
+    rf"(ghcr\.io/[a-z0-9](?:[a-z0-9-]*[a-z0-9])?/sub2api-plus:)({OCI_TAG_TEXT})()"
 )
 APPLE_CONTAINER_SOURCE_IMAGE_RE = re.compile(
     rf"(this source revision is tagged sub2api-plus:)({OCI_TAG_TEXT})(; use that value)"
