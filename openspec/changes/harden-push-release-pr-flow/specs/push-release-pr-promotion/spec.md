@@ -22,10 +22,11 @@ default branch, detached HEAD, force push, tag push, and an unreviewed remote.
 
 ### Requirement: Pull-request submission must bind validation to exact commits
 
-The push tool SHALL run the complete platform-container validation matrix only
-for explicit pull-request submission. The resulting pull request MUST identify
-the exact validated head and default-branch base, and the head MUST carry a
-successful `sub2api/local-validation` commit status.
+The push tool SHALL run the host repository preflight only for explicit
+pull-request submission. The resulting pull request MUST identify the exact
+validated head and default-branch base, and the head MUST carry a successful
+`sub2api/local-validation` commit status. Protected Linux GitHub Actions MUST
+provide the complete integration, lint, build, security, and Docker gates.
 
 #### Scenario: Candidate is submitted successfully
 

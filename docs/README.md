@@ -20,7 +20,6 @@ below for detailed configuration and maintenance instructions.
 
 - [Deployment guide](../deploy/README.md)
 - [Docker](../deploy/DOCKER.md)
-- [Apple container](../deploy/APPLE_CONTAINER.md)
 - [Edge and ingress security](../deploy/EDGE_SECURITY.md)
 - [datamanagementd](../deploy/DATAMANAGEMENTD_CN.md)
 

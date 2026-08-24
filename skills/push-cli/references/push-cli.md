@@ -2,12 +2,12 @@
 
 ## Action Contract
 
-| Action | Local matrix | GitHub mutation | Result |
+| Action | Local work | GitHub mutation | Result |
 | --- | --- | --- | --- |
 | `push` | None | Exact current-branch push | Fast intermediate branch publication. |
-| `submit-pr` | Complete platform-container matrix | Exact push, commit status, PR create/update | Final locally validated candidate. |
-| `check` | Complete platform-container matrix | None | Read-only validation result. |
-| `ensure` | Image preparation only | None | Runtime and validation image ready. |
+| `submit-pr` | Host repository preflight | Exact push, commit status, PR create/update | Final preflight-validated candidate. |
+| `check` | Host repository preflight | None | Read-only preflight result. |
+| `ensure` | Toolchain check only | None | Required host toolchains are ready. |
 | `watch` | None | None | Watches branch push runs at current HEAD. |
 
 All actions run the GitHub CLI repository gate. `push` and `submit-pr` also
@@ -37,8 +37,8 @@ needed. Use `submit-pr`, never ordinary push, for the final PR candidate.
    fetching tags.
 2. Require that exact base commit to be an ancestor of HEAD.
 3. Record the 40-character base and head SHAs.
-4. Probe and launch the required platform validation container.
-5. Run the complete matrix and the runtime-specific final gate.
+4. Verify the pinned host toolchains.
+5. Run the repository preflight.
 6. Require a clean worktree and unchanged HEAD.
 7. Refetch the default branch and require the same base SHA.
 8. Push exactly `HEAD:<current-branch>`.
@@ -49,30 +49,30 @@ The marker format is implementation-owned and must occur exactly once:
 
     <!-- sub2api-submit-pr: {"base":"<sha>","head":"<sha>"} -->
 
-## In-Container Matrix
+## Local Preflight
 
-The matrix includes:
+The preflight includes:
 
-- Go module tidiness, unit tests, integration tests, and golangci-lint.
-- Push CLI and release CLI self-tests.
-- Frozen pnpm install, lint, typecheck, Vitest, production build, and production
-  audit exception policy.
+- Go module tidiness and unit tests.
+- Compress CLI, push CLI, and release CLI self-tests.
+- Frozen pnpm install, lint, typecheck, and Vitest.
 - Release policy, release metadata, README synchronization, Codex outbound
   identity, and migration checks against the validated default-branch base.
-- Installer syntax, Docker deployment security/resources, Caddy cache policy,
-  and the Apple Container lifecycle fixture.
+- Installer syntax, Docker deployment security/resources, and Caddy cache
+  policy.
 
-Apple Containers reports Docker Compose parsing as not applicable. WSL2 Docker
-and Linux Docker must parse `deploy/docker-compose.dev.yml` successfully.
+Protected Linux GitHub Actions run backend integration tests, golangci-lint,
+frontend production builds, production dependency audits, security scans, and
+Docker Compose validation.
 
 ## Recovery
 
 - If ordinary push succeeds but remote Actions fail, fix on the branch and push
   again; no local proof was issued.
-- If `submit-pr` validation fails, no push/status/PR mutation occurs.
+- If `submit-pr` preflight fails, no push/status/PR mutation occurs.
 - If the default branch changes during validation, rerun `submit-pr` after
   updating the branch.
 - If push succeeds but status or PR creation fails, rerun `submit-pr`; the
-  complete matrix runs again and the exact matching PR may be reused.
+  preflight runs again and the exact matching PR may be reused.
 - If the PR head changes later, its old status and marker cannot authorize
   release promotion.

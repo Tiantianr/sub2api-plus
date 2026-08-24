@@ -74,7 +74,7 @@ application container after changing these values.
 ## Tags
 
 - `latest` - Latest stable release
-- `vX.Y.Z-custom.NNN` - Immutable fork release, for example `v0.1.178-custom.901`
+- `vX.Y.Z-custom.NNN` - Immutable fork release, for example `v0.1.178-custom.902`
 - `x.y` - Latest patch of minor version
 - `x` - Latest minor of major version
 
@@ -83,8 +83,8 @@ preserves the leading `v` and replaces only `+` with `-` to produce the
 OCI-compatible image tag. For example:
 
 ```text
-Git/GitHub: v0.1.178+custom.901
-GHCR:       ghcr.io/tiantianr/sub2api-plus:v0.1.178-custom.901
+Git/GitHub: v0.1.178+custom.902
+GHCR:       ghcr.io/tiantianr/sub2api-plus:v0.1.178-custom.902
 ```
 
 Pin the immutable release tag in production. Use `latest` only when automatic

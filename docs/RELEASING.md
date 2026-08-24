@@ -13,14 +13,14 @@ commit proof plus protected GitHub Actions before merging and tagging.
 | Embedded application version | `X.Y.Z+custom.NNN` |
 | OCI image tag | `vX.Y.Z-custom.NNN` |
 
-Increment `NNN` on the same upstream baseline and reset it to `001` after
-merging a newer official baseline. `NNN` is always three digits.
+Increment `NNN` on the same official `X.Y.Z` baseline and reset it to `001`
+after merging a newer official baseline. `NNN` is always three digits.
 
 The `Tiantianr/sub2api-plus` distribution reserves iterations `901` through
-`999` and resets to `901` after importing a newer Plus release. Its release
-commands must set `SUB2API_CUSTOM_ITERATION_MIN=901`; inherited Plus tags below
-that range remain historical or mirrored rollback inputs, not new personal
-release versions.
+`999` and resets to `901` only after importing a Plus release based on a newer
+official `X.Y.Z` baseline. Its release commands must set
+`SUB2API_CUSTOM_ITERATION_MIN=901`; inherited Plus tags below that range remain
+historical or mirrored rollback inputs, not new personal release versions.
 
 ## Repository Prerequisites
 
@@ -76,10 +76,11 @@ python3 skills/push-cli/scripts/push_cli.py submit-pr
 ```
 
 `submit-pr` fetches the current `origin/main`, requires it in the branch,
-records exact base/head SHAs, runs the complete matrix in the platform
-validation container, refetches and rechecks both SHAs, pushes the exact head,
-publishes `sub2api/local-validation`, and creates or reuses the PR. Any later
-head or base change requires another `submit-pr`.
+records exact base/head SHAs, runs the host repository preflight, refetches and
+rechecks both SHAs, pushes the exact head, publishes
+`sub2api/local-validation`, and creates or reuses the PR. Protected Linux
+GitHub Actions run integration, lint, production build, security, and Docker
+gates. Any later head or base change requires another `submit-pr`.
 
 The documentation updater reads the current version from
 `backend/cmd/server/VERSION`. Its rollback example uses the nearest lower

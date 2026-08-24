@@ -1,6 +1,6 @@
 ## 1. Push boundary
 
-- [x] 1.1 Split fast ordinary push from platform-container validation.
+- [x] 1.1 Split fast ordinary push from pull-request preflight validation.
 - [x] 1.2 Add default-branch rejection and exact base/head capture.
 - [x] 1.3 Add validated pull-request submission, commit status, and PR reuse.
 - [x] 1.4 Cover fast push, fail-closed branch policy, validation races, status,
@@ -25,7 +25,6 @@
 
 ## 4. Verification
 
-- [x] 4.1 Run focused CLI and release-policy tests inside Apple Containers.
+- [x] 4.1 Run focused CLI and release-policy tests on the host.
 - [x] 4.2 Run strict OpenSpec validation.
-- [x] 4.3 Run the repository validation gate in Apple Containers and record any
-  external GitHub configuration limitation.
+- [x] 4.3 Run the repository preflight and record external GitHub checks.

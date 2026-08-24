@@ -70,13 +70,13 @@ curl -sSL https://raw.githubusercontent.com/Tiantianr/sub2api-plus/main/deploy/i
 标签替换为 `list-versions` 返回的标签：
 
 ```bash
-curl -sSL https://raw.githubusercontent.com/Tiantianr/sub2api-plus/main/deploy/install.sh | sudo bash -s -- install --version 'v0.1.178+custom.901'
+curl -sSL https://raw.githubusercontent.com/Tiantianr/sub2api-plus/main/deploy/install.sh | sudo bash -s -- install --version 'v0.1.178+custom.902'
 ```
 
 将现有二进制安装回退到较早的已发布版本：
 
 ```bash
-curl -sSL https://raw.githubusercontent.com/Tiantianr/sub2api-plus/main/deploy/install.sh | sudo bash -s -- rollback 'v0.1.178+custom.001'
+curl -sSL https://raw.githubusercontent.com/Tiantianr/sub2api-plus/main/deploy/install.sh | sudo bash -s -- rollback 'v0.1.178+custom.901'
 ```
 
 卸载服务和二进制，保留 `/etc/sub2api`：
@@ -130,7 +130,6 @@ sudo systemctl reload nginx
 | --- | --- |
 | Linux 安装脚本或二进制 | [部署指南](deploy/README.md) |
 | Docker Compose | [Docker 指南](deploy/DOCKER.md) |
-| macOS Apple container | [Apple container 指南](deploy/APPLE_CONTAINER.md) |
 | 边缘代理与可信客户端 IP | [边缘安全](deploy/EDGE_SECURITY.md) |
 | 可选 datamanagementd 服务 | [datamanagementd 指南](deploy/DATAMANAGEMENTD_CN.md) |
 

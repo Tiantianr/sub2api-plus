@@ -74,13 +74,13 @@ curl -sSL https://raw.githubusercontent.com/Tiantianr/sub2api-plus/main/deploy/i
 が返す別のタグへ置き換えてください：
 
 ```bash
-curl -sSL https://raw.githubusercontent.com/Tiantianr/sub2api-plus/main/deploy/install.sh | sudo bash -s -- install --version 'v0.1.178+custom.901'
+curl -sSL https://raw.githubusercontent.com/Tiantianr/sub2api-plus/main/deploy/install.sh | sudo bash -s -- install --version 'v0.1.178+custom.902'
 ```
 
 既存のバイナリインストールを以前の公開済みバージョンへロールバックします：
 
 ```bash
-curl -sSL https://raw.githubusercontent.com/Tiantianr/sub2api-plus/main/deploy/install.sh | sudo bash -s -- rollback 'v0.1.178+custom.001'
+curl -sSL https://raw.githubusercontent.com/Tiantianr/sub2api-plus/main/deploy/install.sh | sudo bash -s -- rollback 'v0.1.178+custom.901'
 ```
 
 サービスとバイナリを削除し、`/etc/sub2api` は保持します：
@@ -140,7 +140,6 @@ sudo systemctl reload nginx
 | --- | --- |
 | Linux インストールスクリプト／バイナリ | [デプロイガイド](deploy/README.md) |
 | Docker Compose | [Docker ガイド](deploy/DOCKER.md) |
-| macOS Apple container | [Apple container ガイド](deploy/APPLE_CONTAINER.md) |
 | エッジプロキシと信頼済みクライアント IP | [エッジセキュリティ](deploy/EDGE_SECURITY.md) |
 | オプションの datamanagementd | [datamanagementd ガイド](deploy/DATAMANAGEMENTD_CN.md) |
 

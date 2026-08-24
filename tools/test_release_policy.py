@@ -3,12 +3,15 @@
 
 from __future__ import annotations
 
+import os
 import re
 import sys
 import tempfile
 import unittest
 from pathlib import Path
 from unittest import mock
+
+os.environ["SUB2API_CUSTOM_ITERATION_MIN"] = "1"
 
 import check_release
 import check_new_migrations
@@ -243,9 +246,13 @@ class WorkflowPolicyTests(unittest.TestCase):
             )
         )
 
-    def test_repository_policy_runs_both_cli_self_tests(self) -> None:
+    def test_repository_policy_runs_all_cli_self_tests(self) -> None:
         workflow = ROOT.joinpath(".github/workflows/backend-ci.yml").read_text(
             encoding="utf-8"
+        )
+        self.assertIn(
+            "python skills/compress-cli/tests/test_compress_cli.py",
+            workflow,
         )
         self.assertIn(
             "python skills/push-cli/tests/test_push_cli.py",
@@ -325,17 +332,6 @@ class ReleaseDocumentTests(unittest.TestCase):
                 f"Immutable release, for example `{old_oci}`",
                 f"Git/GitHub: {old}",
                 f"GHCR: ghcr.io/luckykuang/sub2api-plus:{old_oci}",
-            ),
-            "deploy/APPLE_CONTAINER.md": (
-                f"Git/GitHub: {old}",
-                f"Application: {old_application}",
-                f"Apple/OCI image: ghcr.io/luckykuang/sub2api-plus:{old_oci}",
-                f"--build-arg VERSION={old_application} \\",
-                f"--tag ghcr.io/luckykuang/sub2api-plus:{old_oci} \\",
-                f"APPLE_CONTAINER_SUB2API_IMAGE=ghcr.io/luckykuang/sub2api-plus:{old_oci}",
-            ),
-            "deploy/.env.example": (
-                f"this source revision is tagged sub2api-plus:{old_oci}; use that value",
             ),
             "UPSTREAM.md": (
                 f"Git/GitHub: {old}",

@@ -77,13 +77,13 @@ usable; replace its immutable tag with another value returned by
 `list-versions` when needed:
 
 ```bash
-curl -sSL https://raw.githubusercontent.com/Tiantianr/sub2api-plus/main/deploy/install.sh | sudo bash -s -- install --version 'v0.1.178+custom.901'
+curl -sSL https://raw.githubusercontent.com/Tiantianr/sub2api-plus/main/deploy/install.sh | sudo bash -s -- install --version 'v0.1.178+custom.902'
 ```
 
 Roll back an existing binary installation to an earlier published version:
 
 ```bash
-curl -sSL https://raw.githubusercontent.com/Tiantianr/sub2api-plus/main/deploy/install.sh | sudo bash -s -- rollback 'v0.1.178+custom.001'
+curl -sSL https://raw.githubusercontent.com/Tiantianr/sub2api-plus/main/deploy/install.sh | sudo bash -s -- rollback 'v0.1.178+custom.901'
 ```
 
 Remove the service and binary while preserving `/etc/sub2api`:
@@ -140,7 +140,6 @@ before exposing the service publicly.
 | --- | --- |
 | Linux installation script or binary | [Deployment guide](deploy/README.md) |
 | Docker Compose | [Docker guide](deploy/DOCKER.md) |
-| Apple container on macOS | [Apple container guide](deploy/APPLE_CONTAINER.md) |
 | Edge proxy and trusted client IPs | [Edge security](deploy/EDGE_SECURITY.md) |
 | Optional datamanagementd service | [datamanagementd guide](deploy/DATAMANAGEMENTD_CN.md) |
 

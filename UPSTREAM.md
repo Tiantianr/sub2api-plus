@@ -42,6 +42,7 @@ procedures are documented in [`docs/RELEASING.md`](docs/RELEASING.md).
 | `v0.1.177+custom.003` | `v0.1.177` | `073e92d17178a1ccdb0a27017f572f10c9c7ab62` | published |
 | `v0.1.178+custom.001` | `v0.1.178` | `e0c48a19ed794a565e3858662520afe0a1f9f0ba` | published |
 | `v0.1.178+custom.901` | `v0.1.178` | `e0c48a19ed794a565e3858662520afe0a1f9f0ba` | published |
+| `v0.1.178+custom.902` | `v0.1.178` | `e0c48a19ed794a565e3858662520afe0a1f9f0ba` | planned |
 
 `v0.1.166+custom.007` is marked invalid because its tag contains embedded and
 documented version `0.1.166+custom.006`. Remote Release and OCI artifact status
@@ -50,9 +51,9 @@ still require a maintainer audit. Do not reuse or retag `.007`.
 ## Current Version
 
 ```text
-Git/GitHub: v0.1.178+custom.901
-Application: 0.1.178+custom.901
-GHCR: ghcr.io/tiantianr/sub2api-plus:v0.1.178-custom.901
+Git/GitHub: v0.1.178+custom.902
+Application: 0.1.178+custom.902
+GHCR: ghcr.io/tiantianr/sub2api-plus:v0.1.178-custom.902
 ```
 
 ## Naming
@@ -64,7 +65,8 @@ GHCR: ghcr.io/tiantianr/sub2api-plus:v0.1.178-custom.901
 
 The inherited Plus release history uses its published iteration. This personal
 fork reserves `901` through `999`; increment within the same official baseline
-and reset to `901` after importing a newer Plus release.
+and reset to `901` only after importing a Plus release based on a newer official
+`X.Y.Z` baseline.
 
 ## Distribution and Repository Roles
 

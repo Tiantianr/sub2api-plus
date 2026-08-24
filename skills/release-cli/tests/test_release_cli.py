@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import importlib.util
 import json
+import os
 import re
 import subprocess
 import sys
@@ -13,6 +14,9 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
+
+os.environ["SUB2API_EXPECTED_REPOSITORY"] = "LuckyKuang/sub2api-plus"
+os.environ["SUB2API_CUSTOM_ITERATION_MIN"] = "1"
 
 SCRIPT = Path(__file__).resolve().parents[1] / "scripts" / "release_cli.py"
 SPEC = importlib.util.spec_from_file_location("release_cli_under_test", SCRIPT)

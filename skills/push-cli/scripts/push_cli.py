@@ -6,13 +6,11 @@ from __future__ import annotations
 import argparse
 import json
 import os
-import platform
 import re
 import shlex
 import shutil
 import subprocess
 import sys
-import tempfile
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -20,11 +18,6 @@ from typing import Sequence
 
 
 ROOT = Path(__file__).resolve().parents[3]
-TOOLS = ROOT / "tools"
-if str(TOOLS) not in sys.path:
-    sys.path.insert(0, str(TOOLS))
-import validation_runtime
-
 DEFAULT_REMOTE = "origin"
 EXPECTED_REPOSITORY = os.environ.get(
     "SUB2API_EXPECTED_REPOSITORY",
@@ -35,18 +28,8 @@ VALIDATION_MARKER_RE = re.compile(
     r"<!--\s*sub2api-submit-pr:\s*(\{.*?\})\s*-->", re.DOTALL
 )
 GO_VERSION_RE = re.compile(r"^go\s+(\d+\.\d+(?:\.\d+)?)\s*$", re.MULTILINE)
-VERSION_RE = re.compile(
-    r"\bversion(?:\s*[:=]|\s+)(?:v)?(\d+\.\d+\.\d+)",
-    re.IGNORECASE,
-)
-SCRIPT = Path(__file__).resolve()
-
-
 class PushCliError(RuntimeError):
     """A hard failure that must stop validation or pushing."""
-
-
-Runtime = validation_runtime.Runtime
 
 
 @dataclass(frozen=True)
@@ -54,7 +37,6 @@ class DeclaredToolchains:
     go: str
     pnpm: str
     node_major_minimum: int
-    golangci_lint: str
 
 
 @dataclass(frozen=True)
@@ -101,18 +83,6 @@ def capture(command: Sequence[str], *, cwd: Path | None = None) -> str:
             + (f": {detail[-2000:]}" if detail else "")
         )
     return (result.stdout or "").strip()
-
-
-def optional_capture(
-    command: Sequence[str],
-    *,
-    cwd: Path | None = None,
-) -> tuple[bool, str]:
-    try:
-        result = run_command(command, cwd=cwd, capture=True)
-    except PushCliError as error:
-        return False, str(error)
-    return result.returncode == 0, (result.stdout or "").strip()
 
 
 def require_command(command: str) -> None:
@@ -228,15 +198,6 @@ def require_clean_worktree() -> None:
         )
 
 
-def declared_tool_version(name: str) -> str:
-    tool_file = ROOT / ".tool-versions"
-    for line in tool_file.read_text(encoding="utf-8").splitlines():
-        fields = line.split()
-        if len(fields) == 2 and fields[0] == name:
-            return fields[1].removeprefix("v")
-    raise PushCliError(f".tool-versions does not declare {name}")
-
-
 def declared_toolchains() -> DeclaredToolchains:
     package = json.loads((ROOT / "frontend/package.json").read_text(encoding="utf-8"))
     package_manager = package.get("packageManager", "")
@@ -259,28 +220,19 @@ def declared_toolchains() -> DeclaredToolchains:
         go=go_match.group(1),
         pnpm=pnpm_match.group(1),
         node_major_minimum=int(node_minimum.group(1)),
-        golangci_lint=declared_tool_version("golangci-lint"),
     )
 
 
 def current_go_version() -> str:
-    return capture(["go", "env", "GOVERSION"])
+    return capture(["go", "env", "GOVERSION"], cwd=ROOT / "backend")
 
 
 def current_pnpm_version() -> str:
-    return capture(["pnpm", "--version"])
+    return capture(["pnpm", "--version"], cwd=ROOT / "frontend").splitlines()[-1]
 
 
 def current_node_version() -> str:
     return capture(["node", "--version"])
-
-
-def current_golangci_lint_version() -> str:
-    lint_output = capture(["golangci-lint", "version"])
-    lint_match = VERSION_RE.search(lint_output)
-    if not lint_match:
-        raise PushCliError(f"unable to parse golangci-lint version from {lint_output!r}")
-    return lint_match.group(1)
 
 
 def node_major(version: str) -> int:
@@ -306,90 +258,10 @@ def check_toolchains() -> None:
             f"Node.js {declared.node_major_minimum}+ is required; found {node_actual}"
         )
 
-    lint_actual = current_golangci_lint_version()
-    if lint_actual != declared.golangci_lint:
-        raise PushCliError(
-            f"golangci-lint {declared.golangci_lint} is required; found {lint_actual}"
-        )
     print(
         "Toolchains: "
-        f"Go {go_actual}; pnpm {pnpm_actual}; Node.js {node_actual}; "
-        f"golangci-lint {lint_actual}"
+        f"Go {go_actual}; pnpm {pnpm_actual}; Node.js {node_actual}"
     )
-
-
-def probe_docker(prefix: Sequence[str] = ()) -> tuple[bool, str]:
-    return validation_runtime.probe_docker(prefix, optional_capture=optional_capture)
-
-
-def normalize_wsl_list_output(output: str) -> str:
-    return validation_runtime.normalize_wsl_list_output(output)
-
-
-def parse_wsl_distributions(output: str) -> list[tuple[str, str]]:
-    return validation_runtime.parse_wsl_distributions(output)
-
-
-def is_debian_or_ubuntu_wsl(name: str) -> bool:
-    return validation_runtime.is_debian_or_ubuntu_wsl(name)
-
-
-def probe_runtime() -> Runtime:
-    try:
-        return validation_runtime.probe_runtime(
-            root=ROOT,
-            capture=capture,
-            optional_capture=optional_capture,
-            probe_docker_fn=probe_docker,
-            which=shutil.which,
-            system_name=platform.system(),
-        )
-    except validation_runtime.ValidationRuntimeError as error:
-        raise PushCliError(str(error)) from error
-
-
-def ensure_validation_image(runtime: Runtime) -> str:
-    try:
-        return validation_runtime.ensure_validation_image(
-            runtime,
-            root=ROOT,
-            optional_capture=optional_capture,
-            run_step=lambda name, command: run_step(name, command),
-        )
-    except validation_runtime.ValidationRuntimeError as error:
-        raise PushCliError(str(error)) from error
-
-
-def launch_in_validation(
-    runtime: Runtime,
-    remote: str,
-    *,
-    base_ref: str | None = None,
-) -> None:
-    repo = validation_runtime.mount_root(runtime, ROOT)
-    script = validation_runtime.container_path(SCRIPT, runtime, ROOT)
-    argv = [
-        "python3",
-        script,
-        "check",
-        "--in-validation",
-        "--remote",
-        remote,
-        "--repo-root",
-        repo,
-    ]
-    if base_ref:
-        argv.extend(["--base-ref", base_ref])
-    try:
-        validation_runtime.launch_in_validation(
-            runtime,
-            argv,
-            root=ROOT,
-            capture=capture,
-            run_step=lambda name, command: run_step(name, command),
-        )
-    except validation_runtime.ValidationRuntimeError as error:
-        raise PushCliError(str(error)) from error
 
 
 def run_step(
@@ -404,97 +276,21 @@ def run_step(
         raise PushCliError(f"{name} failed with exit code {result.returncode}")
 
 
-def run_runtime_final_gate(runtime: Runtime) -> None:
-    if not runtime.compose_required:
-        print("\n[Docker Compose final gate]")
-        print(
-            "not applicable: Apple Containers is the selected macOS runtime; "
-            "Docker image and Compose behavior remain covered by GitHub Actions"
-        )
-        return
-
-    compose_path = "deploy/docker-compose.dev.yml"
-    if runtime.compose_root:
-        compose_path = f"{runtime.compose_root}/deploy/docker-compose.dev.yml"
-    run_step(
-        "Docker Compose final gate",
-        [
-            *runtime.prefix,
-            "docker",
-            "compose",
-            "-f",
-            compose_path,
-            "config",
-            "--quiet",
-        ],
-    )
-
-
-def run_frontend_security_check() -> None:
-    command = ["pnpm", "audit", "--prod", "--audit-level=high", "--json"]
-    print("\n[Frontend production audit]")
-    print(f"$ {display(command)}")
-    result = run_command(
-        command,
-        cwd=ROOT / "frontend",
-        capture=True,
-        merge_stderr=False,
-    )
-    output = result.stdout or ""
-    if result.returncode not in (0, 1):
-        detail = (result.stderr or output).strip()
-        raise PushCliError(
-            f"Frontend production audit failed with exit code {result.returncode}"
-            + (f": {detail[-2000:]}" if detail else "")
-        )
-    try:
-        audit = json.loads(output)
-    except json.JSONDecodeError as error:
-        raise PushCliError("Frontend production audit returned invalid JSON") from error
-    if not isinstance(audit, dict) or audit.get("error"):
-        raise PushCliError("Frontend production audit returned an audit error")
-
-    with tempfile.NamedTemporaryFile(
-        mode="w",
-        encoding="utf-8",
-        suffix=".json",
-        delete=False,
-    ) as audit_file:
-        json.dump(audit, audit_file)
-        audit_path = Path(audit_file.name)
-    try:
-        run_step(
-            "Frontend audit exceptions",
-            [
-                sys.executable,
-                "tools/check_pnpm_audit_exceptions.py",
-                "--audit",
-                str(audit_path),
-                "--exceptions",
-                ".github/audit-exceptions.yml",
-            ],
-            ROOT,
-        )
-    finally:
-        audit_path.unlink(missing_ok=True)
-
-
 def run_local_checks(
     remote: str,
     branch: str,
-    runtime: Runtime,
     *,
     base_ref: str | None = None,
 ) -> None:
     python = sys.executable
     backend = ROOT / "backend"
     steps: list[tuple[str, Sequence[str], Path]] = [
+        ("Go module tidiness", ["go", "mod", "tidy", "-diff"], backend),
         (
-            "Apple Container lifecycle test",
-            ["bash", str(ROOT / "deploy/tests/apple-container-test.sh")],
+            "Compress CLI self-tests",
+            [python, "skills/compress-cli/tests/test_compress_cli.py"],
             ROOT,
         ),
-        ("Go module tidiness", ["go", "mod", "tidy", "-diff"], backend),
         (
             "Push CLI self-tests",
             [python, "skills/push-cli/tests/test_push_cli.py"],
@@ -506,12 +302,6 @@ def run_local_checks(
             ROOT,
         ),
         ("Backend unit tests", ["go", "test", "-tags=unit", "./..."], backend),
-        (
-            "Backend integration tests",
-            ["go", "test", "-tags=integration", "./..."],
-            backend,
-        ),
-        ("Backend lint", ["golangci-lint", "run", "./..."], backend),
         (
             "Frontend frozen install",
             ["pnpm", "--dir", "frontend", "install", "--frozen-lockfile"],
@@ -540,11 +330,6 @@ def run_local_checks(
             ROOT,
         ),
         (
-            "Frontend production build",
-            ["pnpm", "--dir", "frontend", "run", "build"],
-            ROOT,
-        ),
-        (
             "Release policy tests",
             [python, "tools/test_release_policy.py"],
             ROOT,
@@ -557,11 +342,6 @@ def run_local_checks(
         ("README synchronization", [python, "tools/check_readme_sync.py"], ROOT),
         ("Release metadata sources", [python, "tools/check_release.py"], ROOT),
         ("Linux installer syntax", ["bash", "-n", "deploy/install.sh"], ROOT),
-        (
-            "Apple installer syntax",
-            ["bash", "-n", "deploy/apple-container.sh"],
-            ROOT,
-        ),
         (
             "Docker Compose security",
             ["sh", "deploy/tests/docker-compose-security-test.sh"],
@@ -594,8 +374,6 @@ def run_local_checks(
 
     for name, command, cwd in steps:
         run_step(name, command, cwd)
-
-    run_frontend_security_check()
 
 
 def ensure_clean_after_checks() -> None:
@@ -686,7 +464,7 @@ def publish_validation_status(repository: str, proof: ValidationProof) -> None:
             "-f",
             f"context={LOCAL_VALIDATION_CONTEXT}",
             "-f",
-            "description=Platform-container validation passed",
+            "description=Repository preflight passed",
         ],
     )
 
@@ -745,7 +523,8 @@ def default_pr_body(branch: str) -> str:
         "## Summary\n\n"
         f"Submit `{branch}` after the repository local-validation gate.\n\n"
         "## Validation\n\n"
-        "- Platform-container validation matrix passed.\n"
+        "- Host repository preflight passed.\n"
+        "- Protected Linux GitHub Actions run the complete PR checks.\n"
     )
 
 
@@ -896,18 +675,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "action",
         choices=("check", "push", "submit-pr", "watch", "ensure"),
-        help="prepare the runtime, check locally, push quickly, submit a validated PR, or watch branch Actions",
-    )
-    parser.add_argument(
-        "--in-validation",
-        action="store_true",
-        help=argparse.SUPPRESS,
-    )
-    parser.add_argument(
-        "--repo-root",
-        type=Path,
-        default=ROOT,
-        help=argparse.SUPPRESS,
+        help="check toolchains, run the local preflight, push, submit a PR, or watch branch Actions",
     )
     parser.add_argument("--remote", default=DEFAULT_REMOTE)
     parser.add_argument("--base-ref", help=argparse.SUPPRESS)
@@ -917,39 +685,12 @@ def parse_args() -> argparse.Namespace:
 
 
 def main() -> int:
-    global ROOT
     args = parse_args()
-    ROOT = args.repo_root.resolve()
     try:
-        if args.in_validation:
-            if validation_runtime.host_os_forbids_in_validation():
-                raise PushCliError(
-                    "check --in-validation cannot run on the Darwin/Windows host. "
-                    "Host validation fallback is forbidden"
-                )
-            if not validation_runtime.in_validation_container():
-                raise PushCliError(
-                    "check --in-validation is only valid inside the platform "
-                    "validation container. Host validation fallback is forbidden"
-                )
-            if args.action != "check":
-                raise PushCliError("in-container execution only supports check")
-            branch = current_branch()
-            check_toolchains()
-            run_local_checks(
-                args.remote,
-                branch,
-                Runtime("in-validation", compose_required=False),
-                base_ref=args.base_ref,
-            )
-            print("\nIn-container push checks passed.")
-            return 0
-
         repository = github_gate(args.remote)
         if args.action == "ensure":
-            runtime = probe_runtime()
-            ensure_validation_image(runtime)
-            print("\nValidation runtime and image are ready. No checks were run.")
+            check_toolchains()
+            print("\nLocal validation toolchains are ready. No checks were run.")
             return 0
 
         branch = current_branch()
@@ -978,12 +719,10 @@ def main() -> int:
             base_ref = f"{args.remote}/{default_branch}"
         else:
             require_clean_worktree()
-        runtime = probe_runtime()
-        ensure_validation_image(runtime)
-        launch_in_validation(runtime, args.remote, base_ref=base_ref)
-        run_runtime_final_gate(runtime)
+        check_toolchains()
+        run_local_checks(args.remote, branch, base_ref=base_ref)
         ensure_clean_after_checks()
-        print("\nLocal push checks passed. No branch was pushed.")
+        print("\nLocal repository preflight passed. No branch was pushed.")
 
         if args.action == "submit-pr":
             assert proof is not None
