@@ -19,6 +19,10 @@
   recovery behavior.
 - [x] 3.3 Stabilize the group-usage rollup trigger integration fixtures across
   the configured-timezone midnight boundary.
+- [x] 3.4 Replace repeated tag CI with exact main provenance checks and a
+  prebuilt Linux arm64 image artifact.
+- [x] 3.5 Restrict personal images, archives, verification, and installer
+  detection to Linux arm64.
 
 ## 4. Verification and rollout
 

@@ -30,7 +30,8 @@ The repository must expose:
 
 The exact required contexts are `sub2api/local-validation`,
 `deployment-config`, `test`, `frontend`, `golangci-lint`, `goreleaser-config`,
-`repository-policy`, `backend-security`, and `frontend-security`.
+`linux-image-artifact`, `repository-policy`, `backend-security`, and
+`frontend-security`.
 `promote-pr` fails closed when Auto-merge, merge-commit mode, current-branch
 strictness, a protected rule, or a context is missing. It invokes
 `gh pr merge --auto --merge` only. It never invokes `--admin`.
@@ -78,20 +79,20 @@ ruleset APIs and fails closed on drift. It then pushes only:
 
     git push origin vX.Y.Z+custom.NNN
 
-It does not wait for Actions. The Release workflow verifies the tag first, then
-automatically starts `Build and publish`. `monitor` resolves the exact remote
-annotated tag and finds the Release push run by its target SHA, so recovery does
-not depend on a local tag. A waiting `Build and publish` job is external policy
-drift and fails with its URL; release-cli never approves or bypasses it.
+It does not wait for Actions. The Release workflow verifies the tag, exact main
+SHA Actions provenance, and the matching Linux image artifact before publishing
+the image; it does not rerun the complete matrix. `monitor` resolves the exact
+remote annotated tag and finds the Release push run by its target SHA, so
+recovery does not depend on a local tag. A waiting release job is external
+policy drift and fails with its URL; release-cli never approves or bypasses it.
 `verify` does not monitor. It requires the same remote tag, the workflow already
 completed successfully, and checks:
 
 - a non-draft, non-prerelease GitHub Release for the exact tag;
-- `checksums.txt` and every declared platform archive;
+- `checksums.txt` and the Linux arm64 archive;
 - `model-pricing.json`;
 - `model-pricing-manifest.json`;
-- an anonymously pullable GHCR multi-platform index containing
-  `linux/amd64` and `linux/arm64`.
+- an anonymously pullable `linux/arm64` GHCR image.
 
 ## Recovery
 

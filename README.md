@@ -181,9 +181,9 @@ GHCR:        ghcr.io/tiantianr/sub2api-plus:vX.Y.Z-custom.NNN
 ```
 
 Pin the immutable GHCR version tag for reproducible production deployments.
-`latest` is a moving convenience tag. See [UPSTREAM.md](UPSTREAM.md) for the
-upstream mapping and [the release process](docs/RELEASING.md) for maintainer
-rules.
+This distribution does not move shared `latest`, major, or minor aliases. See
+[UPSTREAM.md](UPSTREAM.md) for the upstream mapping and
+[the release process](docs/RELEASING.md) for maintainer rules.
 
 <!-- readme-section:documentation -->
 ## Documentation

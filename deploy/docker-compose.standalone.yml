@@ -12,7 +12,7 @@
 
 services:
   sub2api:
-    image: ghcr.io/tiantianr/sub2api-plus:latest
+    image: ghcr.io/tiantianr/sub2api-plus:v0.1.178-custom.901
     container_name: sub2api
     restart: unless-stopped
     security_opt:

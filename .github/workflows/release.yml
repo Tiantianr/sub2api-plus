@@ -14,25 +14,201 @@ on:
 permissions:
   contents: read
 
-# GoReleaser also updates the shared latest, major, and minor GHCR tags.
-# Serialize releases so simultaneous tag pushes cannot race on those manifests.
+# Serialize releases so simultaneous tag pushes cannot race on the package.
 concurrency:
   group: release-publish
   cancel-in-progress: false
 
 jobs:
-  verify:
-    name: Verify release ref
-    uses: ./.github/workflows/backend-ci.yml
-    with:
-      ref: ${{ inputs.tag || github.ref }}
-      release-tag: ${{ inputs.tag || github.ref_name }}
+  publish-image:
+    name: Publish Linux image
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 5
+    environment:
+      name: release
     permissions:
       contents: read
+      actions: read
+      packages: write
+    outputs:
+      tag: ${{ steps.source.outputs.tag }}
+      target: ${{ steps.source.outputs.target }}
+      version: ${{ steps.source.outputs.version }}
+      docker_tag: ${{ steps.source.outputs.docker_tag }}
+      owner_lower: ${{ steps.source.outputs.owner_lower }}
+    steps:
+      - name: Check out the release tag
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+          ref: ${{ inputs.tag || github.ref }}
+
+      - name: Verify validated release source
+        id: source
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          INPUT_TAG: ${{ inputs.tag }}
+          SUB2API_CUSTOM_ITERATION_MIN: ${{ github.repository == 'Tiantianr/sub2api-plus' && '901' || '1' }}
+        run: |
+          set -euo pipefail
+
+          if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ]; then
+            TAG_NAME="$INPUT_TAG"
+          else
+            TAG_NAME="${GITHUB_REF#refs/tags/}"
+          fi
+          if ! [[ "$TAG_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+\+custom\.[0-9]{3}$ ]]; then
+            echo "Invalid release tag: $TAG_NAME" >&2
+            exit 1
+          fi
+
+          TAG_REF="refs/tags/$TAG_NAME"
+          git show-ref --verify --quiet "$TAG_REF" || {
+            echo "Tag does not exist: $TAG_NAME" >&2
+            exit 1
+          }
+          if [ "$(git cat-file -t "$TAG_REF")" != "tag" ]; then
+            echo "Release tag must be annotated: $TAG_NAME" >&2
+            exit 1
+          fi
+
+          TARGET="$(git rev-parse "$TAG_REF^{}")"
+          if [ "$TARGET" != "$(git rev-parse HEAD)" ]; then
+            echo "Checked-out commit does not match $TAG_NAME" >&2
+            exit 1
+          fi
+          EXPECTED_SUBJECT="Sub2API Plus $TAG_NAME"
+          if [ "$(git for-each-ref --format='%(contents:subject)' "$TAG_REF")" != "$EXPECTED_SUBJECT" ]; then
+            echo "Tag subject must be: $EXPECTED_SUBJECT" >&2
+            exit 1
+          fi
+
+          git fetch --no-tags origin +refs/heads/main:refs/remotes/origin/main
+          git merge-base --is-ancestor "$TARGET" refs/remotes/origin/main || {
+            echo "Tag target is not contained by origin/main: $TARGET" >&2
+            exit 1
+          }
+
+          successful_run() {
+            local workflow=$1
+            local runs selected
+            runs="$(gh api --method GET \
+              "repos/$GITHUB_REPOSITORY/actions/workflows/$workflow/runs" \
+              -f branch=main -f event=push -F per_page=100)"
+            selected="$(jq -c --arg target "$TARGET" \
+              '[.workflow_runs[] | select(
+                .head_sha == $target and .head_branch == "main" and .event == "push"
+              )] | sort_by(.id) | last // empty' <<< "$runs")"
+            if [ -z "$selected" ] ||
+              [ "$(jq -r '.status' <<< "$selected")" != "completed" ] ||
+              [ "$(jq -r '.conclusion' <<< "$selected")" != "success" ]; then
+              echo "No successful $workflow push run for main@$TARGET" >&2
+              exit 1
+            fi
+            jq -r '.id' <<< "$selected"
+          }
+
+          CI_RUN_ID="$(successful_run backend-ci.yml)"
+          successful_run security-scan.yml >/dev/null
+          ARTIFACT_NAME="linux-image-$TARGET"
+          ARTIFACTS="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$CI_RUN_ID/artifacts")"
+          if [ "$(jq -r --arg name "$ARTIFACT_NAME" \
+            '[.artifacts[] | select(.name == $name and .expired == false)] | length' \
+            <<< "$ARTIFACTS")" != "1" ]; then
+            echo "Validated CI artifact is missing or ambiguous: $ARTIFACT_NAME" >&2
+            exit 1
+          fi
+
+          NOTES_FILE="$RUNNER_TEMP/release-notes.md"
+          git for-each-ref --format='%(contents)' "$TAG_REF" > "$NOTES_FILE"
+          python tools/check_release.py --tag "$TAG_NAME" --notes-file "$NOTES_FILE"
+
+          VERSION="${TAG_NAME#v}"
+          OWNER_LOWER="$(printf '%s' "$GITHUB_REPOSITORY_OWNER" | tr '[:upper:]' '[:lower:]')"
+          {
+            echo "tag=$TAG_NAME"
+            echo "target=$TARGET"
+            echo "version=$VERSION"
+            echo "docker_tag=${TAG_NAME/+/-}"
+            echo "owner_lower=$OWNER_LOWER"
+            echo "ci_run_id=$CI_RUN_ID"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Download validated Linux image artifact
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: linux-image-${{ steps.source.outputs.target }}
+          path: ${{ runner.temp }}/linux-image
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          repository: ${{ github.repository }}
+          run-id: ${{ steps.source.outputs.ci_run_id }}
+
+      - name: Load and verify Linux image
+        env:
+          TARGET: ${{ steps.source.outputs.target }}
+          VERSION: ${{ steps.source.outputs.version }}
+        run: |
+          set -euo pipefail
+          docker load --input "$RUNNER_TEMP/linux-image/sub2api-linux-arm64.tar"
+          IMAGE="sub2api-linux-arm64:$TARGET"
+          test "$(docker image inspect --format '{{.Os}}/{{.Architecture}}' "$IMAGE")" = "linux/arm64"
+          test "$(docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.version"}}' "$IMAGE")" = "$VERSION"
+          test "$(docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' "$IMAGE")" = "$TARGET"
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.repository_owner }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Publish immutable Linux image
+        env:
+          TARGET: ${{ steps.source.outputs.target }}
+          DOCKER_TAG: ${{ steps.source.outputs.docker_tag }}
+          OWNER_LOWER: ${{ steps.source.outputs.owner_lower }}
+        run: |
+          set -euo pipefail
+          LOCAL_IMAGE="sub2api-linux-arm64:$TARGET"
+          IMAGE="ghcr.io/$OWNER_LOWER/sub2api-plus"
+          IMMUTABLE="$IMAGE:$DOCKER_TAG"
+          LOCAL_ID="$(docker image inspect --format '{{.Id}}' "$LOCAL_IMAGE")"
+
+          TOKEN="$(curl -fsSL "https://ghcr.io/token?service=ghcr.io&scope=repository:$OWNER_LOWER/sub2api-plus:pull" | jq -r '.token // .access_token // empty')"
+          test -n "$TOKEN"
+          STATUS="$(curl -sS -o /dev/null -w '%{http_code}' \
+            -H "Authorization: Bearer $TOKEN" \
+            -H 'Accept: application/vnd.oci.image.index.v1+json, application/vnd.oci.image.manifest.v1+json, application/vnd.docker.distribution.manifest.v2+json' \
+            "https://ghcr.io/v2/$OWNER_LOWER/sub2api-plus/manifests/$DOCKER_TAG")"
+
+          if [ "$STATUS" = "200" ]; then
+            docker pull --platform linux/arm64 "$IMMUTABLE" >/dev/null
+            REMOTE_ID="$(docker image inspect --format '{{.Id}}' "$IMMUTABLE")"
+            if [ "$REMOTE_ID" != "$LOCAL_ID" ]; then
+              echo "Refusing to replace immutable image: $IMMUTABLE" >&2
+              exit 1
+            fi
+          elif [ "$STATUS" = "404" ]; then
+            docker tag "$LOCAL_IMAGE" "$IMMUTABLE"
+            docker push "$IMMUTABLE"
+          else
+            echo "Unable to determine immutable image state: HTTP $STATUS" >&2
+            exit 1
+          fi
+
+          docker logout ghcr.io
+          docker image rm "$IMMUTABLE" >/dev/null
+          docker pull --platform linux/arm64 "$IMMUTABLE" >/dev/null
+          test "$(docker image inspect --format '{{.Id}}' "$IMMUTABLE")" = "$LOCAL_ID"
+          REPO_DIGEST="$(docker image inspect --format '{{index .RepoDigests 0}}' "$IMMUTABLE")"
+          test -n "$REPO_DIGEST"
+          echo "Linux image published: $REPO_DIGEST"
+          printf 'Linux image: `%s`\n' "$REPO_DIGEST" >> "$GITHUB_STEP_SUMMARY"
 
   release:
-    name: Build and publish
-    needs: verify
+    name: Build release assets
+    needs: publish-image
     runs-on: ubuntu-latest
     # release-cli requires this environment to disable administrator bypass,
     # have no blocking approval gate, and allow only v*+custom.* tags.
@@ -40,7 +216,6 @@ jobs:
       name: release
     permissions:
       contents: write
-      packages: write
     steps:
       - name: Check out the release tag
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -151,16 +326,6 @@ jobs:
           check-latest: false
           cache-dependency-path: backend/go.sum
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
-
-      - name: Log in to GitHub Container Registry
-        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
-        with:
-          registry: ghcr.io
-          username: ${{ github.repository_owner }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
       - name: Resolve GoReleaser version
         id: goreleaser-version
         run: |
@@ -168,7 +333,7 @@ jobs:
           test -n "$VERSION"
           echo "version=v${VERSION#v}" >> "$GITHUB_OUTPUT"
 
-      - name: Publish release, artifacts, and images
+      - name: Publish release assets
         uses: goreleaser/goreleaser-action@f06c13b6b1a9625abc9e6e439d9c05a8f2190e94 # v7
         with:
           version: ${{ steps.goreleaser-version.outputs.version }}

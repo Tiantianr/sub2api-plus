@@ -50,7 +50,7 @@ deletion. It then pushes only the named tag and returns. It never monitors,
 verifies, uses `git push --tags`, or creates a GitHub Release manually.
 
 `monitor` resolves the canonical remote annotated tag and observes its
-tag-triggered Release workflow through automatic `Build and publish` completion.
+tag-triggered Release workflow through automatic Linux image and asset publication.
 A waiting Environment gate is policy drift and fails closed; the CLI never
 approves it. `verify` is separate and requires that same remote tag, a
 successfully completed workflow, non-draft Release, and both immutable pricing

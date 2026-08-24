@@ -181,8 +181,8 @@ GHCR:       ghcr.io/tiantianr/sub2api-plus:vX.Y.Z-custom.NNN
 ```
 
 再現可能な本番デプロイでは不変の GHCR バージョンタグを固定してください。
-`latest` は可変の便宜タグです。上流マッピングは
-[UPSTREAM.md](UPSTREAM.md)、メンテナー向け規則は
+この配布は共有の `latest`、メジャー、マイナー別名を更新しません。
+上流マッピングは [UPSTREAM.md](UPSTREAM.md)、メンテナー向け規則は
 [リリース手順](docs/RELEASING.md) を参照してください。
 
 <!-- readme-section:documentation -->

@@ -13,6 +13,9 @@ Sub2API Plus v0.1.178+custom.902
 - Fail closed on incomplete or partial extraction whenever a blocking audit
   mode is active, including sibling content that would otherwise hide a failed
   field.
+- Prebuild the exact Linux arm64 image during protected main validation so an
+  explicitly published release tag can make the immutable GHCR image available
+  within a five-minute runner execution budget.
 - Surface extraction metrics in risk-control and prompt-audit runtimes, and
   document the protocol matrix in `docs/SECURITY_AUDIT_CONTENT_COVERAGE.md`.
 
@@ -27,9 +30,13 @@ Sub2API Plus v0.1.178+custom.902
   to Prompt Audit.
 - Keep update checks, installers, repository links, release tooling, and OCI
   metadata bound to `Tiantianr/sub2api-plus`.
+- Reuse successful CI and Security Scan provenance at release time instead of
+  repeating the complete matrix, and avoid duplicate branch-push and PR runs.
 - Remove Apple Containers deployment scripts, documentation, environment
   settings, and validation; supported deployments remain Linux Docker Compose
   and the Linux binary installer.
+- Publish only Linux arm64 images and archives; Linux amd64, Darwin, and Windows
+  artifacts are no longer produced by this personal distribution.
 - Preserve the official v0.1.178 baseline and embedded Codex identity
   precedence.
 
@@ -44,6 +51,7 @@ Sub2API Plus v0.1.178+custom.902
 ## Compatibility and migration
 
 - Existing data remains compatible; this iteration adds no database migration.
+- Hosts must run Linux arm64 to use new personal images or binary archives.
 - Back up PostgreSQL and configuration before replacing an older application
   version because inherited migrations remain forward-only.
 
@@ -52,6 +60,8 @@ Sub2API Plus v0.1.178+custom.902
 - Docker in-place binary updates live in the container writable layer. Keep the
   Compose image tag aligned with the running release before recreating a
   production container.
+- GitHub-hosted runner queue time is external to the five-minute image-job
+  execution budget; a missing validated main artifact stops publication.
 
 ## Upstream baseline
 

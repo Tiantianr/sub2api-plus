@@ -30,8 +30,8 @@ Before automatic PR promotion is enabled, repository administrators must:
 2. Protect `main` with a ruleset that requires pull requests.
 3. Require the branch to be current with `main` and require these exact status
    contexts: `sub2api/local-validation`, `deployment-config`, `test`,
-   `frontend`, `golangci-lint`, `goreleaser-config`, `repository-policy`,
-   `backend-security`, and `frontend-security`.
+   `frontend`, `golangci-lint`, `goreleaser-config`, `linux-image-artifact`,
+   `repository-policy`, `backend-security`, and `frontend-security`.
 4. Keep those contexts synchronized with the CI and Security Scan job IDs so a
    renamed or later unvalidated job cannot silently leave the merge gate.
 5. Block force pushes and branch deletion; do not give release-cli an admin
@@ -140,8 +140,9 @@ bypass.
 
 After GitHub merges the PR, release-cli resolves the actual merge commit,
 fetches `origin/main`, and waits for push-triggered `CI` and `Security Scan`
-runs at that exact SHA. A successful PR check alone is insufficient because
-the merge commit may differ from the PR head.
+runs at that exact SHA. The main CI run also builds a Linux arm64 Docker image
+artifact for that commit without publishing it. A successful PR check alone is
+insufficient because the merge commit may differ from the PR head.
 
 If protected review or another required condition is still pending, promotion
 returns status 2. Complete the GitHub requirement and rerun the same command.
@@ -193,11 +194,15 @@ python3 skills/release-cli/scripts/release_cli.py monitor \
   --tag vX.Y.Z+custom.NNN
 ```
 
-The Release workflow reruns its tag verification before publishing. After the
-verification matrix succeeds, the `Build and publish` job enters the checked
-`release` Environment and starts automatically. If it unexpectedly waits,
-`monitor` reports policy drift and the Actions URL; restore the Environment
-policy and rerun `monitor`. The CLI never approves or bypasses a deployment.
+The Release workflow does not rerun the application matrix. Its
+`Publish Linux image` job verifies the annotated tag, main ancestry, successful
+`CI` and `Security Scan` push runs for the exact SHA, release metadata, and the
+matching unexpired image artifact. It then enters the checked `release`
+Environment and publishes the immutable Linux arm64 image within a five-minute
+runner execution budget. `Build release assets` starts only after the image is
+available. If either job unexpectedly waits, `monitor` reports policy drift and
+the Actions URL; restore the Environment policy and rerun `monitor`. The CLI
+never approves or bypasses a deployment.
 
 After the workflow succeeds, verify the published state:
 
@@ -207,12 +212,11 @@ python3 skills/release-cli/scripts/release_cli.py verify \
 ```
 
 Verification requires a successful workflow, a non-draft/non-prerelease GitHub
-Release, `checksums.txt`, every declared platform archive, both immutable
-pricing assets, and a publicly pullable GHCR multi-platform index containing
-`linux/amd64` and `linux/arm64`:
+Release, `checksums.txt`, the Linux arm64 archive, both immutable pricing
+assets, and a publicly pullable `linux/arm64` GHCR image:
 
 - `checksums.txt`
-- `sub2api_<version>_<os>_<arch>.<archive>` for every release platform
+- `sub2api_<version>_linux_arm64.tar.gz`
 - `model-pricing.json`
 - `model-pricing-manifest.json`
 - `ghcr.io/<owner>/sub2api-plus:<OCI version>`
@@ -220,6 +224,12 @@ pricing assets, and a publicly pullable GHCR multi-platform index containing
 The workflow accepts an existing pricing asset only when its bytes are
 identical. Correct a bad asset with a new custom version, never by replacement
 or retagging.
+
+The release workflow publishes only the immutable OCI version tag. It does not
+move `latest`, major, or minor aliases, so rerunning an older release cannot
+silently roll back another deployment. If the validated main image artifact has
+expired, rerun that exact main CI before `publish`; release-cli refuses to push
+the immutable Git tag until the artifact is available.
 
 ## Finalize Through a PR
 
@@ -265,7 +275,7 @@ to trusted maintainers.
 - Publish corrections under the next custom iteration.
 - If tag push succeeded but local observation was interrupted, resume with
   `monitor`; do not rerun `publish`.
-- If `Build and publish` unexpectedly waits, restore the checked Environment
+- If a release publication job unexpectedly waits, restore the checked Environment
   policy and rerun `monitor`; do not approve the drifted deployment through the
   CLI.
 - Deleting an unpublished tag or artifact requires an explicit audit and
