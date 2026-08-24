@@ -3,12 +3,15 @@
 
 from __future__ import annotations
 
+import os
 import re
 import sys
 import tempfile
 import unittest
 from pathlib import Path
 from unittest import mock
+
+os.environ["SUB2API_CUSTOM_ITERATION_MIN"] = "1"
 
 import check_release
 import check_new_migrations
