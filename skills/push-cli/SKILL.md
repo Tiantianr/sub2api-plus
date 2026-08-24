@@ -6,10 +6,10 @@ description: >-
   current branch, run the repository validation matrix, create or update a
   pull request, or verify branch CI. Ordinary push is fast and never runs the
   local matrix. submit-pr is the only final promotion boundary: it requires
-  the latest default-branch base, runs every check inside the platform
-  validation container, binds the result to exact base/head SHAs, pushes,
-  publishes the local-validation commit status, and creates or reuses the pull
-  request. Never push the repository default branch.
+  the latest default-branch base, runs the host repository preflight, binds the
+  result to exact base/head SHAs, pushes, publishes the local-validation commit
+  status, and creates or reuses the pull request. Never push the repository
+  default branch.
 ---
 
 # Push CLI
@@ -30,14 +30,15 @@ push form.
 
 `submit-pr` is the final promotion action. It fetches the current GitHub default
 branch, requires that commit to be contained by the candidate branch, records
-the exact base and head, and runs the complete local matrix inside the platform
-validation container. After the matrix it refetches the default branch and
-requires the worktree, base, and head to be unchanged. It then pushes the exact
-head, publishes `sub2api/local-validation=success`, and creates or reuses one
-pull request to the default branch.
+the exact base and head, and runs the repository preflight with pinned host
+toolchains. After the preflight it refetches the default branch and requires the
+worktree, base, and head to be unchanged. It then pushes the exact head,
+publishes `sub2api/local-validation=success`, and creates or reuses one pull
+request to the default branch. Protected Linux GitHub Actions own the complete
+integration, lint, build, security, and Docker gates.
 
-`check` runs the same local matrix without pushing or creating a PR. `ensure`
-only prepares the platform runtime and validation image. `watch` observes
+`check` runs the same local preflight without pushing or creating a PR.
+`ensure` only checks the required host toolchains. `watch` observes
 push-triggered Actions for the current branch and SHA.
 
 ## Mandatory GitHub CLI Gate
@@ -53,17 +54,14 @@ Before an authorized push, configure Git transport with `gh auth setup-git`.
 Git transfers only `HEAD:<current-branch>`. Never use `--force`, `--all`,
 `--tags`, or another local ref.
 
-## Validation Runtime
+## Local Preflight
 
-Only `check`, `submit-pr`, and `ensure` access the validation runtime.
-
-- macOS: Apple Containers only; no Docker, Colima, or host-toolchain fallback.
-- Windows: Docker inside a running WSL2 Debian or Ubuntu distribution only.
-- Linux: directly reachable Docker Engine and Compose plugin.
-
-Every Go, frontend, Python policy, installer, and lifecycle check runs inside
-`deploy/Dockerfile.validation`. Host processes may only perform GitHub/Git
-gates, runtime probes, image management, Compose parsing, and container launch.
+`check` and `submit-pr` run Go unit tests, frontend lint/typecheck/Vitest, CLI
+self-tests, release and documentation policy, migration policy, installer
+syntax, and deployment static checks with the pinned host toolchains. `ensure`
+checks those toolchains without running tests. Linux GitHub Actions run backend
+integration tests, golangci-lint, frontend production builds, security scans,
+and Docker Compose validation.
 
 ## Pull-Request Proof
 
@@ -86,7 +84,7 @@ head/base SHAs.
 - Never publish a success status until the post-matrix base/head/worktree
   recheck and exact branch push both succeed.
 - Never create a PR for a stale default-branch base.
-- Never run the matrix on the host or silently downgrade tool versions.
+- Never silently downgrade required tool versions.
 - Treat a local validation failure as a hard stop before push or PR mutation.
 
 Read `references/push-cli.md` for the exact matrix, proof format, and recovery

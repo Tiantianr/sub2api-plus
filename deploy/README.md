@@ -1,6 +1,6 @@
 # Sub2API Plus Deployment Files
 
-This directory contains files for deploying Sub2API Plus on Linux servers and Apple-silicon Macs.
+This directory contains files for deploying Sub2API Plus on Linux servers.
 
 ## Release Version Mapping
 
@@ -21,7 +21,6 @@ Pin the GHCR version tag for reproducible deployments. See
 | Method | Best For | Setup Wizard |
 |--------|----------|--------------|
 | **Docker Compose** | Quick setup, all-in-one | Not needed (auto-setup) |
-| **Apple container** | Native local stack on macOS 26 | Not needed (auto-setup) |
 | **Binary Install** | Production servers, systemd | Web-based wizard |
 
 ## Files
@@ -31,8 +30,6 @@ Pin the GHCR version tag for reproducible deployments. See
 | `docker-compose.yml` | Docker Compose configuration (named volumes) |
 | `docker-compose.local.yml` | Docker Compose configuration (local directories, easy migration) |
 | `docker-deploy.sh` | **One-click Docker deployment script (recommended)** |
-| `apple-container.sh` | Native Apple `container` lifecycle script |
-| `APPLE_CONTAINER.md` | Apple `container` deployment and operations guide |
 | `.env.example` | Container environment variables template |
 | `DOCKER.md` | Docker Hub documentation |
 | `install.sh` | One-click binary installation script |
@@ -43,43 +40,6 @@ Pin the GHCR version tag for reproducible deployments. See
 | `config.example.yaml` | Example configuration file |
 | `EDGE_SECURITY.md` | Reverse proxy, CDN/WAF, trusted proxy, and ingress hardening guide |
 | `CLOUDFLARE_IP_ACCESS_CONTROL_CN.md` | Cloudflare + Nginx binary deployment and global IP blocking tutorial (Chinese) |
-
----
-
-## Apple container Deployment
-
-Apple-silicon Macs running macOS 26 can run the complete Sub2API Plus, PostgreSQL, and Redis stack with Apple `container` 1.1.0 or newer:
-
-```bash
-./apple-container.sh init
-```
-
-```bash
-./apple-container.sh up
-```
-
-```bash
-./apple-container.sh status
-```
-
-```bash
-./apple-container.sh logs app -f
-```
-
-The script uses Apple named volumes by default, starts dependencies in order,
-replaces the application container on every `up` so its writable layer does
-not accumulate, and performs live readiness checks. Use
-`./apple-container.sh upgrade` to update only the application image while
-retaining one rollback image, and `./apple-container.sh disk-usage` to inspect
-Apple Containers disk use. Set the optional `APPLE_CONTAINER_*_DATA_DIR`
-variables in `.env` to replace an individual named volume with a host bind
-mount; leaving them empty preserves the original named-volume behavior.
-Persistent mounts are never cleared by application redeployment. The script
-does not provide a continuous restart supervisor; run
-`./apple-container.sh up` after a host reboot. Docker Compose remains the
-recommended production deployment path.
-
-See [APPLE_CONTAINER.md](./APPLE_CONTAINER.md) for configuration, upgrades, persistence, networking behavior, and limitations.
 
 ---
 

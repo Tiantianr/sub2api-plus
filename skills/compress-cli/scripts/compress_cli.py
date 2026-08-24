@@ -103,7 +103,8 @@ PROTECTED_FRAGMENTS = {
     ),
     "Submit PR": (
         "skills/push-cli submit-pr",
-        "Host-side execution of that matrix is forbidden",
+        "host preflight",
+        "Protected Linux GitHub Actions",
     ),
     "Release Promotion": (
         "skills/release-cli",

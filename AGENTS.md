@@ -18,7 +18,7 @@
 |Design:Choose the simplest design that satisfies current requirements|Deliver the smallest runnable end-to-end flow first|Add abstraction only for demonstrated need|Keep modular ownership and separation of concerns|Prefer maintained libraries and proven high-impact patterns|Do not choose knowingly temporary architecture.
 |Verification:Run focused checks from CONTRIBUTING.md while iterating|Backend changes require relevant Go tests|Frontend changes require lint, typecheck, and relevant Vitest|Locale, deployment, migration, and release changes require dedicated checks.
 |Push:Ordinary branch pushes use skills/push-cli push|Never target the repository default branch.
-|Submit PR:Final submission uses skills/push-cli submit-pr|Only submit-pr runs the official local matrix in Apple Containers on macOS, Docker in WSL2 Debian/Ubuntu on Windows, and Docker on Linux|Host-side execution of that matrix is forbidden.
+|Submit PR:Final submission uses skills/push-cli submit-pr|submit-pr runs the host preflight and binds it to exact base/head SHAs|Protected Linux GitHub Actions own integration, lint, production build, security, and Docker checks.
 |Release Promotion:Use skills/release-cli with exact submit-pr base/head proof, protected GitHub auto-merge without admin bypass, and successful PR plus merged-main Actions|Release metadata validation must not repeat the complete local application matrix.
 |Release Notes:Per-release changes belong in GitHub Release notes, not README files|Cover compatibility, known issues, and upstream baseline.
 |Release Consistency:Tag, embedded version, Docker build args, and UPSTREAM.md must agree|Never reuse or retag a published version.

@@ -1,4 +1,4 @@
 interface:
   display_name: "Sub2API Push CLI"
-  short_description: "Validate in Apple Container or Docker, then push"
-  default_prompt: "Use $push-cli for fast non-default-branch pushes. For the final pull-request submission, use submit-pr so the complete matrix runs inside Apple Containers on macOS, Docker inside WSL2 Debian or Ubuntu on Windows, or Docker on Linux and the exact base/head proof is published before creating the PR."
+  short_description: "Run the repository preflight, then push"
+  default_prompt: "Use $push-cli for fast non-default-branch pushes. For the final pull-request submission, use submit-pr so the host preflight runs and the exact base/head proof is published before protected Linux GitHub Actions validate the PR."

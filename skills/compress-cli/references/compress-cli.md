@@ -8,7 +8,7 @@ a compact index of normative rules, not a substitute for `CONTRIBUTING.md`,
 OpenSpec change.
 
 Do not import templates from unrelated repositories. This project uses Go,
-Vue, pnpm, repository-local Python CLIs, and platform validation containers. It
+Vue, pnpm, repository-local Python CLIs, and protected Linux GitHub Actions. It
 does not use npm-only, Maven, or Spring Boot contributor workflows.
 
 ## Format Contract

@@ -44,9 +44,9 @@ None.
 
 ## Impact
 
-- **Developer workflow**: Iterative pushes no longer start the platform
-  validation container. The final `submit-pr` action remains intentionally
-  expensive.
+- **Developer workflow**: Iterative pushes skip local checks. The final
+  `submit-pr` action runs a bounded host preflight before protected Linux
+  GitHub Actions execute the complete PR gates.
 - **Repository governance**: Safe automatic merging requires a protected
   default branch, required Actions checks, and GitHub auto-merge. The CLI fails
   closed when those external settings are absent.

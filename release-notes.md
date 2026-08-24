@@ -21,6 +21,9 @@ Sub2API Plus v0.1.178+custom.902
   writes.
 - Keep update checks, installers, repository links, release tooling, and OCI
   metadata bound to `Tiantianr/sub2api-plus`.
+- Remove Apple Containers deployment scripts, documentation, environment
+  settings, and validation; supported deployments remain Linux Docker Compose
+  and the Linux binary installer.
 - Preserve the official v0.1.178 baseline and embedded Codex identity
   precedence.
 

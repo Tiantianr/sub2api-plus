@@ -135,7 +135,8 @@ ID3 尚未切换到个人不可变镜像，因此生产环境仍不得使用“�
 
 ## GitHub CI 与发布流水线
 
-功能分支和 PR 自动运行后端、前端、lint、部署配置、仓库策略和安全扫描。发布仅允许从已经合并并验证的 `main`
+`submit-pr` 在本机运行 Go unit、Vitest、版本、文档、迁移和部署静态 preflight；功能分支和 PR 的 Linux Actions
+负责 integration、lint、生产构建、Docker、仓库策略和安全扫描。发布仅允许从已经合并并验证的 `main`
 提交创建不可变标签；禁止直接运行 `git push --tags`。
 
 提交最终 PR：

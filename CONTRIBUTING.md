@@ -60,12 +60,12 @@ Before creating or updating the final pull request, run the promotion gate:
 python3 skills/push-cli/scripts/push_cli.py submit-pr
 ```
 
-`submit-pr` requires the latest default-branch base and runs the full matrix
-inside Apple Containers on macOS, Docker inside WSL2 Debian or Ubuntu on
-Windows, and Docker on Linux. Host-side execution of that matrix is forbidden.
-It pushes the validated head, publishes the exact base/head proof, and creates
-or reuses the pull request. Release PR merging and publication use
-`skills/release-cli` after GitHub required checks pass.
+`submit-pr` requires the latest default-branch base and runs the repository
+preflight with the pinned host toolchains. It pushes the validated head,
+publishes the exact base/head proof, and creates or reuses the pull request.
+Protected Linux GitHub Actions run integration, lint, production build,
+security, and Docker checks. Release PR merging and publication use
+`skills/release-cli` after those required checks pass.
 
 ## Generated Code
 

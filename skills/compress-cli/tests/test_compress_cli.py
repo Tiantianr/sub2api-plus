@@ -112,6 +112,14 @@ class CompressCliTest(unittest.TestCase):
         errors = self.validate_text(changed)
         self.assert_error_contains(errors, "terminal fingerprint")
 
+    def test_submit_pr_keeps_linux_actions_gate(self) -> None:
+        changed = self.valid_document.replace(
+            "Protected Linux GitHub Actions",
+            "optional remote checks",
+        )
+        errors = self.validate_text(changed)
+        self.assert_error_contains(errors, "Protected Linux GitHub Actions")
+
     def test_unknown_source_path_fails(self) -> None:
         changed = self.valid_document.replace(
             "Go=backend/go.mod",

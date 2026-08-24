@@ -140,7 +140,6 @@ sudo systemctl reload nginx
 | --- | --- |
 | Linux インストールスクリプト／バイナリ | [デプロイガイド](deploy/README.md) |
 | Docker Compose | [Docker ガイド](deploy/DOCKER.md) |
-| macOS Apple container | [Apple container ガイド](deploy/APPLE_CONTAINER.md) |
 | エッジプロキシと信頼済みクライアント IP | [エッジセキュリティ](deploy/EDGE_SECURITY.md) |
 | オプションの datamanagementd | [datamanagementd ガイド](deploy/DATAMANAGEMENTD_CN.md) |
 

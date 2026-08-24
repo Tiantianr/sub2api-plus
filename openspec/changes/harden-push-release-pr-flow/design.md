@@ -16,10 +16,11 @@ Actions.
 
 `submit-pr` fetches the current default branch and requires it to be an
 ancestor of the candidate head. It records the exact base and head commits,
-runs the existing complete matrix inside the platform validation container,
-then proves that the worktree, base, and head did not change. Only then does it
-push the current branch, publish the `sub2api/local-validation` success status
-for the exact head, and create or reuse the branch's pull request.
+runs the repository preflight with pinned host toolchains, then proves that the
+worktree, base, and head did not change. Only then does it push the current
+branch, publish the `sub2api/local-validation` success status for the exact
+head, and create or reuse the branch's pull request. Protected Linux GitHub
+Actions own integration, lint, build, security, and Docker validation.
 
 The pull-request body contains a machine-readable base/head marker. The commit
 status binds validation to the head. A later commit has no matching status; a

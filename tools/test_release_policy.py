@@ -330,17 +330,6 @@ class ReleaseDocumentTests(unittest.TestCase):
                 f"Git/GitHub: {old}",
                 f"GHCR: ghcr.io/luckykuang/sub2api-plus:{old_oci}",
             ),
-            "deploy/APPLE_CONTAINER.md": (
-                f"Git/GitHub: {old}",
-                f"Application: {old_application}",
-                f"Apple/OCI image: ghcr.io/luckykuang/sub2api-plus:{old_oci}",
-                f"--build-arg VERSION={old_application} \\",
-                f"--tag ghcr.io/luckykuang/sub2api-plus:{old_oci} \\",
-                f"APPLE_CONTAINER_SUB2API_IMAGE=ghcr.io/luckykuang/sub2api-plus:{old_oci}",
-            ),
-            "deploy/.env.example": (
-                f"this source revision is tagged sub2api-plus:{old_oci}; use that value",
-            ),
             "UPSTREAM.md": (
                 f"Git/GitHub: {old}",
                 f"Application: {old_application}",

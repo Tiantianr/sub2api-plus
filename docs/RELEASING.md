@@ -76,10 +76,11 @@ python3 skills/push-cli/scripts/push_cli.py submit-pr
 ```
 
 `submit-pr` fetches the current `origin/main`, requires it in the branch,
-records exact base/head SHAs, runs the complete matrix in the platform
-validation container, refetches and rechecks both SHAs, pushes the exact head,
-publishes `sub2api/local-validation`, and creates or reuses the PR. Any later
-head or base change requires another `submit-pr`.
+records exact base/head SHAs, runs the host repository preflight, refetches and
+rechecks both SHAs, pushes the exact head, publishes
+`sub2api/local-validation`, and creates or reuses the PR. Protected Linux
+GitHub Actions run integration, lint, production build, security, and Docker
+gates. Any later head or base change requires another `submit-pr`.
 
 The documentation updater reads the current version from
 `backend/cmd/server/VERSION`. Its rollback example uses the nearest lower
