@@ -224,11 +224,11 @@ def declared_toolchains() -> DeclaredToolchains:
 
 
 def current_go_version() -> str:
-    return capture(["go", "env", "GOVERSION"])
+    return capture(["go", "env", "GOVERSION"], cwd=ROOT / "backend")
 
 
 def current_pnpm_version() -> str:
-    return capture(["pnpm", "--version"])
+    return capture(["pnpm", "--version"], cwd=ROOT / "frontend").splitlines()[-1]
 
 
 def current_node_version() -> str:

@@ -26,6 +26,31 @@ class DeclaredToolchainsTest(unittest.TestCase):
         self.assertRegex(declared.pnpm, r"^\d+\.\d+\.\d+$")
         self.assertGreaterEqual(declared.node_major_minimum, 20)
 
+    def test_toolchain_probes_use_module_directories(self) -> None:
+        with (
+            mock.patch.object(push_cli, "ROOT", Path("/repo")),
+            mock.patch.object(push_cli, "capture", return_value="version") as capture,
+        ):
+            push_cli.current_go_version()
+            push_cli.current_pnpm_version()
+
+        self.assertEqual(
+            mock.call(["go", "env", "GOVERSION"], cwd=Path("/repo/backend")),
+            capture.call_args_list[0],
+        )
+        self.assertEqual(
+            mock.call(["pnpm", "--version"], cwd=Path("/repo/frontend")),
+            capture.call_args_list[1],
+        )
+
+    def test_pnpm_probe_ignores_leading_warning(self) -> None:
+        with mock.patch.object(
+            push_cli,
+            "capture",
+            return_value="warning from pnpm\n9.15.9",
+        ):
+            self.assertEqual("9.15.9", push_cli.current_pnpm_version())
+
 
 class LocalChecksTest(unittest.TestCase):
     def test_preflight_runs_expected_checks(self) -> None:
