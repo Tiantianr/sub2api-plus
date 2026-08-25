@@ -3,16 +3,18 @@ Sub2API Plus v0.1.178+custom.902
 ## Highlights
 
 - Synchronize the published `LuckyKuang/sub2api-plus`
-  `v0.1.178+custom.003` release into the personal distribution while preserving
+  `v0.1.178+custom.005` release into the personal distribution while preserving
   its independent update, release, and GHCR channels.
 - Harden the shared security-audit content-extraction contract so Content
   Moderation and Prompt Audit consume the same canonical protocol document.
 - Restore Content Moderation to current direct-user text and images so a
   policy violation is attributed only to a user submission, not to platform
   or tool content.
-- Fail closed on incomplete or partial extraction whenever a blocking audit
-  mode is active, including sibling content that would otherwise hide a failed
-  field.
+- Preserve independently extracted sibling content while incomplete or
+  unrecognized audit input is logged and passed through without an
+  audit-derived block.
+- Restore Prompt Audit conversation-text selection so ordinary Codex requests
+  are not blocked by static client tool schemas.
 - Prebuild the exact Linux arm64 image during protected main validation so an
   explicitly published release tag can make the immutable GHCR image available
   within a five-minute runner execution budget.
@@ -28,6 +30,10 @@ Sub2API Plus v0.1.178+custom.902
 - Select only protocol-defined direct-user content for Content Moderation while
   keeping instructions, tool traffic, and assistant or model content available
   to Prompt Audit.
+- Exclude static `tools` and `functions` schemas, structured tool-call
+  arguments, and tool or function outputs from Prompt Audit while retaining
+  messages, instructions, reusable prompt variables, reasoning, and media
+  prompts.
 - Keep update checks, installers, repository links, release tooling, and OCI
   metadata bound to `Tiantianr/sub2api-plus`.
 - Reuse successful CI and Security Scan provenance at release time instead of
@@ -44,9 +50,11 @@ Sub2API Plus v0.1.178+custom.902
 
 - Restore the `v0.1.177+custom.003` user-attribution rule that a later
   shared-extractor expansion had broadened beyond direct-user content.
-- Treat a partial extraction hidden by successful sibling content as an
-  extraction failure, not a successful or empty request.
-- Satisfy audit-content lint after the extraction-scope change.
+- Prevent extraction failures from becoming policy blocks, HTTP 503 responses,
+  or WebSocket closes while preserving recognized sibling content for
+  independent policy evaluation.
+- Keep a simple Codex `hi` request plus a large tool schema from producing a
+  Prompt Audit block.
 
 ## Compatibility and migration
 
@@ -65,7 +73,7 @@ Sub2API Plus v0.1.178+custom.902
 
 ## Upstream baseline
 
-Plus release: v0.1.178+custom.003
-Plus commit: bfa1220152a309ec94a5fed52f02fbceccc27055
+Plus release: v0.1.178+custom.005
+Plus commit: 594d5fb2526ce4981d1ad06cd83893f075f494bb
 Official release: v0.1.178
 Official commit: e0c48a19ed794a565e3858662520afe0a1f9f0ba
