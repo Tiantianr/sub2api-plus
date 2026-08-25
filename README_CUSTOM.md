@@ -98,7 +98,7 @@ git merge --no-ff 'vX.Y.Z+custom.NNN'
 作为个人二开迭代区间：
 
 ```text
-当前 Plus 基线：v0.1.178+custom.003
+当前 Plus 基线：v0.1.178+custom.005
 个人已发布版本：v0.1.178+custom.901
 同一官方基线的下一版本：v0.1.178+custom.902
 新官方基线首版：v0.1.179+custom.901
@@ -111,7 +111,7 @@ git merge --no-ff 'vX.Y.Z+custom.NNN'
 
 | 个人版本 | LuckyKuang 基线 | 状态 |
 | --- | --- | --- |
-| `v0.1.178+custom.902` | `v0.1.178+custom.003` | 计划发布 |
+| `v0.1.178+custom.902` | `v0.1.178+custom.005` | 计划发布 |
 | `v0.1.178+custom.901` | `v0.1.178+custom.001` | 已发布 |
 | `v0.1.178+custom.001` | 同名上游版本 | 已发布回退基线 |
 
