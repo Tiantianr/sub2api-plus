@@ -204,7 +204,7 @@ jobs:
           REPO_DIGEST="$(docker image inspect --format '{{index .RepoDigests 0}}' "$IMMUTABLE")"
           test -n "$REPO_DIGEST"
           echo "Linux image published: $REPO_DIGEST"
-          printf 'Linux image: `%s`\n' "$REPO_DIGEST" >> "$GITHUB_STEP_SUMMARY"
+          printf "Linux image: \`%s\`\n" "$REPO_DIGEST" >> "$GITHUB_STEP_SUMMARY"
 
   release:
     name: Build release assets
