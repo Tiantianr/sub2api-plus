@@ -1,4 +1,4 @@
-Sub2API Plus v0.1.178+custom.902
+Sub2API Plus v0.1.178+custom.903
 
 ## Highlights
 
@@ -20,6 +20,13 @@ Sub2API Plus v0.1.178+custom.902
   within a five-minute runner execution budget.
 - Surface extraction metrics in risk-control and prompt-audit runtimes, and
   document the protocol matrix in `docs/SECURITY_AUDIT_CONTENT_COVERAGE.md`.
+- Personalize the complete web interface with the `#3c80e6` brand-blue theme,
+  including balance highlights while preserving semantic and payment-brand
+  colors.
+- Make balance recharge the first and default purchase tab, while preserving
+  explicit subscription deep links and balance-disabled behavior.
+- Hide the asynchronous image-generation entry from user and administrator
+  support sidebars without removing its protected direct route or backend API.
 
 ## Changed
 
@@ -45,6 +52,8 @@ Sub2API Plus v0.1.178+custom.902
   artifacts are no longer produced by this personal distribution.
 - Preserve the official v0.1.178 baseline and embedded Codex identity
   precedence.
+- Apply the personalized primary color consistently across public, user, and
+  administrator views.
 
 ## Fixed
 

@@ -195,7 +195,6 @@ import { sanitizeSvg } from '@/utils/sanitize'
 import { sanitizeUrl } from '@/utils/url'
 import { FeatureFlags, makeSidebarFlag } from '@/utils/featureFlags'
 import { useBatchImageAccess } from '@/composables/useBatchImageAccess'
-import { useAsyncImageAccess } from '@/composables/useAsyncImageAccess'
 import { adminSupportPath, parseAdminSupportTargetId } from '@/utils/adminSupport'
 
 interface NavItem {
@@ -245,7 +244,6 @@ const authStore = useAuthStore()
 const onboardingStore = useOnboardingStore()
 const adminSettingsStore = useAdminSettingsStore()
 const { canUseBatchImage, refreshBatchImageAccess } = useBatchImageAccess()
-const { canUseAsyncImage, refreshAsyncImageAccess } = useAsyncImageAccess()
 
 const sidebarCollapsed = computed(() => appStore.sidebarCollapsed)
 const mobileOpen = computed(() => appStore.mobileOpen)
@@ -691,7 +689,6 @@ const flagGlobalIpAccessControl = makeSidebarFlag(FeatureFlags.globalIpAccessCon
 const flagOpsMonitoring = () => adminSettingsStore.opsMonitoringEnabled
 const flagAdminPayment = () => adminSettingsStore.paymentEnabled
 const flagBatchImageAccess = () => canUseBatchImage.value
-const flagAsyncImageAccess = () => canUseAsyncImage.value
 
 // buildSelfNavItems 构造用户自己的导航项（用户端主菜单和管理员的"我的账户"子菜单共享这组声明）。
 // withDashboard=true 时包含仪表盘（用户端），false 时不含（管理员的个人区已经有独立仪表盘入口）。
@@ -705,7 +702,6 @@ function buildSelfNavItems(withDashboard: boolean): NavItem[] {
   }
   items.push(
     { path: '/keys', label: t('nav.apiKeys'), icon: KeyIcon },
-    { path: '/async-image', label: t('nav.asyncImage'), icon: BatchImageIcon, hideInSimpleMode: true, featureFlag: flagAsyncImageAccess },
     { path: '/batch-image', label: t('nav.batchImage'), icon: BatchImageIcon, hideInSimpleMode: true, featureFlag: flagBatchImageAccess },
     { path: '/usage', label: t('nav.usage'), icon: ChartIcon, hideInSimpleMode: true },
     { path: '/available-channels', label: t('nav.availableChannels'), icon: ChannelIcon, hideInSimpleMode: true, featureFlag: flagAvailableChannels },
@@ -747,7 +743,6 @@ function buildSupportNavItems(userId: number): NavItem[] {
   return [
     { path: adminSupportPath(userId, 'overview'), label: t('admin.support.overview'), icon: DashboardIcon },
     { path: adminSupportPath(userId, 'api-keys'), label: t('nav.apiKeys'), icon: KeyIcon },
-    { path: adminSupportPath(userId, 'async-images'), label: t('nav.asyncImage'), icon: BatchImageIcon },
     { path: adminSupportPath(userId, 'usage'), label: t('nav.usage'), icon: ChartIcon },
     { path: adminSupportPath(userId, 'channels'), label: t('nav.availableChannels'), icon: ChannelIcon },
     { path: adminSupportPath(userId, 'channel-status'), label: t('nav.channelStatus'), icon: SignalIcon },
@@ -966,9 +961,6 @@ watch(
 
 onMounted(() => {
   void refreshBatchImageAccess()
-  if (!isAdmin.value) {
-    void refreshAsyncImageAccess()
-  }
   if (isAdmin.value) {
     adminSettingsStore.fetch()
   }
