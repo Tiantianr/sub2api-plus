@@ -109,6 +109,7 @@ FROM ${POSTGRES_IMAGE} AS pg-client
 FROM ${ALPINE_IMAGE}
 
 ARG VERSION=0.1.178+custom.902
+ARG COMMIT=docker
 
 # Labels
 LABEL maintainer="Tiantianr <https://github.com/Tiantianr>"
@@ -116,6 +117,7 @@ LABEL description="Sub2API Plus - AI API Gateway Platform"
 LABEL org.opencontainers.image.source="https://github.com/Tiantianr/sub2api-plus"
 LABEL org.opencontainers.image.licenses="LGPL-3.0-or-later"
 LABEL org.opencontainers.image.version="${VERSION}"
+LABEL org.opencontainers.image.revision="${COMMIT}"
 
 # Install runtime dependencies
 RUN apk add --no-cache \

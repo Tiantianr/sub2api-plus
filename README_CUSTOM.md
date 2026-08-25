@@ -98,7 +98,7 @@ git merge --no-ff 'vX.Y.Z+custom.NNN'
 作为个人二开迭代区间：
 
 ```text
-当前 Plus 基线：v0.1.178+custom.002
+当前 Plus 基线：v0.1.178+custom.003
 个人已发布版本：v0.1.178+custom.901
 同一官方基线的下一版本：v0.1.178+custom.902
 新官方基线首版：v0.1.179+custom.901
@@ -111,21 +111,21 @@ git merge --no-ff 'vX.Y.Z+custom.NNN'
 
 | 个人版本 | LuckyKuang 基线 | 状态 |
 | --- | --- | --- |
-| `v0.1.178+custom.902` | `v0.1.178+custom.002` | 计划发布 |
+| `v0.1.178+custom.902` | `v0.1.178+custom.003` | 计划发布 |
 | `v0.1.178+custom.901` | `v0.1.178+custom.001` | 已发布 |
 | `v0.1.178+custom.001` | 同名上游版本 | 已发布回退基线 |
 
 ## 一键更新边界
 
 本 fork 已将一键更新源切换到 `Tiantianr/sub2api-plus`，并已完成
-`v0.1.178+custom.901` 的 Release 与公开多架构镜像验证。新候选版本在完整发布验证前，界面不会有对应资产。
+`v0.1.178+custom.901` 的 Release 与公开镜像验证。新候选版本在完整发布验证前，界面不会有对应资产。
 ID3 尚未切换到个人不可变镜像，因此生产环境仍不得使用“升级”或“版本回退”。
 
 本 fork 的每个版本发布必须满足以下条件：
 
 1. 后端更新源及前端仓库、镜像地址保持为个人发布仓库。
 2. 由个人 CI 生成匹配平台的二进制、`checksums.txt`、GitHub Release 和 GHCR 镜像。
-3. GHCR 不可变标签必须公开，并包含 `linux/amd64` 与 `linux/arm64` manifest。
+3. GHCR 不可变标签必须公开，并提供 ID3 当前使用的 `linux/arm64` 镜像。
 4. 保持发布构建的 `BuildType=release`；普通源码构建不会提供在线升级。
 
 生产使用前还必须将 ID3 Compose 固定到同版本的个人不可变镜像，不能只依赖容器可写层中的自更新二进制。
@@ -136,8 +136,9 @@ ID3 尚未切换到个人不可变镜像，因此生产环境仍不得使用“�
 ## GitHub CI 与发布流水线
 
 `submit-pr` 在本机运行 Go unit、Vitest、版本、文档、迁移和部署静态 preflight；功能分支和 PR 的 Linux Actions
-负责 integration、lint、生产构建、Docker、仓库策略和安全扫描。发布仅允许从已经合并并验证的 `main`
-提交创建不可变标签；禁止直接运行 `git push --tags`。
+负责 integration、lint、生产构建、Docker、仓库策略和安全扫描。受保护 `main` 同时预构建精确提交的
+Linux arm64 镜像 artifact；显式发布标签后，Release workflow 复用该验证结果并在五分钟执行预算内推送镜像，
+不重复完整测试矩阵。发布仅允许从已经合并并验证的 `main` 提交创建不可变标签；禁止直接运行 `git push --tags`。
 
 提交最终 PR：
 
@@ -174,7 +175,7 @@ python3 skills/release-cli/scripts/release_cli.py verify \
 ```text
 GitHub Release: https://github.com/Tiantianr/sub2api-plus/releases/tag/vX.Y.Z+custom.NNN
 GHCR:          ghcr.io/tiantianr/sub2api-plus:vX.Y.Z-custom.NNN
-Platforms:     linux/amd64, linux/arm64
+Platform:      linux/arm64
 ```
 
 GHCR 包首次创建后设为 public 并验证匿名 `docker pull`；后续版本继承包可见性。Release 完成后再通过单独 PR
@@ -187,7 +188,7 @@ ID3 是生产运行环境，不在服务器或容器里直接修改源代码。�
 1. 备份 PostgreSQL、配置文件和当前 Compose，记录当前镜像标签及摘要。
 2. 在独立数据库和 Redis 上验证候选镜像；验证环境不得连接生产数据库。
 3. 检查 migration、登录、管理后台、API 转发、SSE、WebSocket 和后台任务。
-4. 更新 ID3 Compose 中的个人镜像标签，只重建 `sub2api` 应用容器。
+4. 更新 ID3 Compose 为个人镜像的 `版本标签@sha256:digest`，只重建 `sub2api` 应用容器。
 5. 等待健康检查通过，再执行公网冒烟测试。
 6. 保留旧镜像和升级前数据库备份，直到新版本稳定。
 

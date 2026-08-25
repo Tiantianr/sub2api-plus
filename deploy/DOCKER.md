@@ -10,7 +10,7 @@ docker run -d \
   -p 8080:8080 \
   -e DATABASE_URL="postgres://user:pass@host:5432/sub2api" \
   -e REDIS_URL="redis://host:6379" \
-  ghcr.io/tiantianr/sub2api-plus:latest
+  ghcr.io/tiantianr/sub2api-plus:vX.Y.Z-custom.NNN
 ```
 
 ## Docker Compose
@@ -20,7 +20,7 @@ version: '3.8'
 
 services:
   sub2api:
-    image: ghcr.io/tiantianr/sub2api-plus:latest
+    image: ghcr.io/tiantianr/sub2api-plus:vX.Y.Z-custom.NNN
     ports:
       - "8080:8080"
     environment:
@@ -68,15 +68,15 @@ application container after changing these values.
 
 ## Supported Architectures
 
-- `linux/amd64`
 - `linux/arm64`
+
+Personal releases from `v0.1.178+custom.902` onward target the current
+production architecture only. Other operating systems and CPU architectures
+are not published by this distribution.
 
 ## Tags
 
-- `latest` - Latest stable release
 - `vX.Y.Z-custom.NNN` - Immutable fork release, for example `v0.1.178-custom.902`
-- `x.y` - Latest patch of minor version
-- `x` - Latest minor of major version
 
 Git and GitHub Releases use `vX.Y.Z+custom.NNN`. The release workflow
 preserves the leading `v` and replaces only `+` with `-` to produce the
@@ -87,8 +87,9 @@ Git/GitHub: v0.1.178+custom.902
 GHCR:       ghcr.io/tiantianr/sub2api-plus:v0.1.178-custom.902
 ```
 
-Pin the immutable release tag in production. Use `latest` only when automatic
-movement to the newest custom release is intentional.
+After verification, record the published digest and pin
+`ghcr.io/tiantianr/sub2api-plus:<version>@sha256:<digest>` in production. This
+distribution does not move shared `latest`, major, or minor aliases.
 
 ## Links
 

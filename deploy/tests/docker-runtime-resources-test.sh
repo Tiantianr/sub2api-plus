@@ -19,22 +19,27 @@ assert_line() {
   normalized_file "$file" | grep -Fqx "$line" || fail "$file is missing: $line"
 }
 
-assert_count() {
+assert_absent() {
   file=$1
-  line=$2
-  expected=$3
-  actual=$(normalized_file "$file" | grep -Fxc "$line" || true)
-  [ "$actual" -eq "$expected" ] || fail "$file has $actual occurrences of '$line', expected $expected"
+  text=$2
+  if normalized_file "$file" | grep -Fq "$text"; then
+    fail "$file unexpectedly contains: $text"
+  fi
 }
 
 test -s backend/resources/model-pricing/model_prices_and_context_window.json || \
   fail 'fallback pricing data is missing or empty'
 
-assert_line Dockerfile.goreleaser 'COPY ${TARGETPLATFORM}/sub2api /app/sub2api'
-assert_line Dockerfile.goreleaser 'COPY --chown=sub2api:sub2api backend/resources /app/resources'
+assert_line Dockerfile 'COPY --from=backend-builder --chown=sub2api:sub2api /app/backend/resources /app/resources'
 assert_line deploy/Dockerfile 'COPY --from=backend-builder --chown=sub2api:sub2api /app/backend/resources /app/resources'
 assert_line .goreleaser.yaml '      - src: backend/resources/model-pricing/model_prices_and_context_window.json'
 assert_line .goreleaser.yaml '        dst: resources/model-pricing'
-assert_count .goreleaser.yaml '    extra_files: [deploy/docker-entrypoint.sh, backend/resources]' 6
+assert_line .goreleaser.yaml '      - linux'
+assert_line .goreleaser.yaml '      - arm64'
+assert_absent .goreleaser.yaml '      - amd64'
+assert_absent .goreleaser.yaml '      - darwin'
+assert_absent .goreleaser.yaml '      - windows'
+assert_absent deploy/install.sh '        x86_64)'
+assert_absent deploy/install.sh '        darwin)'
 
 printf 'docker runtime resources test passed\n'

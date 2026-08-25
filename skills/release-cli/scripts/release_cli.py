@@ -46,6 +46,7 @@ REQUIRED_PR_STATUS_CONTEXTS = frozenset(
         "frontend",
         "golangci-lint",
         "goreleaser-config",
+        "linux-image-artifact",
         "repository-policy",
         "backend-security",
         "frontend-security",
@@ -53,11 +54,7 @@ REQUIRED_PR_STATUS_CONTEXTS = frozenset(
 )
 PRICING_ASSETS = frozenset({"model-pricing.json", "model-pricing-manifest.json"})
 RELEASE_PLATFORMS = (
-    ("darwin", "amd64", "tar.gz"),
-    ("darwin", "arm64", "tar.gz"),
-    ("linux", "amd64", "tar.gz"),
     ("linux", "arm64", "tar.gz"),
-    ("windows", "amd64", "zip"),
 )
 FINALIZATION_ALLOWED_PATHS = frozenset(
     {
@@ -909,6 +906,40 @@ def watch_branch_runs(repository: str, branch: str, sha: str) -> None:
     print(f"All main-branch Actions passed for {sha}.")
 
 
+def require_linux_image_artifact(repository: str, branch: str, sha: str) -> None:
+    runs = find_branch_runs(repository, branch, sha)
+    ci_runs = [
+        run
+        for run in runs
+        if run.get("workflowName") == "CI"
+        and run.get("status") == "completed"
+        and run.get("conclusion") == "success"
+    ]
+    if not ci_runs:
+        raise ReleaseCliError(f"no successful CI run contains the Linux image for {sha}")
+    selected = max(ci_runs, key=lambda run: int(run.get("databaseId", 0)))
+    run_id = selected.get("databaseId")
+    data = json_capture(
+        ["gh", "api", f"repos/{repository}/actions/runs/{run_id}/artifacts"],
+        description="GitHub Actions artifact API",
+    )
+    artifacts = data.get("artifacts") if isinstance(data, dict) else None
+    if not isinstance(artifacts, list):
+        raise ReleaseCliError("GitHub Actions artifact API returned an unexpected value")
+    name = f"linux-image-{sha}"
+    matches = [
+        artifact
+        for artifact in artifacts
+        if isinstance(artifact, dict)
+        and artifact.get("name") == name
+        and artifact.get("expired") is False
+    ]
+    if len(matches) != 1:
+        raise ReleaseCliError(
+            f"validated Linux image artifact is missing, expired, or ambiguous: {name}"
+        )
+
+
 def promote_pull_request(
     repository: str,
     number: int,
@@ -1120,7 +1151,7 @@ def waiting_for_release_gate(state: dict[str, object]) -> bool:
         raise ReleaseCliError("GitHub Actions run jobs are not a list")
     return any(
         isinstance(job, dict)
-        and job.get("name") == "Build and publish"
+        and job.get("name") in {"Publish Linux image", "Build release assets"}
         and job.get("status") == "waiting"
         for job in jobs
     )
@@ -1240,27 +1271,50 @@ def verify_public_ghcr(repository: str, tag: str) -> None:
                 (
                     "application/vnd.oci.image.index.v1+json",
                     "application/vnd.docker.distribution.manifest.list.v2+json",
+                    "application/vnd.oci.image.manifest.v1+json",
+                    "application/vnd.docker.distribution.manifest.v2+json",
                 )
             ),
         },
     )
     entries = manifest.get("manifests")
-    if not isinstance(entries, list):
-        raise ReleaseCliError(
-            f"GHCR tag ghcr.io/{image}:{oci_tag} is not a multi-platform index"
-        )
     platforms: set[tuple[str, str]] = set()
-    for entry in entries:
-        if not isinstance(entry, dict):
-            continue
-        platform_data = entry.get("platform")
-        if not isinstance(platform_data, dict):
-            continue
-        os_name = platform_data.get("os")
-        architecture = platform_data.get("architecture")
+    if isinstance(entries, list):
+        for entry in entries:
+            if not isinstance(entry, dict):
+                continue
+            platform_data = entry.get("platform")
+            if not isinstance(platform_data, dict):
+                continue
+            os_name = platform_data.get("os")
+            architecture = platform_data.get("architecture")
+            if isinstance(os_name, str) and isinstance(architecture, str):
+                platforms.add((os_name, architecture))
+    else:
+        config = manifest.get("config")
+        digest = config.get("digest") if isinstance(config, dict) else None
+        if not isinstance(digest, str) or not digest:
+            raise ReleaseCliError(
+                f"GHCR tag ghcr.io/{image}:{oci_tag} has no image config"
+            )
+        image_config = fetch_public_registry_json(
+            f"https://ghcr.io/v2/{image}/blobs/{digest}",
+            headers={
+                "Authorization": f"Bearer {token}",
+                "Accept": ", ".join(
+                    (
+                        "application/vnd.oci.image.config.v1+json",
+                        "application/vnd.docker.container.image.v1+json",
+                    )
+                ),
+            },
+        )
+        os_name = image_config.get("os")
+        architecture = image_config.get("architecture")
         if isinstance(os_name, str) and isinstance(architecture, str):
             platforms.add((os_name, architecture))
-    required = {("linux", "amd64"), ("linux", "arm64")}
+
+    required = {("linux", "arm64")}
     missing = sorted(required - platforms)
     if missing:
         formatted = ", ".join(f"{os_name}/{arch}" for os_name, arch in missing)
@@ -1512,6 +1566,8 @@ def main() -> int:
                 raise ReleaseCliError(
                     f"tag target {target} is not contained by {args.remote}/{default_branch}"
                 )
+            watch_branch_runs(repository, default_branch, target)
+            require_linux_image_artifact(repository, default_branch, target)
             if remote_tag_exists(repository, args.tag):
                 raise ReleaseCliError(
                     f"remote tag already exists: {args.tag}; immutable tags are never reused"

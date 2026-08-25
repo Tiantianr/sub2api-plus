@@ -1,7 +1,7 @@
 ## Why
 
-The Release workflow already orders `Build and publish` after its complete
-verification matrix, but the `release` Environment adds a second manual
+The Release workflow already orders publication after verification, but the
+`release` Environment adds a second manual
 approval after the maintainer has explicitly authorized publication with
 `release-cli publish`. Automating that approval through a privileged CLI would
 collapse the separation between publisher and approver while retaining the
@@ -24,8 +24,11 @@ custom tags immutable.
   initial custom-tag creation but blocks updates and deletion.
 - Make `release-cli publish` verify both external policies before pushing the
   tag, and treat a later waiting Environment job as policy drift.
-- Keep `Build and publish` dependent on the complete release verification job,
-  then let GitHub start it automatically.
+- Reuse the exact successful protected-main CI and Security Scan results instead
+  of rerunning the complete matrix after tag publication.
+- Prebuild a non-public Linux arm64 image artifact on protected main and promote
+  it to the immutable GHCR version within a five-minute runner execution budget.
+- Publish only Linux arm64 images and binary archives.
 - Make the group-usage rollup trigger integration fixtures independent of the
   CI wall clock and explicit about their database session timezone after the
   previous release finalization exposed a midnight-only false failure.
@@ -44,15 +47,15 @@ None.
 
 ## Impact
 
-- **Release operations**: Maintainers no longer approve `Build and publish`
-  after pushing a reviewed tag. They continue to run monitor, verify, and
-  finalize explicitly.
+- **Release operations**: Maintainers no longer approve publication jobs after
+  pushing a reviewed tag. They continue to run monitor, verify, and finalize
+  explicitly.
 - **Repository governance**: The GitHub `release` Environment and a new Tag
   ruleset become externally enforced prerequisites checked by release-cli.
 - **Security**: The manual reviewer gate is replaced by a narrow explicit
   publish boundary, exact tag-only deployment policy, disabled admin bypass,
   immutable tags, least-privilege Actions permissions, and immutable assets.
 - **Compatibility**: Existing tags, Releases, packages, application APIs, and
-  persistent data are unchanged.
+  persistent data are unchanged; new personal releases support Linux arm64 only.
 - **Test reliability**: Fixed timestamps replace a daily eight-hour timezone
   ambiguity in two rollup-trigger integration scenarios.

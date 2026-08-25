@@ -5,11 +5,13 @@ operation that transfers the reviewed annotated tag. PR merge does not create
 or push a tag. Publication, workflow monitoring, Release verification, and
 metadata finalization remain independent recovery boundaries.
 
-Once the tag is transferred, the tag-triggered Release workflow verifies the
-exact ref through the reusable backend matrix. `Build and publish` retains
-`needs: verify` and starts automatically only after that matrix succeeds.
-There is no API call that approves a pending deployment and no privileged
-self-approval credential.
+Protected main CI prebuilds, but does not publish, an exact-SHA Linux arm64 image
+artifact. Once the tag is transferred, the tag-triggered Release workflow
+verifies the annotated ref, main ancestry, the exact successful main CI and
+Security Scan runs, and that artifact. It publishes the immutable image first
+and builds the Linux release assets afterward without rerunning the backend
+matrix. There is no API call that approves a pending deployment and no
+privileged self-approval credential.
 
 ## External policy preflight
 
@@ -23,7 +25,7 @@ initial creation, and block update and deletion.
 All checks fail closed before `git push`. The checks do not attempt to create
 or repair governance because policy mutation requires an explicit repository
 administration decision. A policy change between preflight and deployment is
-still visible: monitor treats a waiting `Build and publish` job as configuration
+still visible: monitor treats a waiting release publication job as configuration
 drift and stops with a recovery diagnostic.
 
 ## Immutability and recovery
@@ -31,8 +33,8 @@ drift and stops with a recovery diagnostic.
 The Environment limits which refs may deploy; the Tag ruleset prevents a
 published version from being moved or deleted. Existing annotated-tag checks,
 default-branch containment, exact release-note subject checks, Release workflow
-identity, immutable pricing assets, pinned Actions, least-privilege job
-permissions, and serialized publication remain unchanged.
+identity, immutable pricing assets and images, pinned Actions, least-privilege
+job permissions, and serialized publication remain unchanged.
 
 If observation is interrupted after tag transfer, the operator resumes with
 `monitor`, then `verify`, then `finalize`. A failed publication is corrected

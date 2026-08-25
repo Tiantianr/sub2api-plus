@@ -15,6 +15,7 @@ GHCR:       ghcr.io/tiantianr/sub2api-plus:v0.1.178-custom.902
 
 Pin the GHCR version tag for reproducible deployments. See
 [`UPSTREAM.md`](../UPSTREAM.md) for iteration and upstream-baseline rules.
+Personal images and binary archives target Linux arm64 only.
 
 ## Deployment Methods
 

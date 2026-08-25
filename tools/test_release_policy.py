@@ -212,14 +212,58 @@ class WorkflowPolicyTests(unittest.TestCase):
         )
         self.assertNotIn("--clobber", workflow)
 
-    def test_release_publish_is_automatic_only_after_verification(self) -> None:
+    def test_release_publish_reuses_exact_validated_main_artifact(self) -> None:
         workflow = ROOT.joinpath(".github/workflows/release.yml").read_text(
             encoding="utf-8"
         )
-        self.assertIn("name: Build and publish", workflow)
-        self.assertIn("needs: verify", workflow)
+        self.assertIn("name: Publish Linux image", workflow)
+        self.assertIn("timeout-minutes: 5", workflow)
+        self.assertIn("successful_run backend-ci.yml", workflow)
+        self.assertIn("successful_run security-scan.yml", workflow)
+        self.assertIn("git merge-base --is-ancestor", workflow)
+        self.assertIn('ARTIFACT_NAME="linux-image-$TARGET"', workflow)
+        self.assertIn("actions/download-artifact@", workflow)
+        self.assertIn("Refusing to replace immutable image", workflow)
+        self.assertIn("name: Build release assets", workflow)
+        self.assertIn("needs: publish-image", workflow)
         self.assertIn("environment:\n      name: release", workflow)
+        self.assertNotIn("uses: ./.github/workflows/backend-ci.yml", workflow)
         self.assertNotIn("required reviewers", workflow)
+
+    def test_main_ci_prebuilds_linux_arm64_without_publishing(self) -> None:
+        workflow = ROOT.joinpath(".github/workflows/backend-ci.yml").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("name: linux-image-artifact", workflow)
+        self.assertIn("runs-on: ubuntu-24.04-arm", workflow)
+        self.assertIn("platforms: linux/arm64", workflow)
+        self.assertIn("outputs: type=docker", workflow)
+        self.assertIn("provenance: false", workflow)
+        self.assertIn("actions/upload-artifact@", workflow)
+        self.assertIn("name: linux-image-${{ github.sha }}", workflow)
+        self.assertIn("docker run --rm", workflow)
+        self.assertNotIn("docker/login-action@", workflow)
+        self.assertNotIn("docker push", workflow)
+
+    def test_release_does_not_move_shared_image_aliases(self) -> None:
+        workflow = ROOT.joinpath(".github/workflows/release.yml").read_text(
+            encoding="utf-8"
+        )
+        self.assertNotIn("for alias in", workflow)
+        self.assertNotIn('docker tag "$LOCAL_IMAGE" "$IMAGE:latest"', workflow)
+        self.assertIn("docker logout ghcr.io", workflow)
+        self.assertIn("docker pull --platform linux/arm64", workflow)
+
+    def test_branch_push_does_not_duplicate_pull_request_workflows(self) -> None:
+        ci = ROOT.joinpath(".github/workflows/backend-ci.yml").read_text(
+            encoding="utf-8"
+        )
+        security = ROOT.joinpath(".github/workflows/security-scan.yml").read_text(
+            encoding="utf-8"
+        )
+        self.assertNotIn('- "**"', ci)
+        self.assertRegex(ci, r"push:\n\s+branches:\n\s+- main")
+        self.assertRegex(security, r"push:\n\s+branches:\n\s+- main")
 
     def test_actionlint_container_is_pinned_to_a_digest(self) -> None:
         workflow = ROOT.joinpath(".github/workflows/backend-ci.yml").read_text(

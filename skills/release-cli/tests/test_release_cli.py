@@ -49,6 +49,15 @@ class ReleaseArtifactValidationTests(unittest.TestCase):
                 release_cli.validate_tag("v1.2.3+custom.900")
 
     def test_verify_release_requires_all_binary_assets_and_ghcr(self) -> None:
+        self.assertEqual(
+            release_cli.required_release_assets(TAG),
+            {
+                "checksums.txt",
+                "model-pricing.json",
+                "model-pricing-manifest.json",
+                "sub2api_1.2.3+custom.009_linux_arm64.tar.gz",
+            },
+        )
         assets = [
             {"name": name}
             for name in sorted(release_cli.required_release_assets(TAG))
@@ -67,13 +76,13 @@ class ReleaseArtifactValidationTests(unittest.TestCase):
             release_cli.verify_release(REPOSITORY, TAG)
         verify_ghcr.assert_called_once_with(REPOSITORY, TAG)
 
-    def test_verify_public_ghcr_requires_both_linux_architectures(self) -> None:
+    def test_verify_public_ghcr_accepts_linux_arm64_index(self) -> None:
         responses = [
             {"token": "anonymous-token"},
             {
                 "manifests": [
-                    {"platform": {"os": "linux", "architecture": "amd64"}},
                     {"platform": {"os": "linux", "architecture": "arm64"}},
+                    {"platform": {"os": "unknown", "architecture": "unknown"}},
                 ]
             },
         ]
@@ -84,11 +93,28 @@ class ReleaseArtifactValidationTests(unittest.TestCase):
         ):
             release_cli.verify_public_ghcr(REPOSITORY, TAG)
 
-        responses[-1] = {
-            "manifests": [
-                {"platform": {"os": "linux", "architecture": "amd64"}}
-            ]
-        }
+    def test_verify_public_ghcr_accepts_single_linux_arm64_manifest(self) -> None:
+        responses = [
+            {"token": "anonymous-token"},
+            {"config": {"digest": "sha256:config"}},
+            {"os": "linux", "architecture": "arm64"},
+        ]
+        with mock.patch.object(
+            release_cli,
+            "fetch_public_registry_json",
+            side_effect=responses,
+        ) as fetch:
+            release_cli.verify_public_ghcr(REPOSITORY, TAG)
+        accept = fetch.call_args_list[1].kwargs["headers"]["Accept"]
+        self.assertIn("application/vnd.oci.image.manifest.v1+json", accept)
+        self.assertIn("application/vnd.docker.distribution.manifest.v2+json", accept)
+
+    def test_verify_public_ghcr_requires_linux_arm64(self) -> None:
+        responses = [
+            {"token": "anonymous-token"},
+            {"config": {"digest": "sha256:config"}},
+            {"os": "linux", "architecture": "amd64"},
+        ]
         with (
             mock.patch.object(
                 release_cli,
@@ -98,6 +124,30 @@ class ReleaseArtifactValidationTests(unittest.TestCase):
             self.assertRaisesRegex(release_cli.ReleaseCliError, "linux/arm64"),
         ):
             release_cli.verify_public_ghcr(REPOSITORY, TAG)
+
+    def test_expired_linux_image_artifact_stops_publication(self) -> None:
+        runs = [
+            {
+                "databaseId": 123,
+                "workflowName": "CI",
+                "status": "completed",
+                "conclusion": "success",
+            }
+        ]
+        with (
+            mock.patch.object(release_cli, "find_branch_runs", return_value=runs),
+            mock.patch.object(
+                release_cli,
+                "json_capture",
+                return_value={
+                    "artifacts": [
+                        {"name": f"linux-image-{MERGE}", "expired": True}
+                    ]
+                },
+            ),
+            self.assertRaisesRegex(release_cli.ReleaseCliError, "missing, expired"),
+        ):
+            release_cli.require_linux_image_artifact(REPOSITORY, "main", MERGE)
 
 
 def protected_rules(
@@ -538,6 +588,10 @@ class MainFlowTest(unittest.TestCase):
             mock.patch.object(release_cli, "repository_default_branch", return_value="main"),
             mock.patch.object(release_cli, "fetch_default_branch", return_value=MERGE),
             mock.patch.object(release_cli, "run_command", return_value=completed),
+            mock.patch.object(release_cli, "watch_branch_runs") as watch_main,
+            mock.patch.object(
+                release_cli, "require_linux_image_artifact"
+            ) as require_image,
             mock.patch.object(release_cli, "remote_tag_exists", return_value=False),
             mock.patch.object(release_cli, "release_details", return_value=None),
             mock.patch.object(
@@ -554,6 +608,8 @@ class MainFlowTest(unittest.TestCase):
             "Push exact release tag", ["git", "push", "origin", TAG]
         )
         release_policy.assert_called_once_with(REPOSITORY)
+        watch_main.assert_called_once_with(REPOSITORY, "main", MERGE)
+        require_image.assert_called_once_with(REPOSITORY, "main", MERGE)
         watch.assert_not_called()
         verify.assert_not_called()
 
@@ -605,7 +661,7 @@ class ReleaseMonitoringTest(unittest.TestCase):
                         "conclusion": "success",
                         "jobs": [
                             {
-                                "name": "Build and publish",
+                                "name": "Build release assets",
                                 "status": "completed",
                             }
                         ],
@@ -648,7 +704,7 @@ class ReleaseMonitoringTest(unittest.TestCase):
                     "status": "waiting",
                     "conclusion": None,
                     "jobs": [
-                        {"name": "Build and publish", "status": "waiting"}
+                        {"name": "Publish Linux image", "status": "waiting"}
                     ],
                     "url": run.url,
                 },

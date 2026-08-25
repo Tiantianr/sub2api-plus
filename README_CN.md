@@ -170,8 +170,8 @@ Git/GitHub: vX.Y.Z+custom.NNN
 GHCR:       ghcr.io/tiantianr/sub2api-plus:vX.Y.Z-custom.NNN
 ```
 
-生产环境建议固定不可变的 GHCR 版本标签；`latest` 只是滚动标签。上游映射见
-[UPSTREAM.md](UPSTREAM.md)，维护者发布规则见
+生产环境应固定不可变的 GHCR 版本标签；本发行版不移动共享的 `latest`、主版本或次版本别名。
+上游映射见 [UPSTREAM.md](UPSTREAM.md)，维护者发布规则见
 [发布流程](docs/RELEASING.md)。
 
 <!-- readme-section:documentation -->
