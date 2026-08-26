@@ -23,6 +23,8 @@ export default {
     currentVersion: '当前版本',
     latestVersion: '最新版本',
     upToDate: '已是最新版本',
+    checkUnavailable: '暂时无法检查版本',
+    checkUnavailableHint: '无法连接版本服务，请稍后重试。在线更新和回退当前不可用。',
     updateAvailable: '有新版本可用！',
     releaseNotes: '更新日志',
     noReleaseNotes: '暂无更新日志',

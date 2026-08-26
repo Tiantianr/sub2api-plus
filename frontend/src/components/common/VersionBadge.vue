@@ -4,11 +4,17 @@
         @click="toggleDropdown"
         class="flex items-center gap-1.5 rounded-lg px-2 py-1 text-xs transition-colors"
         :class="[
-          hasUpdate
+          hasUpdate || versionWarning
             ? 'bg-amber-100 text-amber-700 hover:bg-amber-200 dark:bg-amber-900/30 dark:text-amber-400 dark:hover:bg-amber-900/50'
             : 'bg-gray-100 text-gray-600 hover:bg-gray-200 dark:bg-dark-800 dark:text-dark-400 dark:hover:bg-dark-700'
         ]"
-        :title="hasUpdate ? t('version.updateAvailable') : t('version.upToDate')"
+        :title="
+          versionWarning
+            ? t('version.checkUnavailable')
+            : hasUpdate
+              ? t('version.updateAvailable')
+              : t('version.upToDate')
+        "
       >
         <span v-if="currentVersion" class="font-medium">v{{ currentVersion }}</span>
         <span
@@ -16,7 +22,8 @@
           class="h-3 w-12 animate-pulse rounded bg-gray-200 font-medium dark:bg-dark-600"
         ></span>
         <!-- Update indicator -->
-        <span v-if="hasUpdate" class="relative flex h-2 w-2">
+        <span v-if="versionWarning" class="h-2 w-2 rounded-full bg-amber-500"></span>
+        <span v-else-if="hasUpdate" class="relative flex h-2 w-2">
           <span
             class="absolute inline-flex h-full w-full animate-ping rounded-full bg-amber-400 opacity-75"
           ></span>
@@ -86,7 +93,7 @@
                   <span v-else class="text-2xl font-bold text-gray-400 dark:text-dark-500">--</span>
                   <!-- Show check mark when up to date -->
                   <span
-                    v-if="!hasUpdate"
+                    v-if="!hasUpdate && !versionWarning"
                     class="flex h-5 w-5 items-center justify-center rounded-full bg-green-100 dark:bg-green-900/30"
                   >
                     <svg
@@ -104,9 +111,11 @@
                 </div>
                 <p class="mt-1 text-xs text-gray-500 dark:text-dark-400">
                   {{
-                    hasUpdate
-                      ? t('version.latestVersion') + ': v' + latestVersion
-                      : t('version.upToDate')
+                    versionWarning
+                      ? t('version.checkUnavailable')
+                      : hasUpdate
+                        ? t('version.latestVersion') + ': v' + latestVersion
+                        : t('version.upToDate')
                   }}
                 </p>
               </div>
@@ -226,6 +235,28 @@
                   </template>
                   <span v-else>{{ t('version.restartNow') }}</span>
                 </button>
+              </div>
+
+              <!-- Version service unavailable: do not offer online update or rollback -->
+              <div
+                v-else-if="versionWarning"
+                data-test="version-check-warning"
+                class="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 p-3 dark:border-amber-800/50 dark:bg-amber-900/20"
+              >
+                <Icon
+                  name="exclamationTriangle"
+                  size="sm"
+                  :stroke-width="2"
+                  class="mt-0.5 flex-shrink-0 text-amber-600 dark:text-amber-400"
+                />
+                <div>
+                  <p class="text-sm font-medium text-amber-700 dark:text-amber-300">
+                    {{ t('version.checkUnavailable') }}
+                  </p>
+                  <p class="mt-0.5 text-xs leading-4 text-amber-600/80 dark:text-amber-400/80">
+                    {{ t('version.checkUnavailableHint') }}
+                  </p>
+                </div>
               </div>
 
               <!-- Priority 3: Update available for source build - show git pull hint -->
@@ -662,6 +693,7 @@ const loading = computed(() => appStore.versionLoading)
 const currentVersion = computed(() => normalizeDisplayVersion(appStore.currentVersion))
 const latestVersion = computed(() => normalizeDisplayVersion(appStore.latestVersion))
 const hasUpdate = computed(() => appStore.hasUpdate)
+const versionWarning = computed(() => appStore.versionWarning)
 const releaseInfo = computed(() => appStore.releaseInfo)
 const buildType = computed(() => appStore.buildType)
 

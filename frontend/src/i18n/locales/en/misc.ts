@@ -23,6 +23,9 @@ export default {
     currentVersion: 'Current Version',
     latestVersion: 'Latest Version',
     upToDate: "You're running the latest version.",
+    checkUnavailable: 'Unable to check for versions',
+    checkUnavailableHint:
+      'The version service is unreachable. Online updates and rollbacks are currently unavailable.',
     updateAvailable: 'A new version is available!',
     releaseNotes: 'Release Notes',
     noReleaseNotes: 'No release notes',
