@@ -142,7 +142,7 @@
                 <td class="py-1.5 text-right text-gray-600 dark:text-gray-400">
                   {{ formatTokens(model.total_tokens) }} <span v-if="modelTokenShare(model.total_tokens)" class="text-gray-400">({{ modelTokenShare(model.total_tokens) }})</span>
                 </td>
-                <td class="py-1.5 text-right text-green-600 dark:text-green-400">
+                <td class="py-1.5 text-right text-primary-600 dark:text-primary-400">
                   ${{ formatCost(model.actual_cost) }}
                 </td>
                 <td v-if="showAccountCost" class="py-1.5 text-right text-orange-500 dark:text-orange-400">
@@ -226,7 +226,7 @@
               <td class="py-1.5 text-right text-gray-600 dark:text-gray-400">
                 {{ formatTokens(item.tokens) }} <span v-if="rankingTokenShare(item.tokens)" class="text-gray-400">({{ rankingTokenShare(item.tokens) }})</span>
               </td>
-              <td class="py-1.5 text-right text-green-600 dark:text-green-400">
+              <td class="py-1.5 text-right text-primary-600 dark:text-primary-400">
                 ${{ formatCost(item.actual_cost) }}
               </td>
             </tr>
