@@ -36,4 +36,8 @@ describe('platformColors', () => {
     expect(classes).not.toMatch(/green|emerald|teal/)
     expect(platformAccentColor('openai')).toBe('#3c80e6')
   })
+
+  it('uses the site primary color for unknown platform accents', () => {
+    expect(platformAccentColor('unknown')).toBe('#3c80e6')
+  })
 })
