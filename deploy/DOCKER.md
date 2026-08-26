@@ -76,15 +76,15 @@ are not published by this distribution.
 
 ## Tags
 
-- `vX.Y.Z-custom.NNN` - Immutable fork release, for example `v0.1.178-custom.904`
+- `vX.Y.Z-custom.NNN` - Immutable fork release, for example `v0.1.183-custom.901`
 
 Git and GitHub Releases use `vX.Y.Z+custom.NNN`. The release workflow
 preserves the leading `v` and replaces only `+` with `-` to produce the
 OCI-compatible image tag. For example:
 
 ```text
-Git/GitHub: v0.1.178+custom.904
-GHCR:       ghcr.io/tiantianr/sub2api-plus:v0.1.178-custom.904
+Git/GitHub: v0.1.183+custom.901
+GHCR:       ghcr.io/tiantianr/sub2api-plus:v0.1.183-custom.901
 ```
 
 After verification, record the published digest and pin
