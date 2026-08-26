@@ -2,6 +2,8 @@
 
 ### Requirement: Late OAuth path construction cannot replace the resolved identity
 
+Late OAuth path construction MUST preserve the credential-owner-aware resolved identity.
+
 Messages, native Alpha Search, Alpha Search Responses fallback, and OAuth model
 manifest operations SHALL apply the credential-owner-aware resolved identity
 after endpoint-specific header staging and generic overrides. User-Agent,
