@@ -66,4 +66,21 @@ describe('UsageStatsCards', () => {
     expect(text).toContain('22')
     expect(text).toContain('Cache Hit Rate: 16.4%')
   })
+
+  it('uses the brand palette for total cost', () => {
+    const wrapper = mount(UsageStatsCards, {
+      props: {
+        stats,
+      },
+      global: {
+        stubs: {
+          Icon: true,
+        },
+      },
+    })
+
+    const totalCost = wrapper.findAll('p').find((element) => element.text() === '$0.0010')
+    expect(totalCost?.classes()).toContain('text-primary-600')
+    expect(totalCost?.classes()).not.toContain('text-green-600')
+  })
 })
