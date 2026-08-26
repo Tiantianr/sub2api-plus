@@ -61,6 +61,7 @@ jobs:
     name: backend-test-${{ matrix.shard }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    # Keep the tags separate: tlsfingerprint intentionally reuses test names.
     strategy:
       fail-fast: false
       matrix:
