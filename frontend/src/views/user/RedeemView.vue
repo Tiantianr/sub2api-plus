@@ -238,7 +238,7 @@
                     'flex h-10 w-10 items-center justify-center rounded-xl',
                     isBalanceType(item.type)
                       ? item.value >= 0
-                        ? 'bg-emerald-100 dark:bg-emerald-900/30'
+                        ? 'bg-primary-100 dark:bg-primary-900/30'
                         : 'bg-red-100 dark:bg-red-900/30'
                       : isSubscriptionType(item.type)
                         ? 'bg-purple-100 dark:bg-purple-900/30'
@@ -254,7 +254,7 @@
                     size="md"
                     :class="
                       item.value >= 0
-                        ? 'text-emerald-600 dark:text-emerald-400'
+                        ? 'text-primary-600 dark:text-primary-400'
                         : 'text-red-600 dark:text-red-400'
                     "
                   />
@@ -292,7 +292,7 @@
                     'text-sm font-semibold',
                     isBalanceType(item.type)
                       ? item.value >= 0
-                        ? 'text-emerald-600 dark:text-emerald-400'
+                        ? 'text-primary-600 dark:text-primary-400'
                         : 'text-red-600 dark:text-red-400'
                       : isSubscriptionType(item.type)
                         ? 'text-purple-600 dark:text-purple-400'
