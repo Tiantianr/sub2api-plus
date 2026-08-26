@@ -4,7 +4,7 @@
         @click="toggleDropdown"
         class="flex items-center gap-1.5 rounded-lg px-2 py-1 text-xs transition-colors"
         :class="[
-          hasUpdate || versionWarning
+          hasUpdate
             ? 'bg-amber-100 text-amber-700 hover:bg-amber-200 dark:bg-amber-900/30 dark:text-amber-400 dark:hover:bg-amber-900/50'
             : 'bg-gray-100 text-gray-600 hover:bg-gray-200 dark:bg-dark-800 dark:text-dark-400 dark:hover:bg-dark-700'
         ]"
@@ -22,8 +22,7 @@
           class="h-3 w-12 animate-pulse rounded bg-gray-200 font-medium dark:bg-dark-600"
         ></span>
         <!-- Update indicator -->
-        <span v-if="versionWarning" class="h-2 w-2 rounded-full bg-amber-500"></span>
-        <span v-else-if="hasUpdate" class="relative flex h-2 w-2">
+        <span v-if="hasUpdate" class="relative flex h-2 w-2">
           <span
             class="absolute inline-flex h-full w-full animate-ping rounded-full bg-amber-400 opacity-75"
           ></span>
@@ -241,19 +240,19 @@
               <div
                 v-else-if="versionWarning"
                 data-test="version-check-warning"
-                class="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 p-3 dark:border-amber-800/50 dark:bg-amber-900/20"
+                class="flex items-start gap-2 rounded-lg border border-gray-200 bg-gray-50 p-3 dark:border-dark-600 dark:bg-dark-700/40"
               >
                 <Icon
-                  name="exclamationTriangle"
+                  name="infoCircle"
                   size="sm"
                   :stroke-width="2"
-                  class="mt-0.5 flex-shrink-0 text-amber-600 dark:text-amber-400"
+                  class="mt-0.5 flex-shrink-0 text-gray-500 dark:text-dark-400"
                 />
                 <div>
-                  <p class="text-sm font-medium text-amber-700 dark:text-amber-300">
+                  <p class="text-sm font-medium text-gray-700 dark:text-dark-300">
                     {{ t('version.checkUnavailable') }}
                   </p>
-                  <p class="mt-0.5 text-xs leading-4 text-amber-600/80 dark:text-amber-400/80">
+                  <p class="mt-0.5 text-xs leading-4 text-gray-500 dark:text-dark-400">
                     {{ t('version.checkUnavailableHint') }}
                   </p>
                 </div>

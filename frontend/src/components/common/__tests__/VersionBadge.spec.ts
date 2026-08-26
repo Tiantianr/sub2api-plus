@@ -171,11 +171,17 @@ describe('VersionBadge admin-only rendering', () => {
     await flushPromises()
 
     expect(appStore.versionWarning).toBe('github unavailable')
-    expect(wrapper.find('button').attributes('title')).toBe('version.checkUnavailable')
+    const badge = wrapper.find('button')
+    expect(badge.attributes('title')).toBe('version.checkUnavailable')
+    expect(badge.classes()).toContain('bg-gray-100')
+    expect(badge.classes()).not.toContain('bg-amber-100')
 
-    await wrapper.find('button').trigger('click')
+    await badge.trigger('click')
 
-    expect(wrapper.find('[data-test="version-check-warning"]').exists()).toBe(true)
+    const warning = wrapper.find('[data-test="version-check-warning"]')
+    expect(warning.exists()).toBe(true)
+    expect(warning.classes()).toContain('bg-gray-50')
+    expect(warning.classes()).not.toContain('bg-amber-50')
     expect(wrapper.text()).not.toContain('version.upToDate')
     expect(wrapper.text()).not.toContain('version.rollback')
     expect(getRollbackVersions).not.toHaveBeenCalled()
