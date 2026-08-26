@@ -41,6 +41,7 @@ export const useAppStore = defineStore('app', () => {
   const currentVersion = ref<string>('')
   const latestVersion = ref<string>('')
   const hasUpdate = ref<boolean>(false)
+  const versionWarning = ref<string>('')
   const buildType = ref<string>('source')
   const releaseInfo = ref<ReleaseInfo | null>(null)
   let versionRequestId = 0
@@ -259,6 +260,7 @@ export const useAppStore = defineStore('app', () => {
         current_version: currentVersion.value,
         latest_version: latestVersion.value,
         has_update: hasUpdate.value,
+        warning: versionWarning.value || undefined,
         build_type: buildType.value,
         release_info: releaseInfo.value || undefined,
         cached: true
@@ -280,6 +282,7 @@ export const useAppStore = defineStore('app', () => {
       currentVersion.value = data.current_version
       latestVersion.value = data.latest_version
       hasUpdate.value = data.has_update
+      versionWarning.value = data.warning || ''
       buildType.value = data.build_type || 'source'
       releaseInfo.value = data.release_info || null
       versionLoaded.value = true
@@ -303,6 +306,7 @@ export const useAppStore = defineStore('app', () => {
     versionLoaded.value = false
     versionLoading.value = false
     hasUpdate.value = false
+    versionWarning.value = ''
   }
 
   /**
@@ -491,6 +495,7 @@ export const useAppStore = defineStore('app', () => {
     currentVersion,
     latestVersion,
     hasUpdate,
+    versionWarning,
     buildType,
     releaseInfo,
 

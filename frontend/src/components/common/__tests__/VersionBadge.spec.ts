@@ -142,6 +142,46 @@ describe('VersionBadge admin-only rendering', () => {
     wrapper.unmount()
   })
 
+  it('does not claim the version is current or offer rollback when checks are unavailable', async () => {
+    checkUpdates.mockResolvedValueOnce({
+      current_version: '0.1.183+custom.903',
+      latest_version: '0.1.183+custom.903',
+      has_update: false,
+      warning: 'github unavailable',
+      build_type: 'release',
+      cached: false,
+    })
+    getRollbackVersions.mockReset()
+
+    const wrapper = mountBadge()
+    const authStore = useAuthStore()
+    const appStore = useAppStore()
+    authStore.user = {
+      id: 2,
+      username: 'admin',
+      email: 'admin@example.com',
+      role: 'admin',
+      balance: 0,
+      concurrency: 1,
+      status: 'active',
+      allowed_groups: null,
+      created_at: '2026-01-01',
+      updated_at: '2026-01-01',
+    } as never
+    await flushPromises()
+
+    expect(appStore.versionWarning).toBe('github unavailable')
+    expect(wrapper.find('button').attributes('title')).toBe('version.checkUnavailable')
+
+    await wrapper.find('button').trigger('click')
+
+    expect(wrapper.find('[data-test="version-check-warning"]').exists()).toBe(true)
+    expect(wrapper.text()).not.toContain('version.upToDate')
+    expect(wrapper.text()).not.toContain('version.rollback')
+    expect(getRollbackVersions).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
+
   it('removes the badge and clears cached version state when the user loses admin', async () => {
     const wrapper = mountBadge()
     const authStore = useAuthStore()
