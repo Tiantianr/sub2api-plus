@@ -6,6 +6,7 @@
 data/
 postgres_data/
 redis_data/
+update_state/
 
 # Environment configuration (contains sensitive information)
 .env

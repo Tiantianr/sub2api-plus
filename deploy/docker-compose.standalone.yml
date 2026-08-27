@@ -25,6 +25,7 @@ services:
       - "${BIND_HOST:-0.0.0.0}:${SERVER_PORT:-8080}:8080"
     volumes:
       - sub2api_data:/app/data
+      - sub2api_update_state:/app/.sub2api-update-state
     extra_hosts:
       - "host.docker.internal:host-gateway"
     environment:
@@ -170,4 +171,6 @@ services:
 
 volumes:
   sub2api_data:
+    driver: local
+  sub2api_update_state:
     driver: local

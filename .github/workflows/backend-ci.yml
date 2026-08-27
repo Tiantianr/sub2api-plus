@@ -323,8 +323,69 @@ jobs:
         run: |
           docker load --input "$RUNNER_TEMP/sub2api-linux-arm64.tar"
           IMAGE="sub2api-linux-arm64:$GITHUB_SHA"
+          SWITCHED_IMAGE="$IMAGE-switched"
+          VOLUME="sub2api-runtime-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+          STATE_VOLUME="sub2api-update-state-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+          RUNTIME_MOUNTS=(-v "$VOLUME:/app/data" -v "$STATE_VOLUME:/app/.sub2api-update-state")
+          trap 'docker volume rm -f "$VOLUME" "$STATE_VOLUME" >/dev/null 2>&1 || true' EXIT
           test "$(docker image inspect --format '{{.Os}}/{{.Architecture}}' "$IMAGE")" = "linux/arm64"
-          docker run --rm "$IMAGE" /app/sub2api --version | grep -F "$VERSION"
+          docker volume create "$VOLUME" >/dev/null
+          docker volume create "$STATE_VOLUME" >/dev/null
+          docker run --rm "${RUNTIME_MOUNTS[@]}" "$IMAGE" --version | grep -F "$VERSION"
+          docker run --rm "${RUNTIME_MOUNTS[@]}" --entrypoint /bin/sh "$IMAGE" -c '
+            test -x /app/data/.sub2api-runtime/sub2api
+            test "$(cat /app/.sub2api-update-state/image-build-id)" = "$(cat /app/.sub2api-image-build-id)"
+            test "$(stat -c %U:%G /app/sub2api)" = root:root
+            test "$(stat -c %U:%G /app/.sub2api-update-state/image-build-id)" = root:root
+            test "$(stat -c %a /app/.sub2api-update-state/image-build-id)" = 600
+          '
+          docker run --rm "${RUNTIME_MOUNTS[@]}" "$IMAGE" /bin/sh -c '
+            set -eu
+            test "$(id -u)" -eq 1000
+            test ! -r /app/.sub2api-update-state/image-build-id
+            runtime=/app/data/.sub2api-runtime/sub2api
+            update_tmp=$(mktemp -d /app/data/.sub2api-runtime/.sub2api-update-XXXXXX)
+            printf "%s\n" "#!/bin/sh" "printf \"persisted-web-update:%s\\n\" \"\$(id -u)\"" > "$update_tmp/sub2api"
+            chmod 0755 "$update_tmp/sub2api"
+            rm -f "$runtime.backup"
+            mv "$runtime" "$runtime.backup"
+            mv "$update_tmp/sub2api" "$runtime"
+            rmdir "$update_tmp"
+          '
+          test "$(docker run --rm "${RUNTIME_MOUNTS[@]}" "$IMAGE" --version)" = persisted-web-update:1000
+          docker run --rm "${RUNTIME_MOUNTS[@]}" "$IMAGE" /bin/sh -c '
+            set -eu
+            runtime=/app/data/.sub2api-runtime/sub2api
+            rm -f "$runtime.backup"
+            mv "$runtime" "$runtime.backup"
+          '
+          test "$(docker run --rm "${RUNTIME_MOUNTS[@]}" "$IMAGE" --version)" = persisted-web-update:1000
+          mkdir -p "$RUNNER_TEMP/switched-image"
+          cat > "$RUNNER_TEMP/switched-image/Dockerfile" <<EOF
+          FROM $IMAGE
+          USER root
+          RUN printf '%s\n' '#!/bin/sh' 'printf "switched-image:%s\n" "\$(id -u)"' > /app/sub2api && \
+              chmod 0755 /app/sub2api && \
+              sha256sum /app/sub2api | awk '{print \$1}' > /app/.sub2api-image-build-id
+          EOF
+          docker build -q -t "$SWITCHED_IMAGE" "$RUNNER_TEMP/switched-image"
+          SWITCHED_ID=$(docker run --rm --entrypoint /bin/sh "$SWITCHED_IMAGE" -c 'cat /app/.sub2api-image-build-id')
+          docker run --rm "${RUNTIME_MOUNTS[@]}" -e SWITCHED_ID="$SWITCHED_ID" "$IMAGE" /bin/sh -c '
+            set -eu
+            test ! -r /app/.sub2api-update-state/image-build-id
+            if printf "%s\n" "$SWITCHED_ID" > /app/.sub2api-update-state/image-build-id 2>/dev/null; then
+              exit 1
+            fi
+            printf "%s\n" "$SWITCHED_ID" > /app/data/.sub2api-runtime/image-build-id
+            rm -rf /app/data/.sub2api-runtime/sub2api.backup
+            mkdir /app/data/.sub2api-runtime/sub2api.backup
+          '
+          test "$(docker run --rm "${RUNTIME_MOUNTS[@]}" "$SWITCHED_IMAGE" --version)" = switched-image:1000
+          docker run --rm "${RUNTIME_MOUNTS[@]}" --entrypoint /bin/sh "$SWITCHED_IMAGE" -c '
+            test "$(cat /app/.sub2api-image-build-id)" = "$(sha256sum /app/sub2api | awk "{print \$1}")"
+            test "$(cat /app/.sub2api-update-state/image-build-id)" = "$(cat /app/.sub2api-image-build-id)"
+            test ! -e /app/data/.sub2api-runtime/sub2api.backup
+          '
       - name: Upload validated Linux image artifact
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
