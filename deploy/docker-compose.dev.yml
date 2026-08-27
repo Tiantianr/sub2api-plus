@@ -23,6 +23,7 @@ services:
       - "${BIND_HOST:-127.0.0.1}:${SERVER_PORT:-8080}:8080"
     volumes:
       - ./data:/app/data:Z
+      - ./update_state:/app/.sub2api-update-state:Z
     environment:
       - AUTO_SETUP=true
       - SERVER_HOST=0.0.0.0

@@ -146,6 +146,18 @@ func TestUpdateServiceDownloadAndVerifyArchiveRejectsActualChecksumMismatch(t *t
 	require.ErrorContains(t, err, "checksum verification failed: checksum mismatch")
 }
 
+func TestUpdateServiceApplyReleaseAssetsRequiresChecksum(t *testing.T) {
+	version := "0.1.169+custom.001"
+	svc := NewUpdateService(&updateServiceCacheStub{}, &updateServiceGitHubClientStub{}, "0.1.166+custom.009", "release")
+
+	err := svc.applyReleaseAssets(context.Background(), version, []Asset{{
+		Name:        svc.getArchiveName(version),
+		DownloadURL: "https://github.com/Tiantianr/sub2api-plus/releases/download/test/sub2api.tar.gz",
+	}})
+
+	require.ErrorContains(t, err, "release checksum asset is missing")
+}
+
 func newRollbackTestService(current string, releases []*GitHubRelease) *UpdateService {
 	return NewUpdateService(
 		&updateServiceCacheStub{},

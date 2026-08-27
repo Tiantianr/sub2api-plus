@@ -96,7 +96,8 @@ RUN --mount=type=cache,id=sub2api-gomod,target=/go/pkg/mod \
     -ldflags="-s -w -X main.Version=${VERSION_VALUE} -X main.Commit=${COMMIT} -X main.Date=${DATE_VALUE} -X main.BuildType=release" \
     -trimpath \
     -o /app/sub2api \
-    ./cmd/server
+    ./cmd/server && \
+    sha256sum /app/sub2api | awk '{print $1}' > /app/image-build-id
 
 # -----------------------------------------------------------------------------
 # Stage 3: PostgreSQL Client (version-matched with docker-compose)
@@ -146,11 +147,14 @@ RUN addgroup -g 1000 sub2api && \
 WORKDIR /app
 
 # Copy binary/resources with ownership to avoid extra full-layer chown copy
-COPY --from=backend-builder --chown=sub2api:sub2api /app/sub2api /app/sub2api
+COPY --from=backend-builder /app/sub2api /app/sub2api
+COPY --from=backend-builder /app/image-build-id /app/.sub2api-image-build-id
 COPY --from=backend-builder --chown=sub2api:sub2api /app/backend/resources /app/resources
 
 # Create data directory
-RUN mkdir -p /app/data && chown sub2api:sub2api /app/data
+RUN mkdir -p /app/data /app/.sub2api-update-state && \
+    chown sub2api:sub2api /app/data && \
+    chmod 0700 /app/.sub2api-update-state
 
 # Copy entrypoint script (fixes volume permissions then drops to sub2api)
 COPY deploy/docker-entrypoint.sh /app/docker-entrypoint.sh
@@ -163,6 +167,7 @@ EXPOSE 8080
 HEALTHCHECK --interval=30s --timeout=10s --start-period=10s --retries=3 \
     CMD wget -q -T 5 -O /dev/null http://localhost:${SERVER_PORT:-8080}/health || exit 1
 
-# Run the application (entrypoint fixes /app/data ownership then execs as sub2api)
+# Run the application. The entrypoint seeds a persistent runtime binary under
+# /app/data so authenticated web updates survive Docker restarts and recreates.
 ENTRYPOINT ["/app/docker-entrypoint.sh"]
 CMD ["/app/sub2api"]

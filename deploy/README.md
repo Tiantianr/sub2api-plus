@@ -64,7 +64,7 @@ chmod +x docker-deploy.sh
 - Downloads `docker-compose.local.yml` and `.env.example`
 - Automatically generates secure secrets (JWT_SECRET, TOTP_ENCRYPTION_KEY, POSTGRES_PASSWORD)
 - Creates `.env` file with generated secrets
-- Creates necessary data directories (data/, postgres_data/, redis_data/)
+- Creates necessary data directories (data/, postgres_data/, redis_data/, update_state/)
 - **Displays generated credentials** (POSTGRES_PASSWORD, JWT_SECRET, etc.)
 
 **After running the script:**
@@ -103,7 +103,7 @@ echo "JWT_SECRET=${JWT_SECRET}" >> .env
 echo "TOTP_ENCRYPTION_KEY=${TOTP_ENCRYPTION_KEY}" >> .env
 
 # Create data directories
-mkdir -p data postgres_data redis_data
+mkdir -p data postgres_data redis_data update_state
 
 # Start all services using local directory version
 docker compose -f docker-compose.local.yml up -d
@@ -209,7 +209,7 @@ docker compose -f docker-compose.local.yml up -d
 
 # Remove all data (caution!)
 docker compose -f docker-compose.local.yml down
-rm -rf data/ postgres_data/ redis_data/
+rm -rf data/ postgres_data/ redis_data/ update_state/
 ```
 
 For **named volumes version** (docker-compose.yml):
@@ -234,6 +234,31 @@ docker compose up -d
 # Remove all data (caution!)
 docker compose down -v
 ```
+
+### Web updates in Docker
+
+Docker images keep their built-in binary read-only and run a synchronized copy
+from `/app/data/.sub2api-runtime/sub2api`. Compose also mounts a root-only image
+identity at `/app/.sub2api-update-state`; the application process cannot read or
+change it. This lets an administrator use the
+version menu in the web UI to download, verify, and atomically install a release
+without granting the application access to the Docker socket. Select **Restart**
+in the same menu when the update is ready; Docker's configured restart policy
+starts the persisted binary.
+
+The runtime copy and trusted image identity survive container and host restarts
+through separate persistent mounts. An explicit Compose image change or rollback
+has priority: when the image build identity changes, the entrypoint replaces the
+runtime copy with the binary from that image and clears the obsolete local
+rollback copy. Back up both `/app/data` and the update-state mount when moving a
+deployment. If the trusted state is lost, the selected image safely replaces any
+website-installed runtime binary on the next start.
+
+Deployments created before this behavior was added need one normal image upgrade
+to enable it. Subsequent compatible releases can be installed from the web UI.
+The update still requires a process restart before the new code is active.
+Keep the image's default container user: the root entrypoint prepares trusted
+state and then launches the application itself as UID 1000.
 
 ### Environment Variables
 
@@ -691,7 +716,7 @@ docker compose -f docker-compose.local.yml exec redis redis-cli ping
 docker compose -f docker-compose.local.yml restart
 
 # Check data directories
-ls -la data/ postgres_data/ redis_data/
+ls -la data/ postgres_data/ redis_data/ update_state/
 ```
 
 For **named volumes version**:

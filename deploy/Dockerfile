@@ -18,7 +18,7 @@ ARG GOSUMDB=sum.golang.google.cn
 FROM ${NODE_IMAGE} AS frontend-builder
 
 WORKDIR /app/frontend
-ENV NODE_OPTIONS=--max-old-space-size=1536
+ENV NODE_OPTIONS=--max-old-space-size=3072
 
 # Install pnpm. Keep this pinned to the lockfile-compatible major version so
 # Docker builds remain reproducible when pnpm changes config validation rules.
@@ -76,7 +76,8 @@ RUN VERSION_VALUE="${VERSION}" && \
     -tags embed \
     -ldflags="-s -w -X main.Version=${VERSION_VALUE} -X main.Commit=${COMMIT} -X main.Date=${DATE_VALUE} -X main.BuildType=release" \
     -o /app/sub2api \
-    ./cmd/server
+    ./cmd/server && \
+    sha256sum /app/sub2api | awk '{print $1}' > /app/image-build-id
 
 # -----------------------------------------------------------------------------
 # Stage 3: Final Runtime Image
@@ -106,10 +107,14 @@ WORKDIR /app
 
 # Copy binary and runtime fallback resources from builder
 COPY --from=backend-builder /app/sub2api /app/sub2api
+COPY --from=backend-builder /app/image-build-id /app/.sub2api-image-build-id
 COPY --from=backend-builder --chown=sub2api:sub2api /app/backend/resources /app/resources
 
-# Create data directory
-RUN mkdir -p /app/data && chown -R sub2api:sub2api /app
+# Create the writable data directory without making the immutable image binary
+# or image build identity writable by the application process.
+RUN mkdir -p /app/data /app/.sub2api-update-state && \
+    chown sub2api:sub2api /app/data && \
+    chmod 0700 /app/.sub2api-update-state
 
 # Copy entrypoint script (fixes volume permissions then drops to sub2api)
 COPY deploy/docker-entrypoint.sh /app/docker-entrypoint.sh
@@ -122,6 +127,7 @@ EXPOSE 8080
 HEALTHCHECK --interval=30s --timeout=10s --start-period=10s --retries=3 \
     CMD wget -q -T 5 -O /dev/null http://localhost:${SERVER_PORT:-8080}/health || exit 1
 
-# Run the application (entrypoint fixes /app/data ownership then execs as sub2api)
+# Run the application. The entrypoint seeds a persistent runtime binary under
+# /app/data so authenticated web updates survive Docker restarts and recreates.
 ENTRYPOINT ["/app/docker-entrypoint.sh"]
 CMD ["/app/sub2api"]
