@@ -103,6 +103,7 @@ func TestCoordinatorPromptPolicyBlockWinsLegacyUnavailable(t *testing.T) {
 
 	require.Equal(t, DecisionBlock, decision.Kind)
 	require.Equal(t, ErrorCodeBlocked, decision.ErrorCode)
+	require.Equal(t, "安全审计拒绝了该请求，请移除破限插件等绕过行为，或检查提示词后重试", decision.ClientMessage)
 	require.False(t, decision.AllowNextStage)
 }
 

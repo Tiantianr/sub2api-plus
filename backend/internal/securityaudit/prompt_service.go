@@ -232,6 +232,8 @@ func (s *PromptService) Runtime(ctx context.Context) RuntimeSnapshot {
 		if err != nil {
 			runtime.DatabaseStatus = "error"
 			runtime.LastErrorCode = "database_unavailable"
+			now := s.clock.Now()
+			runtime.LastErrorAt = &now
 			logPromptRuntimeFailure(EventProcessFailed, "queue_stats_failed")
 		} else {
 			runtime.Queue = stats
@@ -247,6 +249,8 @@ func (s *PromptService) Runtime(ctx context.Context) RuntimeSnapshot {
 		runtime.RedisStatus = "error"
 		if runtime.LastErrorCode == "" {
 			runtime.LastErrorCode = "payload_store_unavailable"
+			now := s.clock.Now()
+			runtime.LastErrorAt = &now
 		}
 		logPromptRuntimeFailure(EventProcessFailed, "payload_store_unavailable")
 	}
@@ -263,6 +267,7 @@ func (s *PromptService) Runtime(ctx context.Context) RuntimeSnapshot {
 	runtime.WorkerHeartbeatAt, runtime.LastProcessedAt = heartbeat, lastProcessed
 	if workerCode != "" {
 		runtime.LastErrorCode, runtime.LastErrorMessage = workerCode, workerMessage
+		runtime.LastErrorAt = s.runner.LastErrorAt()
 	}
 	if mode != ModeOff {
 		runtime.ProcessStatus = "running"

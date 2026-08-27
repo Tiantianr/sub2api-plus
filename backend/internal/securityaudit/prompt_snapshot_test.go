@@ -73,12 +73,29 @@ func TestSnapshotFullPromptKeepsUnredactedText(t *testing.T) {
 	require.Equal(t, snapshot.FullPrompt, snapshot.Redacted().FullPrompt)
 }
 
-func TestBuildFullPromptStripsNULAndTruncates(t *testing.T) {
-	require.Equal(t, "abcd", BuildFullPrompt("ab\x00cd", 0))
-	long := strings.Repeat("长", DefaultFullPromptMaxRunes+10)
-	trimmed := BuildFullPrompt(long, DefaultFullPromptMaxRunes)
-	require.Equal(t, DefaultFullPromptMaxRunes+1, utf8.RuneCountInString(trimmed))
-	require.True(t, strings.HasSuffix(trimmed, "…"))
+func TestSnapshotPreservesLongPromptAndNormalizesClientIP(t *testing.T) {
+	content := strings.Repeat("长", 70000)
+	body, err := json.Marshal(map[string]any{"messages": []map[string]string{{"role": "user", "content": content}}})
+	require.NoError(t, err)
+
+	snapshot, err := ExtractPromptSnapshot(Request{
+		Protocol: "openai_chat_completions",
+		ClientIP: "2001:0db8:0:0:0:0:0:1",
+		Body:     body,
+	})
+	require.NoError(t, err)
+	require.Equal(t, "2001:db8::1", snapshot.ClientIP)
+	require.Equal(t, content, snapshot.FullPrompt)
+	require.Equal(t, 70000, snapshot.PromptLength)
+	require.False(t, snapshot.FullPromptTruncated)
+}
+
+func TestBuildFullPromptStripsNULWithoutTruncating(t *testing.T) {
+	require.Equal(t, "abcd", BuildFullPrompt("ab\x00cd"))
+	long := strings.Repeat("长", 65546)
+	stored := BuildFullPrompt(long)
+	require.Equal(t, long, stored)
+	require.Equal(t, 65546, utf8.RuneCountInString(stored))
 }
 
 func TestFullPromptFromScanTextRestoresMultiSegmentLayout(t *testing.T) {
