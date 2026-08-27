@@ -34,8 +34,10 @@ jobs:
           /bin/sh deploy/tests/docker-runtime-resources-test.sh
           /bin/sh deploy/test-caddyfile-cache.sh
 
-  test:
+  backend_test_preflight:
+    name: backend-test-preflight
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -54,12 +56,110 @@ jobs:
       - name: Check Go module tidiness
         working-directory: backend
         run: go mod tidy -diff
-      - name: Unit tests
+
+  backend_test_shards:
+    name: backend-test-${{ matrix.shard }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    # Keep the tags separate: tlsfingerprint intentionally reuses test names.
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # internal/service is one large Go package, so package-level
+          # sharding cannot keep it below the five-minute job budget. These
+          # patterns partition every Test/Example name without overlap.
+          - shard: unit-service-a-f
+            tags: unit
+            packages: ./internal/service/...
+            exclude: ""
+            pattern: ^Test[A-F]
+          - shard: unit-service-g-m
+            tags: unit
+            packages: ./internal/service/...
+            exclude: ""
+            pattern: ^Test[G-M]
+          - shard: unit-service-n-s
+            tags: unit
+            packages: ./internal/service/...
+            exclude: ""
+            pattern: ^Test[N-S]
+          - shard: unit-service-t-z
+            tags: unit
+            packages: ./internal/service/...
+            exclude: ""
+            pattern: ^(Test[T-Z]|Test[^A-Z]|Example)
+          - shard: unit-rest
+            tags: unit
+            packages: ""
+            exclude: /internal/service($|/)
+            pattern: ""
+          - shard: integration-service
+            tags: integration
+            packages: ./internal/service/...
+            exclude: ""
+            pattern: ""
+          - shard: integration-repository
+            tags: integration
+            packages: ./internal/repository
+            exclude: ""
+            pattern: ""
+          - shard: integration-rest
+            tags: integration
+            packages: ""
+            exclude: /internal/service($|/)|/internal/repository$
+            pattern: ""
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          ref: ${{ inputs.ref || github.ref }}
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: backend/go.mod
+          check-latest: false
+          cache: true
+          cache-dependency-path: backend/go.sum
+      - name: Run ${{ matrix.shard }} tests
         working-directory: backend
-        run: make test-unit
-      - name: Integration tests
-        working-directory: backend
-        run: make test-integration
+        env:
+          TEST_TAGS: ${{ matrix.tags }}
+          TEST_PACKAGES: ${{ matrix.packages }}
+          EXCLUDED_PACKAGE_PATTERN: ${{ matrix.exclude }}
+          TEST_PATTERN: ${{ matrix.pattern }}
+        run: |
+          if [ -n "$TEST_PACKAGES" ]; then
+            if [ -n "$TEST_PATTERN" ]; then
+              go test -tags="$TEST_TAGS" -run "$TEST_PATTERN" "$TEST_PACKAGES"
+            else
+              go test -tags="$TEST_TAGS" "$TEST_PACKAGES"
+            fi
+            exit
+          fi
+
+          packages=()
+          while IFS= read -r package; do
+            packages+=("$package")
+          done < <(go list -tags="$TEST_TAGS" ./... | grep -Ev "$EXCLUDED_PACKAGE_PATTERN")
+          test "${#packages[@]}" -gt 0
+          go test -tags="$TEST_TAGS" "${packages[@]}"
+
+  test:
+    name: test
+    if: always()
+    needs:
+      - backend_test_preflight
+      - backend_test_shards
+    runs-on: ubuntu-latest
+    timeout-minutes: 1
+    steps:
+      - name: Require every backend test shard
+        env:
+          PREFLIGHT_RESULT: ${{ needs.backend_test_preflight.result }}
+          SHARDS_RESULT: ${{ needs.backend_test_shards.result }}
+        run: |
+          test "$PREFLIGHT_RESULT" = success
+          test "$SHARDS_RESULT" = success
 
   frontend:
     runs-on: ubuntu-latest
