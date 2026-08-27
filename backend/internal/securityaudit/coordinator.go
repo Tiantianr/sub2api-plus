@@ -110,7 +110,7 @@ func prioritize(legacy *LegacyDecision, prompt *PromptDecision) Decision {
 	}
 	if prompt != nil && prompt.Kind == DecisionBlock {
 		return Decision{Kind: DecisionBlock, HTTPStatus: http.StatusForbidden, ErrorCode: ErrorCodeBlocked,
-			ClientMessage: "提示词安全审计拒绝了该请求，请调整输入后重试", Legacy: legacy, Prompt: prompt}
+			ClientMessage: "安全审计拒绝了该请求，请移除破限插件等绕过行为，或检查提示词后重试", Legacy: legacy, Prompt: prompt}
 	}
 	if legacyDecisionUnavailable(legacy) {
 		status := legacy.StatusCode

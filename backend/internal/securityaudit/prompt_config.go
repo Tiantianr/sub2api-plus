@@ -23,7 +23,7 @@ const (
 	MaxTimeoutMS         = 30000
 	DefaultInputLimit    = 4000
 	MinInputLimit        = 128
-	MaxInputLimit        = 100000
+	MaxInputLimit        = 500000
 	DefaultPayloadTTL    = 30 * time.Minute
 )
 
