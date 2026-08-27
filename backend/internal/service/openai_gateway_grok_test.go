@@ -2807,7 +2807,7 @@ func TestForwardGrokResponses_StreamErrorPreservesPartialResult(t *testing.T) {
 	body := []byte(`{"model":"grok","stream":true,"input":"hi"}`)
 	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewReader(body))
 	c.Set("api_key", &APIKey{ID: 5405})
-	c.Writer = &failingGinWriter{ResponseWriter: c.Writer, failAfter: 1}
+	c.Writer = &failingGinWriter{ResponseWriter: c.Writer, failAfter: 0}
 
 	account := healthyGrokOAuthGatewayTestAccount(61, "access-token")
 	repo := &grokQuotaAccountRepo{

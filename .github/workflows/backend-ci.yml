@@ -66,26 +66,49 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - shard: unit-service
+          # internal/service is one large Go package, so package-level
+          # sharding cannot keep it below the five-minute job budget. These
+          # patterns partition every Test/Example name without overlap.
+          - shard: unit-service-a-f
             tags: unit
             packages: ./internal/service/...
             exclude: ""
+            pattern: ^Test[A-F]
+          - shard: unit-service-g-m
+            tags: unit
+            packages: ./internal/service/...
+            exclude: ""
+            pattern: ^Test[G-M]
+          - shard: unit-service-n-s
+            tags: unit
+            packages: ./internal/service/...
+            exclude: ""
+            pattern: ^Test[N-S]
+          - shard: unit-service-t-z
+            tags: unit
+            packages: ./internal/service/...
+            exclude: ""
+            pattern: ^(Test[T-Z]|Test[^A-Z]|Example)
           - shard: unit-rest
             tags: unit
             packages: ""
             exclude: /internal/service($|/)
+            pattern: ""
           - shard: integration-service
             tags: integration
             packages: ./internal/service/...
             exclude: ""
+            pattern: ""
           - shard: integration-repository
             tags: integration
             packages: ./internal/repository
             exclude: ""
+            pattern: ""
           - shard: integration-rest
             tags: integration
             packages: ""
             exclude: /internal/service($|/)|/internal/repository$
+            pattern: ""
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -103,9 +126,14 @@ jobs:
           TEST_TAGS: ${{ matrix.tags }}
           TEST_PACKAGES: ${{ matrix.packages }}
           EXCLUDED_PACKAGE_PATTERN: ${{ matrix.exclude }}
+          TEST_PATTERN: ${{ matrix.pattern }}
         run: |
           if [ -n "$TEST_PACKAGES" ]; then
-            go test -tags="$TEST_TAGS" "$TEST_PACKAGES"
+            if [ -n "$TEST_PATTERN" ]; then
+              go test -tags="$TEST_TAGS" -run "$TEST_PATTERN" "$TEST_PACKAGES"
+            else
+              go test -tags="$TEST_TAGS" "$TEST_PACKAGES"
+            fi
             exit
           fi
 
