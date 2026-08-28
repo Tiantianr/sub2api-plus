@@ -94,6 +94,20 @@ completed successfully, and checks:
 - `model-pricing-manifest.json`;
 - an anonymously pullable `linux/arm64` GHCR image.
 
+## Deferred Finalization
+
+Successful `verify` is the normal end of a personal release. Leave its current
+mapping `planned` until the next release PR, then change it to `published` in
+that same already-required PR before adding the next `planned` mapping. Full
+release metadata validation rejects multiple or stale planned mappings, and
+candidate promotion verifies every deferred `planned -> published` transition
+against the published tag, successful workflow, immutable assets, and anonymous
+GHCR image.
+
+The `finalize` action remains available when Git metadata must become current
+immediately. Its deterministic follow-up PR and no-notes promotion contract are
+unchanged.
+
 ## Recovery
 
 - If auto-merge remains pending, rerun `promote-pr`; an existing auto-merge

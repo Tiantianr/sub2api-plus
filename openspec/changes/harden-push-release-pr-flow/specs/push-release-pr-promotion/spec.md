@@ -85,14 +85,27 @@ canonical remote annotated tag instead of trusting a possibly stale local tag.
 
 ### Requirement: Post-publication metadata must return through a pull request
 
-The release tool SHALL finalize a verified publication on a deterministic
-branch created from the latest `origin/main`. It MUST modify only the matching
-`UPSTREAM.md` status, commit that change, and submit it through the same local
-validation and pull-request boundary.
+Successful verification SHALL end a normal personal release without another
+pull request. Its `planned` mapping SHALL be finalized in the next release
+preparation pull request. If immediate metadata is explicitly required, the
+release tool SHALL use a deterministic branch created from the latest
+`origin/main` and the same local validation and pull-request boundary. Neither
+path may commit or push directly to the default branch.
 
-#### Scenario: Published release is finalized
+#### Scenario: Published metadata is deferred
 
 - **WHEN** the Release workflow and immutable assets are verified
-- **THEN** exactly one `planned` mapping SHALL become `published`
+- **THEN** the personal release SHALL complete without a follow-up pull request
+- **THEN** the next release preparation PR SHALL change that verified mapping
+  from `planned` to `published`
+- **THEN** promotion SHALL revalidate the canonical published artifacts
+- **THEN** the exact validated base/head mapping history and upstream ancestry
+  SHALL remain intact
+
+#### Scenario: Immediate published metadata is requested
+
+- **WHEN** a verified release must be reflected in Git before the next release
+- **THEN** exactly one `planned` mapping SHALL become `published` on a
+  deterministic finalization branch
 - **THEN** no commit or branch push SHALL target `main` directly
 - **THEN** the follow-up SHALL be submitted as a pull request

@@ -54,13 +54,16 @@ is absent.
 Start a working branch from the latest `origin/main`, then:
 
 1. Confirm the official upstream tag and commit.
-2. Update `backend/cmd/server/VERSION`.
-3. Update every `ARG VERSION=` in `Dockerfile` and `backend/Dockerfile`.
-4. Add the custom version to `UPSTREAM.md` with status `planned`.
-5. Synchronize install, rollback, and image examples:
+2. If the previous personal release remains `planned`, mark it `published` in
+   this PR; `promote-pr` revalidates its tag, workflow, assets, and image. If it
+   failed publication, mark it `invalid` or `withdrawn` instead.
+3. Update `backend/cmd/server/VERSION`.
+4. Update every `ARG VERSION=` in `Dockerfile` and `backend/Dockerfile`.
+5. Add the custom version to `UPSTREAM.md` with status `planned`.
+6. Synchronize install, rollback, and image examples:
    `python3 tools/update_release_docs.py`.
-6. Write `release-notes.md` from the template below.
-7. Commit all repository changes. Never commit on or push directly to `main`.
+7. Write `release-notes.md` from the template below.
+8. Commit all repository changes. Never commit on or push directly to `main`.
 
 Intermediate pushes are intentionally fast and skip local validation:
 
@@ -231,9 +234,23 @@ silently roll back another deployment. If the validated main image artifact has
 expired, rerun that exact main CI before `publish`; release-cli refuses to push
 the immutable Git tag until the artifact is available.
 
-## Finalize Through a PR
+## Defer Published Mapping
 
-After verification, finalize the published mapping:
+For this single-maintainer distribution, successful `verify` completes the
+release. Do not open another PR immediately. During preparation of the next
+release, change the previous verified version from `planned` to `published` in
+the same release PR, then add the new version as `planned` and regenerate the
+release documents. The metadata gate rejects stale planned versions, and
+`release-cli promote-pr` verifies each deferred transition against its remote
+annotated tag, successful Release workflow, immutable assets, and anonymous
+GHCR image. It also rejects deleted mappings, changed upstream ancestry,
+unrelated new mappings, and invalid status reversals.
+
+This removes all post-publication PR and CI time. GitHub Release and the
+immutable remote tag remain the publication source of truth between releases.
+
+When immediate Git metadata is explicitly required, use the optional recovery
+path:
 
 ```bash
 python3 skills/release-cli/scripts/release_cli.py finalize \
@@ -248,7 +265,7 @@ prepared, it also synchronizes the generated rollback examples; otherwise only
 `UPSTREAM.md` changes. It then calls `push-cli submit-pr` and never commits or
 pushes `main` directly.
 
-After the follow-up PR Actions pass, promote it without release notes:
+After that optional follow-up PR passes, promote it without release notes:
 
 ```bash
 python3 skills/release-cli/scripts/release_cli.py promote-pr \
@@ -270,8 +287,10 @@ to trusted maintainers.
 ## Failed or Invalid Releases
 
 - Never reuse or retag a published version.
-- Record an externally visible bad release as `withdrawn` or `invalid` in
-  `UPSTREAM.md` through a separate PR.
+- Resolve a failed previous `planned` release as `withdrawn` or `invalid` in
+  the next correction release PR.
+- Treat `historical`, `invalid`, and `withdrawn` mappings as terminal; never
+  restore one to `planned` or `published`.
 - Publish corrections under the next custom iteration.
 - If tag push succeeded but local observation was interrupted, resume with
   `monitor`; do not rerun `publish`.

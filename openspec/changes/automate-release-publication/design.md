@@ -37,8 +37,27 @@ identity, immutable pricing assets and images, pinned Actions, least-privilege
 job permissions, and serialized publication remain unchanged.
 
 If observation is interrupted after tag transfer, the operator resumes with
-`monitor`, then `verify`, then `finalize`. A failed publication is corrected
-with a new custom version. No retry reuses, moves, or deletes a published tag.
+`monitor`, then `verify`. Immediate `finalize` is optional. A failed publication
+is corrected with a new custom version. No retry reuses, moves, or deletes a
+published tag.
+
+## Deferred mapping for personal releases
+
+The immutable remote tag, GitHub Release, assets, and GHCR image are the
+publication source of truth. For a single-maintainer distribution, successful
+verification ends the release without a second PR. The mapping remains
+`planned` until preparation of the next release, whose already-required PR
+changes the previous verified mapping to `published` before adding the next
+`planned` row. Full metadata validation rejects stale planned rows, and release
+promotion verifies every deferred transition against the published artifacts.
+A failed prior attempt instead becomes `invalid` or `withdrawn` in the next
+correction release PR and is never represented as a successful publication.
+The exact validated base/head comparison permits only the current new `planned`
+mapping, preserves every existing mapping and upstream ancestry, and enforces
+the one-way status transitions before any deferred publication is trusted.
+
+The explicit `finalize` action remains available when immediate Git metadata is
+operationally necessary, but it is not part of the normal personal release path.
 
 ## Rollout
 

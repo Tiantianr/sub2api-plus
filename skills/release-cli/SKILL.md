@@ -1,6 +1,6 @@
 ---
 name: release-cli
-description: Promote a locally validated Sub2API Plus pull request through protected GitHub auto-merge, create an immutable vX.Y.Z+custom.NNN tag at the tested main merge commit, publish and monitor the automatically gated Release workflow, verify immutable assets, and submit post-publication metadata through a follow-up PR. Use for release PR promotion, tag creation/publication, release-environment monitoring, verification, or UPSTREAM.md finalization. Require an authenticated GitHub CLI, exact submit-pr base/head proof, protected default-branch required checks, repository auto-merge, an automatic tag-only release Environment, immutable custom-tag rules, and successful Actions. Never use admin bypass, directly push main, repeat the full local application matrix, approve a deployment, or combine tag publication with monitor/verify.
+description: Promote a locally validated Sub2API Plus pull request through protected GitHub auto-merge, create an immutable vX.Y.Z+custom.NNN tag at the tested main merge commit, publish and monitor the automatically gated Release workflow, verify immutable assets, and defer published metadata into the next release PR. Use for release PR promotion, tag creation/publication, release-environment monitoring, verification, or exceptional immediate UPSTREAM.md finalization. Require an authenticated GitHub CLI, exact submit-pr base/head proof, protected default-branch required checks, repository auto-merge, an automatic tag-only release Environment, immutable custom-tag rules, and successful Actions. Never use admin bypass, directly push main, repeat the full local application matrix, approve a deployment, or combine tag publication with monitor/verify.
 ---
 
 # Release CLI
@@ -56,18 +56,27 @@ approves it. `verify` is separate and requires that same remote tag, a
 successfully completed workflow, non-draft Release, and both immutable pricing
 assets.
 
-## Finalization
+## Deferred Finalization
 
-After verification, `finalize` fetches the latest `origin/main`, creates a
+For this single-maintainer distribution, successful `verify` ends the release.
+Do not create an immediate post-publication PR. When preparing the next release,
+change the previous verified release from `planned` to `published` in the same
+release PR before adding the new `planned` mapping. Candidate promotion verifies
+every such deferred transition against its remote annotated tag, successful
+Release workflow, immutable assets, and anonymous GHCR image.
+
+`finalize` remains an explicit recovery option when immediate Git metadata is
+required. It fetches the latest `origin/main`, creates a
 deterministic `release/finalize-<version>` branch, and changes exactly one
 `UPSTREAM.md` status from `planned` to `published`. It validates that historical
 mapping independently from the current embedded version, synchronizes rollback
 examples when a newer release has already been prepared, commits only the
 mapping and those generated documentation updates, then invokes `push-cli
 submit-pr`. It never commits or pushes main.
-Promote the resulting PR through the same `promote-pr` policy after its Actions
-pass, omitting `--notes-file`; that form is accepted only for the deterministic
-finalization branch and requires `published` metadata.
+Promote an explicitly requested finalization PR through the same `promote-pr`
+policy after its Actions pass, omitting `--notes-file`; that form is accepted
+only for the deterministic finalization branch and requires `published`
+metadata.
 
 ## Safety
 

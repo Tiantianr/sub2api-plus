@@ -16,6 +16,8 @@
 - [x] 2.5 Create deterministic finalize branches and submit the follow-up PR.
 - [x] 2.6 Add dedicated release-cli unit tests for every state transition and
   fail-closed condition.
+- [x] 2.7 Defer normal personal-release metadata into the next release PR while
+  retaining deterministic immediate finalization as an explicit recovery path.
 
 ## 3. Policy and documentation
 

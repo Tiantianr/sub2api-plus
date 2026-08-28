@@ -22,7 +22,7 @@
 |Release Promotion:Use skills/release-cli with exact submit-pr base/head proof, protected GitHub auto-merge without admin bypass, and successful PR plus merged-main Actions|Release metadata validation must not repeat the complete local application matrix.
 |Release Notes:Per-release changes belong in GitHub Release notes, not README files|Cover compatibility, known issues, and upstream baseline.
 |Release Consistency:Tag, embedded version, Docker build args, and UPSTREAM.md must agree|Never reuse or retag a published version.
-|Release Flow:Never push or commit release changes directly to main|Preparation and post-publication status changes require separate PRs|Tag only the actual PR merge commit after its exact main push Actions pass|Keep tag publication, Release monitoring, verification, and finalization separate and resumable.
+|Release Flow:Never push or commit release changes directly to main|Successful personal-release verification ends publication|Defer verified planned-to-published metadata to the next release preparation PR|Immediate status-only finalization requires a separate PR|Tag only the actual PR merge commit after its exact main push Actions pass|Keep tag publication, Release monitoring, verification, and any immediate finalization separate and resumable.
 |Publication Safety:Do not create, move, delete, or push tags, Releases, or images without explicit publication request.
 |Upstream Merge:Preserve intentional Plus changes and update UPSTREAM.md in the same change.
 |Local Skill:skills/compress-cli

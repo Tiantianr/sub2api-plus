@@ -27,8 +27,9 @@ tag only the tested commit that reached `main`.
   verification.
 - Create release tags from the successfully merged pull-request commit only
   after the exact `main` push Actions succeed.
-- Finalize published metadata on a fresh branch based on the latest
-  `origin/main`, then submit it through the same pull-request gate.
+- End normal personal releases at verification and finalize their published
+  metadata in the next release PR. Retain a fresh finalization branch through
+  the same pull-request gate only when immediate metadata is required.
 
 ## Capabilities
 
@@ -36,7 +37,7 @@ tag only the tested commit that reached `main`.
 
 - `push-release-pr-promotion`: Defines fast branch pushes, locally validated
   pull-request submission, protected automatic merge, immutable tag creation,
-  and post-publication finalization.
+  deferred post-publication metadata, and optional immediate finalization.
 
 ### Modified Capabilities
 

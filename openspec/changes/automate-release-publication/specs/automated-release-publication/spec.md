@@ -50,3 +50,39 @@ external policy drift rather than a normal manual-approval state.
 - **WHEN** the Release workflow reaches a waiting Environment gate
 - **THEN** monitor MUST fail with the workflow URL and a policy-drift diagnostic
 - **THEN** it MUST NOT approve or bypass the deployment
+
+### Requirement: Personal release metadata may be finalized with the next release
+
+Successful release verification SHALL end the normal single-maintainer release
+without requiring a post-publication pull request. The next release candidate
+SHALL finalize any earlier planned release in its existing release PR, and
+promotion SHALL verify the corresponding published artifacts before merge. A
+failed earlier attempt SHALL instead resolve to `invalid` or `withdrawn` before
+the next iteration.
+
+#### Scenario: A verified personal release completes
+
+- **WHEN** the annotated tag, Release workflow, assets, and anonymous Linux
+  arm64 image pass verification
+- **THEN** the release SHALL be complete without another PR or CI run
+- **THEN** the remote immutable release SHALL remain the publication source of
+  truth until the next release PR updates the mapping
+
+#### Scenario: The next release is prepared
+
+- **WHEN** an earlier mapping remains `planned`
+- **THEN** the same release PR SHALL change it to `published` before adding the
+  new planned mapping
+- **THEN** promotion SHALL verify that deferred transition against the remote
+  tag, successful workflow, assets, and anonymous image
+- **THEN** no existing mapping may be deleted or change upstream ancestry, and
+  no unrelated mapping may be added
+
+#### Scenario: The previous release attempt failed
+
+- **WHEN** a planned release did not produce a verified publication
+- **THEN** the next correction release PR MAY resolve it as `invalid` or
+  `withdrawn`
+- **THEN** it MUST NOT represent that failed attempt as `published` or use it as
+  the rollback baseline
+- **THEN** `invalid` and `withdrawn` SHALL be terminal states
