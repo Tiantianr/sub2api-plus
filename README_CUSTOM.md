@@ -181,8 +181,9 @@ GHCR:          ghcr.io/tiantianr/sub2api-plus:vX.Y.Z-custom.NNN
 Platform:      linux/arm64
 ```
 
-GHCR 包首次创建后设为 public 并验证匿名 `docker pull`；后续版本继承包可见性。Release 完成后再通过单独 PR
-将 `UPSTREAM.md` 状态由 `planned` 改为 `published`。
+GHCR 包首次创建后设为 public 并验证匿名 `docker pull`；后续版本继承包可见性。`verify` 成功即结束本次个人发版；
+准备下一版本时，在同一个 release PR 中将上一已验证版本由 `planned` 改为 `published`。只有明确要求立即写回状态时，
+才使用独立 finalization PR。
 
 ## ID3 发布流程
 

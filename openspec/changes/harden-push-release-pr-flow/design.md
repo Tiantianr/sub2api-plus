@@ -3,9 +3,10 @@
 `push-cli` owns ordinary branch transport and the single local validation
 boundary before a pull request is submitted. `release-cli` owns pull-request
 promotion, immutable release tags, release workflow observation, publication
-verification, and the follow-up metadata pull request. The release tool may
-invoke the stable `push-cli submit-pr` command for finalization, but it does not
-import or duplicate the push tool's validation implementation.
+verification, deferred mapping verification, and optional immediate metadata
+pull requests. The release tool may invoke the stable `push-cli submit-pr`
+command for immediate finalization, but it does not import or duplicate the
+push tool's validation implementation.
 
 ## Fast push and validated submission
 
@@ -57,11 +58,20 @@ immutable release assets.
 
 ## Finalization
 
-Finalization requires a verified published release and a clean worktree. It
-fetches `origin/main`, creates a deterministic release-finalization branch from
-that remote commit, changes exactly one `UPSTREAM.md` status from `planned` to
-`published`, validates the result, and creates one commit. It then invokes
-`push-cli submit-pr`; it never pushes or merges `main` directly.
+Successful verification ends a normal personal release. Its mapping remains
+`planned` until the next already-required release PR changes it to `published`.
+Promotion compares that PR's exact validated base and head, preserves the prior
+upstream ancestry, and revalidates the canonical remote tag, successful
+workflow, immutable assets, and anonymous image. A failed prior attempt may
+instead become `invalid` or `withdrawn` before the next iteration; it cannot
+silently become `historical`, and terminal mappings cannot be restored.
+
+When immediate Git metadata is explicitly required, finalization requires a
+verified published release and a clean worktree. It fetches `origin/main`,
+creates a deterministic release-finalization branch from that remote commit,
+changes exactly one `UPSTREAM.md` status from `planned` to `published`, validates
+the result, and creates one commit. It then invokes `push-cli submit-pr`; it
+never pushes or merges `main` directly.
 
 Retries are fail-closed. Existing local branches, remote branches, pull
 requests, tags, or Releases are reused only when their exact recorded identity

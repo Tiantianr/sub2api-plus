@@ -12,9 +12,11 @@ APPLICATION_VERSION_TEXT = r"\d+\.\d+\.\d+\+custom\.\d{3}"
 OCI_TAG_TEXT = r"v\d+\.\d+\.\d+-custom\.\d{3}"
 TAG_RE = re.compile(r"^v(\d+)\.(\d+)\.(\d+)\+custom\.(\d{3})$")
 UPSTREAM_ROW_RE = re.compile(
-    rf"^\|\s*`({TAG_TEXT})`\s*\|.*\|\s*([a-z]+)\s*\|$",
+    rf"^\|\s*`({TAG_TEXT})`\s*\|\s*`[^`]+`\s*\|"
+    rf"\s*`[0-9a-f]{{40}}`\s*\|\s*([a-z]+)\s*\|$",
     re.MULTILINE,
 )
+UPSTREAM_TAG_ROW_RE = re.compile(rf"^\|\s*`({TAG_TEXT})`\s*\|")
 BASELINE_STATUSES = frozenset({"published", "historical"})
 DOCUMENT_ROLLBACK_STATUSES = frozenset({"published"})
 
@@ -113,7 +115,21 @@ def version_key(tag: str) -> tuple[int, int, int, int] | None:
 
 
 def parse_upstream_statuses(text: str) -> dict[str, str]:
-    return dict(UPSTREAM_ROW_RE.findall(text))
+    statuses: dict[str, str] = {}
+    for line in text.splitlines():
+        candidate = UPSTREAM_TAG_ROW_RE.match(line)
+        if candidate is None:
+            continue
+        match = UPSTREAM_ROW_RE.fullmatch(line)
+        if match is None:
+            raise ReleaseDocsError(
+                f"UPSTREAM.md has malformed mapping row for {candidate.group(1)}"
+            )
+        tag, status = match.groups()
+        if tag in statuses:
+            raise ReleaseDocsError(f"UPSTREAM.md has duplicate mapping rows for {tag}")
+        statuses[tag] = status
+    return statuses
 
 
 def select_previous_release_tag(

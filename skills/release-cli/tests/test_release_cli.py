@@ -31,6 +31,7 @@ HEAD = "b" * 40
 MERGE = "c" * 40
 REPOSITORY = "LuckyKuang/sub2api-plus"
 ROOT = Path(__file__).resolve().parents[3]
+CURRENT_MAPPING = f"| `{TAG}` | `v1.2.3` | `{'a' * 40}` | planned |\n"
 
 
 def marker(base: str = BASE, head: str = HEAD) -> str:
@@ -509,6 +510,9 @@ class PromotionTest(unittest.TestCase):
             mock.patch.object(release_cli, "fetch_default_branch", return_value=BASE),
             mock.patch.object(release_cli, "setup_git_transport"),
             mock.patch.object(release_cli, "remote_tag_exists", return_value=False),
+            mock.patch.object(
+                release_cli, "verify_deferred_finalizations"
+            ) as verify_deferred,
             mock.patch.object(release_cli, "run_metadata_preflight"),
             mock.patch.object(release_cli, "require_required_pr_checks"),
             mock.patch.object(release_cli, "run_step") as run_step,
@@ -537,6 +541,7 @@ class PromotionTest(unittest.TestCase):
             merge_commands,
         )
         self.assertFalse(any("--admin" in command for command in merge_commands))
+        verify_deferred.assert_called_once_with(REPOSITORY, proof, TAG)
         watch.assert_called_once_with(REPOSITORY, "main", MERGE)
 
     def test_finalize_promotion_requires_published_tag_and_no_notes(self) -> None:
@@ -748,6 +753,148 @@ class FinalizationTest(unittest.TestCase):
             },
             release_cli.FINALIZATION_ALLOWED_PATHS,
         )
+
+    def test_deferred_transition_is_detected_from_exact_pr_proof(self) -> None:
+        before = f"| `v1.2.3+custom.008` | `v1.2.3` | `{'a' * 40}` | planned |\n"
+        after = before.replace(
+            "`v1.2.3+custom.008` | `v1.2.3` | "
+            f"`{'a' * 40}` | planned",
+            "`v1.2.3+custom.008` | `v1.2.3` | "
+            f"`{'a' * 40}` | published",
+        ) + CURRENT_MAPPING
+        with mock.patch.object(release_cli, "capture", side_effect=[before, after]):
+            self.assertEqual(
+                ["v1.2.3+custom.008"],
+                release_cli.deferred_published_transitions(
+                    release_cli.ValidationProof(BASE, HEAD), TAG
+                ),
+            )
+
+    def test_deferred_transition_rejects_unresolved_historical_status(self) -> None:
+        previous = "v1.2.3+custom.008"
+        before = f"| `{previous}` | `v1.2.3` | `{'a' * 40}` | planned |\n"
+        after = before.replace("planned", "historical") + CURRENT_MAPPING
+        with (
+            mock.patch.object(release_cli, "capture", side_effect=[before, after]),
+            self.assertRaisesRegex(release_cli.ReleaseCliError, re.escape(previous)),
+        ):
+            release_cli.deferred_published_transitions(
+                release_cli.ValidationProof(BASE, HEAD), TAG
+            )
+
+    def test_failed_deferred_transition_accepts_terminal_status(self) -> None:
+        previous = "v1.2.3+custom.008"
+        before = f"| `{previous}` | `v1.2.3` | `{'a' * 40}` | planned |\n"
+        for status in ("invalid", "withdrawn"):
+            with (
+                self.subTest(status=status),
+                mock.patch.object(
+                    release_cli,
+                    "capture",
+                    side_effect=[
+                        before,
+                        before.replace("planned", status) + CURRENT_MAPPING,
+                    ],
+                ),
+            ):
+                self.assertEqual(
+                    [],
+                    release_cli.deferred_published_transitions(
+                        release_cli.ValidationProof(BASE, HEAD), TAG
+                    ),
+                )
+
+    def test_terminal_release_cannot_be_restored_to_published(self) -> None:
+        previous = "v1.2.3+custom.008"
+        before = f"| `{previous}` | `v1.2.3` | `{'a' * 40}` | invalid |\n"
+        after = before.replace("invalid", "published") + CURRENT_MAPPING
+        with (
+            mock.patch.object(release_cli, "capture", side_effect=[before, after]),
+            self.assertRaisesRegex(release_cli.ReleaseCliError, "invalid release mapping"),
+        ):
+            release_cli.deferred_published_transitions(
+                release_cli.ValidationProof(BASE, HEAD), TAG
+            )
+
+    def test_release_pr_rejects_new_published_mapping(self) -> None:
+        previous = "v1.2.3+custom.008"
+        added = f"| `{previous}` | `v1.2.3` | `{'a' * 40}` | published |\n"
+        with (
+            mock.patch.object(
+                release_cli,
+                "capture",
+                side_effect=[CURRENT_MAPPING, added + CURRENT_MAPPING],
+            ),
+            self.assertRaisesRegex(release_cli.ReleaseCliError, "may add only"),
+        ):
+            release_cli.deferred_published_transitions(
+                release_cli.ValidationProof(BASE, HEAD), TAG
+            )
+
+    def test_existing_published_mapping_cannot_be_removed(self) -> None:
+        previous = "v1.2.3+custom.008"
+        published = f"| `{previous}` | `v1.2.3` | `{'a' * 40}` | published |\n"
+        with (
+            mock.patch.object(
+                release_cli,
+                "capture",
+                side_effect=[published, CURRENT_MAPPING],
+            ),
+            self.assertRaisesRegex(release_cli.ReleaseCliError, "cannot be removed"),
+        ):
+            release_cli.deferred_published_transitions(
+                release_cli.ValidationProof(BASE, HEAD), TAG
+            )
+
+    def test_deferred_transition_rejects_upstream_ancestry_change(self) -> None:
+        previous = "v1.2.3+custom.008"
+        before = f"| `{previous}` | `v1.2.3` | `{'a' * 40}` | planned |\n"
+        after = (
+            before.replace(f"`{'a' * 40}` | planned", f"`{'b' * 40}` | published")
+            + CURRENT_MAPPING
+        )
+        with (
+            mock.patch.object(release_cli, "capture", side_effect=[before, after]),
+            self.assertRaisesRegex(release_cli.ReleaseCliError, "ancestry"),
+        ):
+            release_cli.deferred_published_transitions(
+                release_cli.ValidationProof(BASE, HEAD), TAG
+            )
+
+    def test_current_planned_release_does_not_require_finalization(self) -> None:
+        with mock.patch.object(
+            release_cli, "capture", side_effect=[CURRENT_MAPPING, CURRENT_MAPPING]
+        ):
+            self.assertEqual(
+                [],
+                release_cli.deferred_published_transitions(
+                    release_cli.ValidationProof(BASE, HEAD), TAG
+                ),
+            )
+
+    def test_deferred_transition_requires_published_artifacts(self) -> None:
+        proof = release_cli.ValidationProof(BASE, HEAD)
+        previous = "v1.2.3+custom.008"
+        remote = release_cli.RemoteTag(True, "d" * 40, MERGE, f"Sub2API Plus {previous}")
+        with (
+            mock.patch.object(
+                release_cli,
+                "deferred_published_transitions",
+                return_value=[previous],
+            ),
+            mock.patch.object(
+                release_cli,
+                "require_published_remote_tag",
+                return_value=remote,
+            ) as require_tag,
+            mock.patch.object(release_cli, "require_release_workflow_success") as workflow,
+            mock.patch.object(release_cli, "verify_release") as verify,
+        ):
+            release_cli.verify_deferred_finalizations(REPOSITORY, proof, TAG)
+
+        require_tag.assert_called_once_with(REPOSITORY, previous)
+        workflow.assert_called_once_with(REPOSITORY, previous, MERGE)
+        verify.assert_called_once_with(REPOSITORY, previous)
 
 
 if __name__ == "__main__":

@@ -45,6 +45,21 @@ def validate_required_status(
         )
 
 
+def validate_planned_release_queue(
+    current_tag: str,
+    statuses: dict[str, str],
+    errors: list[str],
+) -> None:
+    planned = sorted(tag for tag, status in statuses.items() if status == "planned")
+    if planned not in ([], [current_tag]):
+        fail(
+            "UPSTREAM.md may leave only the current release planned; resolve "
+            "earlier planned releases in this release PR: "
+            + ", ".join(planned),
+            errors,
+        )
+
+
 def validate_custom_iteration(iteration: str, errors: list[str]) -> None:
     value = int(iteration)
     if not 1 <= CUSTOM_ITERATION_MIN <= 999:
@@ -249,6 +264,14 @@ def main() -> int:
         validate_required_status(tag, mapping[2], args.require_status, errors)
 
     if not args.mapping_only:
+        try:
+            statuses = release_docs.parse_upstream_statuses(
+                ROOT.joinpath("UPSTREAM.md").read_text(encoding="utf-8")
+            )
+        except (OSError, release_docs.ReleaseDocsError) as error:
+            fail(f"cannot validate UPSTREAM.md mappings: {error}", errors)
+        else:
+            validate_planned_release_queue(tag, statuses, errors)
         validate_release_documentation(ROOT, errors)
 
     notes: str | None = None

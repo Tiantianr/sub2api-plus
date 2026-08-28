@@ -141,6 +141,55 @@ class ReleaseBaselineTests(unittest.TestCase):
             ):
                 self.assertEqual(check_release.main(), 0)
 
+    def test_only_current_release_may_remain_planned(self) -> None:
+        errors: list[str] = []
+        check_release.validate_planned_release_queue(
+            TAG,
+            {
+                "v1.2.3+custom.008": "published",
+                TAG: "planned",
+            },
+            errors,
+        )
+        self.assertEqual([], errors)
+
+    def test_failed_previous_release_may_resolve_before_next_release(self) -> None:
+        for status in ("invalid", "withdrawn"):
+            errors: list[str] = []
+            with self.subTest(status=status):
+                check_release.validate_planned_release_queue(
+                    TAG,
+                    {
+                        "v1.2.3+custom.008": status,
+                        TAG: "planned",
+                    },
+                    errors,
+                )
+                self.assertEqual([], errors)
+
+    def test_next_release_requires_previous_planned_mapping_to_be_resolved(self) -> None:
+        errors: list[str] = []
+        check_release.validate_planned_release_queue(
+            TAG,
+            {
+                "v1.2.3+custom.008": "planned",
+                TAG: "planned",
+            },
+            errors,
+        )
+        self.assertEqual(1, len(errors))
+        self.assertIn("v1.2.3+custom.008", errors[0])
+
+    def test_duplicate_mapping_rows_are_rejected(self) -> None:
+        row = f"| `{TAG}` | `{OFFICIAL_TAG}` | `{OFFICIAL_COMMIT}` | planned |\n"
+        with self.assertRaisesRegex(release_docs.ReleaseDocsError, "duplicate"):
+            release_docs.parse_upstream_statuses(row + row)
+
+    def test_malformed_mapping_row_is_rejected(self) -> None:
+        row = f"| `{TAG}` | `{OFFICIAL_TAG}` | `malformed` | published |\n"
+        with self.assertRaisesRegex(release_docs.ReleaseDocsError, "malformed"):
+            release_docs.parse_upstream_statuses(row)
+
 
 class MigrationBaselineTests(unittest.TestCase):
     def test_release_base_uses_previous_eligible_tag(self) -> None:

@@ -23,6 +23,8 @@
   prebuilt Linux arm64 image artifact.
 - [x] 3.5 Restrict personal images, archives, verification, and installer
   detection to Linux arm64.
+- [x] 3.6 Defer personal published mapping updates into the next release PR and
+  verify each deferred transition during promotion.
 
 ## 4. Verification and rollout
 

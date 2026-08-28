@@ -32,6 +32,11 @@ VALIDATION_MARKER_RE = re.compile(
     r"<!--\s*sub2api-submit-pr:\s*(\{.*?\})\s*-->", re.DOTALL
 )
 TAG_RE = re.compile(r"^v\d+\.\d+\.\d+\+custom\.(?:00[1-9]|0[1-9]\d|[1-9]\d{2})$")
+UPSTREAM_MAPPING_RE = re.compile(
+    r"^\|\s*`(v\d+\.\d+\.\d+\+custom\.\d{3})`\s*"
+    r"\|\s*`([^`]+)`\s*\|\s*`([0-9a-f]{40})`\s*\|\s*([a-z]+)\s*\|$",
+    re.MULTILINE,
+)
 EXPECTED_SUBJECT_PREFIX = "Sub2API Plus "
 EXPECTED_MAIN_WORKFLOWS = frozenset({"CI", "Security Scan"})
 RELEASE_ENVIRONMENT = "release"
@@ -822,6 +827,96 @@ def run_metadata_preflight(
     run_step("Release metadata preflight", command)
 
 
+def upstream_mappings_at(ref: str) -> dict[str, tuple[str, str, str]]:
+    content = capture(["git", "show", f"{ref}:UPSTREAM.md"])
+    mappings: dict[str, tuple[str, str, str]] = {}
+    for tag, official_tag, official_commit, status in UPSTREAM_MAPPING_RE.findall(
+        content
+    ):
+        if tag in mappings:
+            raise ReleaseCliError(f"UPSTREAM.md has duplicate mapping rows for {tag}")
+        mappings[tag] = (official_tag, official_commit, status)
+    return mappings
+
+
+def deferred_published_transitions(
+    proof: ValidationProof,
+    current_tag: str,
+) -> list[str]:
+    before = upstream_mappings_at(proof.base)
+    after = upstream_mappings_at(proof.head)
+    removed = sorted(set(before) - set(after))
+    if removed:
+        raise ReleaseCliError(
+            "existing release mappings cannot be removed: " + ", ".join(removed)
+        )
+    unexpected_new = sorted(set(after) - set(before) - {current_tag})
+    if unexpected_new:
+        raise ReleaseCliError(
+            "release PR may add only its current planned mapping: "
+            + ", ".join(unexpected_new)
+        )
+    if (
+        current_tag not in before
+        and after.get(current_tag, ("", "", ""))[2] != "planned"
+    ):
+        raise ReleaseCliError(
+            f"new current release mapping must be planned: {current_tag}"
+        )
+    changed_ancestry = sorted(
+        tag
+        for tag, mapping in before.items()
+        if after[tag][:2] != mapping[:2]
+    )
+    if changed_ancestry:
+        raise ReleaseCliError(
+            "existing release mappings changed upstream ancestry: "
+            + ", ".join(changed_ancestry)
+        )
+    allowed = {
+        "planned": {"planned", "published", "invalid", "withdrawn"},
+        "published": {"published", "historical", "invalid", "withdrawn"},
+        "historical": {"historical"},
+        "invalid": {"invalid"},
+        "withdrawn": {"withdrawn"},
+    }
+    invalid_transitions = sorted(
+        tag
+        for tag, mapping in before.items()
+        if after[tag][2] not in allowed.get(mapping[2], {mapping[2]})
+        or (
+            mapping[2] == "planned"
+            and tag != current_tag
+            and after[tag][2] == "planned"
+        )
+    )
+    if invalid_transitions:
+        raise ReleaseCliError(
+            "invalid release mapping status transitions: "
+            + ", ".join(invalid_transitions)
+        )
+    return sorted(
+        tag
+        for tag, mapping in after.items()
+        if tag != current_tag
+        and mapping[2] == "published"
+        and tag in before
+        and before[tag][2] == "planned"
+    )
+
+
+def verify_deferred_finalizations(
+    repository: str,
+    proof: ValidationProof,
+    current_tag: str,
+) -> None:
+    for tag in deferred_published_transitions(proof, current_tag):
+        published_tag = require_published_remote_tag(repository, tag)
+        require_release_workflow_success(repository, tag, published_tag.target)
+        verify_release(repository, tag)
+        print(f"Deferred release mapping verified: {tag}")
+
+
 def finalization_metadata_command(tag: str) -> list[str]:
     return [
         sys.executable,
@@ -968,6 +1063,7 @@ def promote_pull_request(
         run_metadata_preflight(
             tag, notes_file, proof.head, create_tag=False, remote=remote
         )
+        verify_deferred_finalizations(repository, proof, tag)
     else:
         if pr.head_branch != finalization_branch(tag):
             raise ReleaseCliError(

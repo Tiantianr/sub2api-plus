@@ -29,6 +29,8 @@ custom tags immutable.
 - Prebuild a non-public Linux arm64 image artifact on protected main and promote
   it to the immutable GHCR version within a five-minute runner execution budget.
 - Publish only Linux arm64 images and binary archives.
+- End personal releases at successful verification and defer the published
+  mapping transition into the next already-required release PR.
 - Make the group-usage rollup trigger integration fixtures independent of the
   CI wall clock and explicit about their database session timezone after the
   previous release finalization exposed a midnight-only false failure.
@@ -49,7 +51,8 @@ None.
 
 - **Release operations**: Maintainers no longer approve publication jobs after
   pushing a reviewed tag. They continue to run monitor, verify, and finalize
-  explicitly.
+  explicitly when immediate metadata is required; normal personal releases end
+  at verify and defer the mapping transition to the next release PR.
 - **Repository governance**: The GitHub `release` Environment and a new Tag
   ruleset become externally enforced prerequisites checked by release-cli.
 - **Security**: The manual reviewer gate is replaced by a narrow explicit
