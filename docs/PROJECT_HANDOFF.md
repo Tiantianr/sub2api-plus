@@ -157,6 +157,10 @@ PUT  /api/v1/admin/openai-oauth-access/policies
 
 ## 7. `.906` 已执行验证
 
+`.906` 已通过受保护 PR 发布并完成 metadata finalization；公开镜像为
+`ghcr.io/tiantianr/sub2api-plus:v0.1.183-custom.906@sha256:dbed87ca379ee98927d261eb2c62cad651970f1213e40a9fee4f0a25211e2d90`。
+这不授权生产部署，ID3 仍运行 `.905`。
+
 本轮实现完成时已通过：
 
 - `openspec validate add-openai-oauth-user-access-control --strict`。
@@ -197,14 +201,14 @@ Adapter 仓库：
 
 ## 10. 发行流程
 
-下一版本默认使用 `v0.1.183+custom.906`，但执行前必须确认远程 tag、Release 和 GHCR tag 均不存在。
+当前 release branch 目标为 `v0.1.183+custom.907`；其 tag、Release 和 GHCR 均需在发布时重新核验。`.907` 验证完成后不创建 finalization PR，`UPSTREAM.md` 保持 `planned` 到下一 release PR。
 
 1. 在 release branch 更新 `backend/cmd/server/VERSION`、两个 Dockerfile、`UPSTREAM.md` planned mapping 和 `release-notes.md`。
 2. 运行 `python3 tools/update_release_docs.py` 同步安装/回滚示例。
 3. 使用固定环境变量运行 `push-cli submit-pr`，不得手工 push `main`。
 4. 用 `release-cli promote-pr` 等待 protected PR 和 merge-SHA 的 `CI`、`Security Scan`。
 5. 分开执行 `validate`、`tag`、人工核对 tag、`publish`、`monitor`、`verify`。
-6. `finalize` 创建确定性 finalization PR，把 `UPSTREAM.md` 从 `planned` 改为 `published`，再按相同保护规则合并。
+6. `verify` 成功即结束本次个人发版，不创建额外 finalization PR；准备下一版本时，在同一个 release PR 中先把上一已验证版本从 `planned` 改为 `published`，再加入新版本 `planned`。GitHub Release 和不可变远程 tag 是两次发版之间的发布真源。
 
 固定环境变量：
 
@@ -217,9 +221,8 @@ SUB2API_CUSTOM_ITERATION_MIN=901
 
 ## 11. 仍待处理事项
 
-- `.906` 发布后单独评估并授权生产部署；先保持 OAuth policy 为 `public`。
+- `.907` 发布不授权生产部署；单独评估部署时先保持 OAuth policy 为 `public`。
 - 实现 guarded `release-cli publish-local`，让 Apple Silicon 主机构建并上传一次 Linux arm64 镜像与资产。
-- 缩小纯 release finalization PR 的确定性检查，避免重复完整 lint/frontend/image matrix。
 - 完成 adapter chunk aggregation、nested transcript、模型漏报和 Guard timeout/error taxonomy。
 - 重新通过 ID5 relay 注册 ID8，恢复 hardened Agent 和仅国际任务。
 - 继续认证后的 Nezha 7/30 天历史与 ID1/ID2 到 ID3 路由质量分析。
