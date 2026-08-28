@@ -342,7 +342,13 @@ func TestPassthroughLifecycle_ResponsesLiteFirstFramePinsParallelToolCalls(t *te
 	defer cancelControl(context.Canceled)
 	upstream := newStagedPassthroughConn()
 	upstream.Send(`{"type":"response.completed","response":{"id":"resp_lite","model":"gpt-5.1","usage":{"input_tokens":1,"output_tokens":1}}}`)
-	server, serverErr := startPassthroughLifecycleServer(t, controlCtx, newPassthroughLifecycleService(passthroughLifecycleConfig(), upstream), passthroughLifecycleAccount())
+	finalFrames := make(chan []byte, 1)
+	hooks := &OpenAIWSIngressHooks{AfterClientWrite: func(_ coderws.MessageType, payload []byte, writeErr error) {
+		if writeErr == nil {
+			finalFrames <- append([]byte(nil), payload...)
+		}
+	}}
+	server, serverErr := startPassthroughLifecycleServer(t, controlCtx, newPassthroughLifecycleService(passthroughLifecycleConfig(), upstream), passthroughLifecycleAccount(), hooks)
 	defer server.Close()
 	clientConn := dialPassthroughLifecycleClientWithPayload(t, server, `{
 		"type":"response.create","model":"gpt-5.1","stream":false,
@@ -356,6 +362,7 @@ func TestPassthroughLifecycle_ResponsesLiteFirstFramePinsParallelToolCalls(t *te
 
 	event, err := readPassthroughLifecycleFrame(t, clientConn, 3*time.Second)
 	require.NoError(t, err)
+	require.Equal(t, event, <-finalFrames)
 	require.Equal(t, "response.completed", gjson.GetBytes(event, "type").String())
 	require.NoError(t, clientConn.Close(coderws.StatusNormalClosure, "done"))
 	select {

@@ -176,6 +176,9 @@ PUT  /api/v1/admin/openai-oauth-access/policies
 ## 8. Prompt Audit 与 moderation adapter
 
 - Prompt Audit 最大输入保持 `500000` Unicode 字符，不能移除上限。
+- `.908` 实现 blocking 会话 Redis `CLEAN` / `FULL_REQUIRED` 检查点：新会话或连续性异常全量审核，稳定会话审核上一轮加密暂存输出与本轮输入；完整回放必须通过历史指纹校验。发布与生产部署仍是独立操作。
+- Content Moderation 新增 `text_api_mode=auto|blocking|observe|off`；`auto` 仅在 Prompt Guard 覆盖当前分组时把文本降为无执法副作用的影子观察，图片和本地关键词/hash 保留。生产 `.905` 尚不认识该字段。
+- 2026-08-28 只读取证确认生产当前仍同时启用 Content Moderation `pre_block`（100% 采样、hash 预检）和 Prompt Audit blocking；页面 `illicit` 表示 Moderation API，`hash` 表示本地历史 hash，`cyber_policy` 才表示业务上游 OpenAI。未修改生产配置或数据。
 - production Request ID `c525ff4b-8ad8-4ce3-9cac-eaecea586afa` 对应的精确 fixture 位于 adapter 仓库 `test10.txt`；不得修改语料期望来迁就模型。
 - 当前 Guard 仍使用整次 evaluation 的共享 timeout，依赖失败大多折叠为 `prompt_guard_unavailable`；待改为每 node/chunk timeout、有限总预算和安全错误分类。
 - 当前重复 Guard endpoint 指向同一服务/模型，不构成独立 failover。
@@ -201,7 +204,7 @@ Adapter 仓库：
 
 ## 10. 发行流程
 
-当前 release branch 目标为 `v0.1.183+custom.907`；其 tag、Release 和 GHCR 均需在发布时重新核验。`.907` 验证完成后不创建 finalization PR，`UPSTREAM.md` 保持 `planned` 到下一 release PR。
+`v0.1.183+custom.907` 已发布并远程验证，本次 `.908` release PR 将其延迟转为 `published`；`.908` 是当前 `planned` 映射。生产仍是 `.905`，发布不代表已部署。下一版本开始前仍需重新核验 tag、Release、Actions 和 GHCR。
 
 1. 在 release branch 更新 `backend/cmd/server/VERSION`、两个 Dockerfile、`UPSTREAM.md` planned mapping 和 `release-notes.md`。
 2. 运行 `python3 tools/update_release_docs.py` 同步安装/回滚示例。

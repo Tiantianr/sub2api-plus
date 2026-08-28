@@ -1,8 +1,10 @@
 package securityaudit
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"net"
 	"regexp"
@@ -38,25 +40,39 @@ type promptSegment struct {
 	role string
 }
 
+type conversationFingerprint struct {
+	Hash  string
+	Count int
+}
+
 func ExtractPromptSnapshot(req Request) (PromptSnapshot, error) {
 	snapshot, _, err := extractPromptSnapshotWithDiagnostics(req, false)
 	return snapshot, err
 }
 
-// ExtractBlockingPromptSnapshot builds the synchronous guard input. Blocking
-// always scans only the latest user text; the latestTurnOnly argument is kept
-// for call-site compatibility and is ignored. Asynchronous auditing always
-// uses ExtractPromptSnapshot so the complete transcript is retained for review.
+// ExtractBlockingPromptSnapshot builds the synchronous guard input. The caller
+// chooses between the latest user turn and all canonical conversation text.
 func ExtractBlockingPromptSnapshot(req Request, latestTurnOnly bool) (PromptSnapshot, error) {
-	_ = latestTurnOnly
-	snapshot, _, err := extractPromptSnapshotWithDiagnostics(req, true)
+	snapshot, _, err := extractPromptSnapshotWithDiagnostics(req, latestTurnOnly)
 	return snapshot, err
 }
 
 func extractPromptSnapshotWithDiagnostics(req Request, latestTurnOnly bool) (PromptSnapshot, promptExtractionDiagnostic, error) {
+	document, diagnostic, err := extractPromptDocument(req)
+	if err != nil {
+		return PromptSnapshot{}, diagnostic, err
+	}
+	snapshot := buildPromptSnapshot(req, document, latestTurnOnly)
+	if strings.TrimSpace(snapshot.ScanText) == "" {
+		return PromptSnapshot{}, diagnostic, ErrNoPromptText
+	}
+	return snapshot, diagnostic, nil
+}
+
+func extractPromptDocument(req Request) (auditcontent.Document, promptExtractionDiagnostic, error) {
 	document, err := auditcontent.Extract(req.Protocol, req.Body)
 	if err != nil {
-		return PromptSnapshot{}, promptExtractionDiagnostic{Failed: true, ErrorCode: "invalid_json"}, errors.New("prompt audit request JSON is invalid")
+		return auditcontent.Document{}, promptExtractionDiagnostic{Failed: true, ErrorCode: "invalid_json"}, errors.New("prompt audit request JSON is invalid")
 	}
 	diagnostic := promptExtractionDiagnostic{}
 	if document.Incomplete {
@@ -65,6 +81,10 @@ func extractPromptSnapshotWithDiagnostics(req Request, latestTurnOnly bool) (Pro
 			Reasons: auditcontent.SanitizeIncompleteReasons(document.IncompleteReasons),
 		}
 	}
+	return document, diagnostic, nil
+}
+
+func buildPromptSnapshot(req Request, document auditcontent.Document, latestTurnOnly bool) PromptSnapshot {
 	extracted := promptSegmentsFromAuditContent(document, latestTurnOnly)
 	var segments []string
 	if latestTurnOnly {
@@ -72,8 +92,20 @@ func extractPromptSnapshotWithDiagnostics(req Request, latestTurnOnly bool) (Pro
 	} else {
 		segments = normalizeSegmentsLatestUserFirst(extracted)
 	}
+	return promptSnapshotFromSegments(req, segments)
+}
+
+func buildConversationIncrementalSnapshot(req Request, document auditcontent.Document, previousOutput string) PromptSnapshot {
+	segments := normalizeSegmentsLatestUserFirst(currentPromptSegmentsFromAuditContent(document))
+	if previousOutput = strings.TrimSpace(previousOutput); previousOutput != "" {
+		segments = append(segments, previousOutput)
+	}
+	return promptSnapshotFromSegments(req, segments)
+}
+
+func promptSnapshotFromSegments(req Request, segments []string) PromptSnapshot {
 	if len(segments) == 0 {
-		return PromptSnapshot{}, diagnostic, ErrNoPromptText
+		return PromptSnapshot{}
 	}
 	scanText, metadataText := buildPrioritizedScanText(segments)
 	digest := sha256.Sum256([]byte(metadataText))
@@ -91,7 +123,7 @@ func extractPromptSnapshotWithDiagnostics(req Request, latestTurnOnly bool) (Pro
 		FullPrompt: fullPrompt, FullPromptTruncated: utf8.RuneCountInString(fullPrompt) < utf8.RuneCountInString(metadataText),
 		PromptLength: utf8.RuneCountInString(metadataText), MessageCount: len(segments), Stage: stage,
 		ScanText: scanText, BodyBytes: len(req.Body),
-	}, diagnostic, nil
+	}
 }
 
 func promptSegmentsFromAuditContent(document auditcontent.Document, latestTurnOnly bool) []promptSegment {
@@ -118,6 +150,93 @@ func promptSegmentsFromAuditContent(document auditcontent.Document, latestTurnOn
 	return segments
 }
 
+func currentPromptSegmentsFromAuditContent(document auditcontent.Document) []promptSegment {
+	segments := make([]promptSegment, 0, len(document.Segments))
+	for _, segment := range document.Segments {
+		if !segment.Current || !segment.ClientControlled {
+			continue
+		}
+		switch segment.Source {
+		case auditcontent.SourceInstruction, auditcontent.SourceToolDefinition:
+			continue
+		}
+		role := strings.ToLower(strings.TrimSpace(segment.Role))
+		segments = append(segments, promptSegment{
+			text: segment.Text,
+			user: role == "user" || role == "",
+			role: role,
+		})
+	}
+	return segments
+}
+
+func conversationContextHash(req Request, document auditcontent.Document) (string, bool) {
+	var value bytes.Buffer
+	// A request without a continuation alias is a complete client replay, so
+	// absence of system/tool context is itself meaningful. Server-side
+	// continuations may omit unchanged context and inherit the prior hash.
+	hasContext := strings.TrimSpace(req.ParentID) == ""
+	_, _ = value.WriteString("protocol=")
+	_, _ = value.WriteString(strings.ToLower(strings.TrimSpace(req.Protocol)))
+	for _, segment := range document.Segments {
+		if segment.Source != auditcontent.SourceInstruction && segment.Source != auditcontent.SourceToolDefinition {
+			continue
+		}
+		hasContext = true
+		_, _ = value.WriteString("\nsource=")
+		_, _ = value.WriteString(string(segment.Source))
+		_, _ = value.WriteString("\nrole=")
+		_, _ = value.WriteString(strings.ToLower(strings.TrimSpace(segment.Role)))
+		_, _ = value.WriteString("\ntext=")
+		_, _ = value.WriteString(segment.Text)
+	}
+	digest := sha256.Sum256(value.Bytes())
+	return hex.EncodeToString(digest[:]), hasContext
+}
+
+func conversationInputFingerprint(document auditcontent.Document) conversationFingerprint {
+	return fingerprintConversationTexts(conversationDocumentTexts(document, false))
+}
+
+func conversationHistoryMatches(checkpoint conversationCheckpoint, document auditcontent.Document) bool {
+	if checkpoint.Input.Hash == "" || checkpoint.Input.Count < 0 || checkpoint.OutputDigest.Hash == "" || checkpoint.OutputDigest.Count < 0 {
+		return false
+	}
+	history := conversationDocumentTexts(document, true)
+	if checkpoint.Input.Count > len(history) || checkpoint.OutputDigest.Count > len(history)-checkpoint.Input.Count ||
+		len(history) != checkpoint.Input.Count+checkpoint.OutputDigest.Count {
+		return false
+	}
+	input := fingerprintConversationTexts(history[:checkpoint.Input.Count])
+	output := fingerprintConversationTexts(history[checkpoint.Input.Count:])
+	return input == checkpoint.Input && output == checkpoint.OutputDigest
+}
+
+func conversationDocumentTexts(document auditcontent.Document, historicalOnly bool) []string {
+	texts := make([]string, 0, len(document.Segments))
+	for _, segment := range document.Segments {
+		if historicalOnly && segment.Current {
+			continue
+		}
+		if segment.Source == auditcontent.SourceInstruction || segment.Source == auditcontent.SourceToolDefinition {
+			continue
+		}
+		if !isPromptAuditConversationSegment(segment, false) {
+			continue
+		}
+		if text := strings.TrimSpace(segment.Text); text != "" {
+			texts = append(texts, text)
+		}
+	}
+	return texts
+}
+
+func fingerprintConversationTexts(texts []string) conversationFingerprint {
+	raw, _ := json.Marshal(texts)
+	digest := sha256.Sum256(raw)
+	return conversationFingerprint{Hash: hex.EncodeToString(digest[:]), Count: len(texts)}
+}
+
 func isPromptAuditConversationSegment(segment auditcontent.Segment, latestTurnOnly bool) bool {
 	if latestTurnOnly {
 		switch segment.Source {
@@ -135,7 +254,8 @@ func isPromptAuditConversationSegment(segment auditcontent.Segment, latestTurnOn
 	case auditcontent.SourceMessage, auditcontent.SourceInstruction,
 		auditcontent.SourceSearchQuery, auditcontent.SourceEmbeddingInput,
 		auditcontent.SourceMediaPrompt, auditcontent.SourcePromptVariable,
-		auditcontent.SourceReasoning:
+		auditcontent.SourceReasoning, auditcontent.SourceToolDefinition,
+		auditcontent.SourceToolCall, auditcontent.SourceToolOutput:
 		return true
 	default:
 		return false

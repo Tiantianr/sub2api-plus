@@ -1,53 +1,58 @@
-Sub2API Plus v0.1.183+custom.907
+Sub2API Plus v0.1.183+custom.908
 
 ## Highlights
 
-- End a verified personal release without creating a post-publication
-  finalization pull request or triggering another PR/main CI cycle.
-- Defer the verified `planned` to `published` mapping transition into the next
-  already-required release pull request.
-- Preserve immutable publication checks while removing redundant release
-  finalization wait time.
+- Close security-audit extraction gaps across Responses, Chat, Alpha Search,
+  tools, reasoning, compaction, WebSocket, SSE, and Live traffic.
+- Replace static latest-turn Prompt Guard blocking with fail-closed
+  conversation checkpoints that audit complete context first and trusted
+  incremental context afterward.
+- Separate Prompt Guard text authority from Content Moderation while retaining
+  independent local keyword/hash and image controls.
 
 ## Changed
 
-- Make `verify` the normal end of a personal release while retaining explicit
-  immediate `finalize` as an optional protected-PR recovery path.
-- Revalidate every deferred `planned` to `published` transition against its
-  canonical annotated tag, successful Release workflow, immutable assets, and
-  anonymous Linux arm64 GHCR image during the next release promotion.
-- Enforce a base/head release mapping state machine: only the current `planned`
-  row may be added, existing ancestry is immutable, and failed releases resolve
-  to terminal `invalid` or `withdrawn` states.
+- Audit full canonical context for new, expired, changed, branched, or
+  continuity-invalid conversations. Stable continuations audit the captured
+  previous AI output together with current client-controlled content.
+- Commit a clean conversation checkpoint only after a complete successful
+  HTTP, SSE, Responses WebSocket, or Live downstream write.
+- Add Content Moderation text API policies for automatic authority selection,
+  explicit blocking, shadow observation, and off. Shadow findings have no hash,
+  notification, ban, or violation-count effects.
+- Keep blocking image moderation independent from text policy and sampling.
 
 ## Fixed
 
-- Remove the mandatory post-publication finalization PR that repeated local,
-  pull-request, and merged-main validation for a one-line status update.
-- Reject duplicate or malformed `UPSTREAM.md` mappings, deleted history,
-  unrelated published rows, ancestry changes, and terminal-state resurrection.
-- Keep failed release correction possible without falsely marking an incomplete
-  publication as successful or selecting it as a rollback baseline.
+- Recognize Responses legacy `messages` and string `prompt` aliases, visible
+  `reasoning_content`/`reasoning_text`, compaction summaries and triggers, and
+  Alpha Search fallback fields without persisting opaque or media payloads.
+- Prevent safe latest turns, known parent IDs, replay insertion, stale branches,
+  extraction failures, or incomplete output from establishing incremental
+  eligibility.
+- Prevent blocking moderation dependency failures from silently allowing
+  requests, and distinguish external API blocks, local keyword/hash blocks,
+  shadow findings, and business-upstream `cyber_policy` records.
 
 ## Compatibility and migration
 
-- No database migration, API, scheduling, billing, authentication, or runtime
-  behavior changes in this release.
-- Normal release PR checks, merged-main checks, immutable annotated tags,
-  publication monitoring, asset verification, and public image verification
-  remain required.
-- Existing deployment and rollback requirements from `.906` remain unchanged.
+- No database migration is required.
+- Blocking Prompt Audit requires Redis and the existing application secret
+  encryptor for temporary conversation checkpoints.
+- The legacy latest-turn JSON field remains accepted for rolling-upgrade
+  compatibility but no longer controls blocking behavior.
+- Existing Content Moderation configuration defaults missing text API policy to
+  `auto`; images and local keyword/hash behavior remain independently scoped.
 - No Compose, port, certificate, proxy, or persistent-volume change is required.
 - Personal images and binary archives remain Linux arm64 only.
 
 ## Known issues
 
-- The first deferred transition occurs when preparing the release after `.907`;
-  `.906` was already finalized under the previous process.
-- Explicit immediate finalization remains available but intentionally uses a
-  separate protected pull request and its required checks.
-- This optimization removes only post-publication finalization work; it does not
-  shorten the normal release PR, merged-main Actions, or Release workflow.
+- PostgreSQL Prompt Audit integration tests still require an external
+  `PROMPT_AUDIT_TEST_POSTGRES_DSN`; repository migration coverage remains in the
+  protected Linux test matrix.
+- Production deployment remains a separate operation and is not part of this
+  release publication.
 
 ## Upstream baseline
 

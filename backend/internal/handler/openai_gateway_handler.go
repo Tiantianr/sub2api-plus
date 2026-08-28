@@ -2606,6 +2606,12 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 			AfterTurn: func(turn int, result *service.OpenAIForwardResult, turnErr error) {
 				turnStart := getTurnStart(turn)
 				cyberBlockBody := takeCyberTurnBody(turn)
+				// A successful checkpoint is committed only after the terminal frame
+				// itself has been written by AfterClientWrite. Some passthrough modes
+				// report AfterTurn before that final downstream write.
+				if turnErr != nil {
+					abortSecurityAuditConversationCapture(c)
+				}
 				// F1: cyber 标记按 turn 生命周期清理——defer 保证任意早返回路径都执行；
 				// CyberBlocked 必须在 submit 前同步预捕获（task 闭包由 worker 池异步执行，
 				// 届时 defer 已清除标记）。
@@ -2706,6 +2712,13 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 						)
 					}
 				})
+			},
+			AfterClientWrite: func(_ coderws.MessageType, payload []byte, writeErr error) {
+				if writeErr != nil {
+					abortSecurityAuditConversationCapture(c)
+					return
+				}
+				observeSecurityAuditConversationFrame(c, payload)
 			},
 		}
 

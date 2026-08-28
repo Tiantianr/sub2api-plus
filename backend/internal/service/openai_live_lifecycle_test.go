@@ -383,6 +383,8 @@ func TestProxyLiveSidebandForwardsTextAndBinary(t *testing.T) {
 	proxyResult := make(chan error, 1)
 	var policyChecks atomic.Int32
 	var auditedClientFrames atomic.Int32
+	observedServerFrames := make(chan liveTestFrame, 2)
+	observedClientFrames := make(chan liveTestFrame, 3)
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		downstream, err := coderws.Accept(writer, request, nil)
 		if err != nil {
@@ -406,6 +408,16 @@ func TestProxyLiveSidebandForwardsTextAndBinary(t *testing.T) {
 				}
 				return nil
 			},
+			AfterClientFrame: func(_ context.Context, messageType coderws.MessageType, payload []byte, writeErr error) {
+				if writeErr == nil {
+					observedClientFrames <- liveTestFrame{messageType: messageType, payload: append([]byte(nil), payload...)}
+				}
+			},
+			AfterServerFrame: func(_ context.Context, messageType coderws.MessageType, payload []byte, writeErr error) {
+				if writeErr == nil {
+					observedServerFrames <- liveTestFrame{messageType: messageType, payload: append([]byte(nil), payload...)}
+				}
+			},
 			RecheckEvery: time.Hour,
 		})
 	}))
@@ -425,23 +437,31 @@ func TestProxyLiveSidebandForwardsTextAndBinary(t *testing.T) {
 	clientText := <-upstream.writes
 	require.Equal(t, coderws.MessageText, clientText.messageType)
 	require.JSONEq(t, `{"type":"client.text"}`, string(clientText.payload))
+	require.Equal(t, clientText, <-observedClientFrames)
 
 	require.NoError(t, client.Write(ctx, coderws.MessageBinary, []byte{1, 2, 3}))
 	clientBinary := <-upstream.writes
 	require.Equal(t, coderws.MessageBinary, clientBinary.messageType)
 	require.Equal(t, []byte{1, 2, 3}, clientBinary.payload)
+	require.Equal(t, clientBinary, <-observedClientFrames)
 
 	upstream.reads <- liveTestFrame{messageType: coderws.MessageText, payload: []byte(`{"type":"server.text"}`)}
 	messageType, payload, err := client.Read(ctx)
 	require.NoError(t, err)
 	require.Equal(t, coderws.MessageText, messageType)
 	require.JSONEq(t, `{"type":"server.text"}`, string(payload))
+	observedText := <-observedServerFrames
+	require.Equal(t, messageType, observedText.messageType)
+	require.Equal(t, payload, observedText.payload)
 
 	upstream.reads <- liveTestFrame{messageType: coderws.MessageBinary, payload: []byte{4, 5, 6}}
 	messageType, payload, err = client.Read(ctx)
 	require.NoError(t, err)
 	require.Equal(t, coderws.MessageBinary, messageType)
 	require.Equal(t, []byte{4, 5, 6}, payload)
+	observedBinary := <-observedServerFrames
+	require.Equal(t, messageType, observedBinary.messageType)
+	require.Equal(t, payload, observedBinary.payload)
 
 	require.NoError(t, client.Write(ctx, coderws.MessageText, []byte(`{"type":"future.audit_block","payload":"blocked"}`)))
 	select {

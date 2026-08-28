@@ -44,7 +44,7 @@ func TestExtractCanonicalProtocolPayloads(t *testing.T) {
 		{
 			name: "alpha search", protocol: "openai_alpha_search",
 			body:         `{"commands":{"search_query":[{"q":"OpenAI news"},{"q":"security updates"}]},"input":[{"type":"message","role":"user","content":"recent conversation"}]}`,
-			currentTexts: []string{"OpenAI news", "security updates", "recent conversation"}, sources: []Source{SourceSearchQuery, SourceSearchQuery, SourceMessage},
+			currentTexts: []string{`{"search_query":[{"q":"OpenAI news"},{"q":"security updates"}]}`, `[{"content":"recent conversation","role":"user","type":"message"}]`}, sources: []Source{SourceSearchQuery, SourceSearchQuery},
 		},
 		{
 			name: "live initial legacy transcription", protocol: "openai_live",
@@ -145,16 +145,16 @@ func TestExtractClassifiesControlAndUnextractableContent(t *testing.T) {
 	require.True(t, tokenIDs.Incomplete)
 	require.Empty(t, tokenIDs.Segments)
 
-	malformedSearch, err := Extract("openai_alpha_search", []byte(`{"commands":{"search_query":[{"query":"missing q adapter"}]}}`))
+	malformedSearch, err := Extract("openai_alpha_search", []byte(`{"commands":{"search_query":[{"query":"fallback still forwards this"}]}}`))
 	require.NoError(t, err)
 	require.True(t, malformedSearch.ContentBearing)
-	require.True(t, malformedSearch.Incomplete)
-	require.Empty(t, malformedSearch.Segments)
+	require.False(t, malformedSearch.Incomplete)
+	require.Equal(t, []string{`{"search_query":[{"query":"fallback still forwards this"}]}`}, segmentTexts(malformedSearch.Segments))
 
 	extraCommand, err := Extract("openai_alpha_search", []byte(`{"commands":{"search_query":[{"q":"OpenAI news"}],"foo":"bar"}}`))
 	require.NoError(t, err)
 	require.False(t, extraCommand.Incomplete)
-	require.Equal(t, []string{"OpenAI news"}, segmentTexts(extraCommand.Segments))
+	require.Equal(t, []string{`{"foo":"bar","search_query":[{"q":"OpenAI news"}]}`}, segmentTexts(extraCommand.Segments))
 
 	httpTypeSpoof, err := Extract("openai_responses", []byte(`{"type":"future.control","input":"must still be audited"}`))
 	require.NoError(t, err)
@@ -169,6 +169,83 @@ func TestExtractClassifiesControlAndUnextractableContent(t *testing.T) {
 	require.True(t, partial.Incomplete)
 	require.Equal(t, IncompleteUnsupportedItemType, partial.IncompleteReasons[0].Kind)
 	require.Equal(t, []string{"safe extracted text"}, segmentTexts(currentSegments(partial)))
+}
+
+func TestExtractResponsesLegacyAliasesUseIngressPrecedence(t *testing.T) {
+	tests := []struct {
+		name string
+		body string
+		want []string
+		omit []string
+	}{
+		{
+			name: "messages become input",
+			body: `{"model":"gpt-test","messages":[{"role":"system","content":"legacy system"},{"role":"user","content":"legacy user"}]}`,
+			want: []string{"legacy system", "legacy user"},
+		},
+		{
+			name: "string prompt becomes input",
+			body: `{"model":"gpt-test","prompt":"legacy prompt"}`,
+			want: []string{"legacy prompt"},
+		},
+		{
+			name: "native input drops aliases",
+			body: `{"model":"gpt-test","input":"native input","messages":[{"role":"user","content":"ignored legacy message"}],"prompt":"ignored legacy prompt"}`,
+			want: []string{"native input"},
+			omit: []string{"ignored legacy message", "ignored legacy prompt"},
+		},
+		{
+			name: "legacy messages precede string prompt",
+			body: `{"model":"gpt-test","messages":[{"role":"user","content":"legacy message input"}],"prompt":"ignored lower-priority prompt"}`,
+			want: []string{"legacy message input"},
+			omit: []string{"ignored lower-priority prompt"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			document, err := Extract("openai_responses", []byte(tt.body))
+			require.NoError(t, err)
+			require.False(t, document.Incomplete)
+			joined := strings.Join(segmentTexts(document.Segments), "\n")
+			for _, want := range tt.want {
+				require.Contains(t, joined, want)
+			}
+			for _, omit := range tt.omit {
+				require.NotContains(t, joined, omit)
+			}
+		})
+	}
+}
+
+func TestExtractChatReasoningAndResponsesCompactionClassification(t *testing.T) {
+	chat, err := Extract("openai_chat_completions", []byte(`{"messages":[{"role":"assistant","reasoning_content":"visible assistant reasoning"},{"role":"user","content":"continue","reasoning_content":"visible user reasoning"}]}`))
+	require.NoError(t, err)
+	require.False(t, chat.Incomplete)
+	require.Equal(t, []string{"visible assistant reasoning", "continue", "visible user reasoning"}, segmentTexts(chat.Segments))
+	require.Equal(t, []Source{SourceReasoning, SourceMessage, SourceMessage}, segmentSources(chat.Segments))
+	require.Equal(t, []string{"assistant", "user", "user"}, []string{chat.Segments[0].Role, chat.Segments[1].Role, chat.Segments[2].Role})
+
+	responses, err := Extract("openai_responses", []byte(`{"input":[
+		{"type":"compaction","encrypted_content":"opaque-one"},
+		{"type":"compaction_summary","encrypted_content":"opaque-two","summary":[{"type":"summary_text","text":"opaque history"}]},
+		{"type":"compaction_trigger"},
+		{"type":"compaction","encrypted_content":"opaque-three","future_visible":"must be audited"},
+		{"type":"reasoning","summary":[],"content":[{"type":"reasoning_text","text":"visible reasoning text"}]},
+		{"type":"message","role":"user","content":"visible sibling"}
+	]}`))
+	require.NoError(t, err)
+	require.False(t, responses.Incomplete)
+	require.Equal(t, []string{`{"summary":[{"text":"opaque history","type":"summary_text"}]}`, `{"future_visible":"must be audited"}`, "visible reasoning text", "visible sibling"}, segmentTexts(responses.Segments))
+	require.NotContains(t, strings.Join(segmentTexts(responses.Segments), "\n"), "opaque-one")
+	require.NotContains(t, strings.Join(segmentTexts(responses.Segments), "\n"), "opaque-two")
+	require.NotContains(t, strings.Join(segmentTexts(responses.Segments), "\n"), "opaque-three")
+
+	structured, keep := StructuredText([]any{
+		map[string]any{"type": "compaction", "encrypted_content": "opaque", "future_visible": "audit fallback too"},
+		map[string]any{"type": "compaction_trigger"},
+	})
+	require.True(t, keep)
+	require.JSONEq(t, `[{"future_visible":"audit fallback too"}]`, structured)
 }
 
 func TestExtractResponsesReusablePromptVariables(t *testing.T) {

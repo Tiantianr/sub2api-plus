@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/LuckyKuang/sub2api-plus/internal/auditcontent"
 	"github.com/gin-gonic/gin"
 	"github.com/tidwall/gjson"
 )
@@ -316,15 +317,15 @@ func openAIAlphaSearchResponsesWebSearchPrompt(alphaBody []byte) string {
 	_, _ = b.WriteString("Execute this Codex standalone web.run request for another model.\n")
 	_, _ = b.WriteString("Use the hosted web_search tool when web/current information is needed.\n")
 	_, _ = b.WriteString("Return concise source-backed results. Include titles, URLs, dates, and direct answers when available.\n")
-	if commands := strings.TrimSpace(gjson.GetBytes(alphaBody, "commands").Raw); commands != "" {
+	if commands := openAIAlphaSearchAuditedJSON(gjson.GetBytes(alphaBody, "commands").Raw); commands != "" {
 		_, _ = b.WriteString("\nCommands JSON:\n")
 		_, _ = b.WriteString(truncateOpenAIAlphaSearchPromptJSON(commands, 12000))
 	}
-	if settings := strings.TrimSpace(gjson.GetBytes(alphaBody, "settings").Raw); settings != "" {
+	if settings := openAIAlphaSearchAuditedJSON(gjson.GetBytes(alphaBody, "settings").Raw); settings != "" {
 		_, _ = b.WriteString("\n\nSearch settings JSON:\n")
 		_, _ = b.WriteString(truncateOpenAIAlphaSearchPromptJSON(settings, 4000))
 	}
-	if input := strings.TrimSpace(gjson.GetBytes(alphaBody, "input").Raw); input != "" {
+	if input := openAIAlphaSearchAuditedJSON(gjson.GetBytes(alphaBody, "input").Raw); input != "" {
 		_, _ = b.WriteString("\n\nRecent conversation/input JSON:\n")
 		_, _ = b.WriteString(truncateOpenAIAlphaSearchPromptJSON(input, 8000))
 	}
@@ -332,6 +333,20 @@ func openAIAlphaSearchResponsesWebSearchPrompt(alphaBody []byte) string {
 		return "Execute the requested web search and return concise source-backed results."
 	}
 	return b.String()
+}
+
+func openAIAlphaSearchAuditedJSON(raw string) string {
+	if strings.TrimSpace(raw) == "" {
+		return ""
+	}
+	decoder := json.NewDecoder(strings.NewReader(raw))
+	decoder.UseNumber()
+	var value any
+	if err := decoder.Decode(&value); err != nil {
+		return ""
+	}
+	text, _ := auditcontent.StructuredText(value)
+	return text
 }
 
 func truncateOpenAIAlphaSearchPromptJSON(value string, limit int) string {

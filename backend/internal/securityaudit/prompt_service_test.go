@@ -68,26 +68,31 @@ func TestPromptServiceStartReportsDependencyFailureWithoutPanic(t *testing.T) {
 	require.NoError(t, service.Shutdown(ctx))
 }
 
-func TestPromptServiceBlockingAlwaysUsesLatestUserOnly(t *testing.T) {
+func TestPromptServiceBlockingFullConversationBlocksOnHistoricalChunk(t *testing.T) {
 	seen := make([]string, 0, 2)
 	evaluator := newGuardEvaluator(PromptScannerFunc(func(_ context.Context, _ ActiveEndpoint, chunk string, _ []string) (*NormalizedResult, error) {
 		seen = append(seen, chunk)
+		if strings.Contains(chunk, "blocked-marker") {
+			return &NormalizedResult{Decision: EventCritical, RiskLevel: RiskCritical, Action: ActionBlock, Safety: "Unsafe", ScannerScores: map[string]float64{"jailbreak": 1}, ScannerEvidence: map[string]string{}}, nil
+		}
 		return &NormalizedResult{Decision: EventPass, RiskLevel: RiskLow, Action: ActionAllow, ScannerScores: map[string]float64{}, ScannerEvidence: map[string]string{}}, nil
 	}), nil, NewAtomicMetrics(), 2, 2)
 	service := &PromptService{
 		config: &fakeConfigStore{active: true, cfg: ActiveConfig{
 			RiskControlEnabled: true, Enabled: true, BlockingEnabled: true, BlockingLatestTurnOnly: false, AllGroups: true,
-			Scanners: AllScannerIDs, Endpoints: []ActiveEndpoint{{ID: "guard-1", Enabled: true, TimeoutMS: 1000, InputLimit: 4096}},
+			Scanners: AllScannerIDs, Endpoints: []ActiveEndpoint{{ID: "guard-1", Enabled: true, TimeoutMS: 1000, InputLimit: 64}},
 		}},
 		evaluator: evaluator,
 	}
-	decision, err := service.Evaluate(context.Background(), Request{Protocol: "openai_chat_completions", Body: []byte(`{"messages":[{"role":"system","content":"system instruction"},{"role":"user","content":"older user input"},{"role":"assistant","content":"previous output"},{"role":"user","content":"latest user input"}]}`)})
+	decision, err := service.Evaluate(context.Background(), Request{Protocol: "openai_chat_completions", Body: []byte(`{"messages":[{"role":"system","content":"system instruction"},{"role":"user","content":"older blocked-marker input"},{"role":"assistant","content":"previous output"},{"role":"user","content":"latest safe input"}]}`)})
 	require.NoError(t, err)
-	require.Equal(t, DecisionAllow, decision.Kind)
-	require.Equal(t, []string{"latest user input"}, seen)
+	require.Equal(t, DecisionBlock, decision.Kind)
+	require.Greater(t, decision.Result.MatchedChunkIndex, 1)
+	require.Greater(t, len(seen), 1)
+	require.Equal(t, "latest safe input", seen[0])
 }
 
-func TestPromptServiceBlockingIgnoresCodexInstructionsAndBlocksJailbreakInLatestUser(t *testing.T) {
+func TestPromptServiceBlockingScansCompleteCodexContextAndPrioritizesCurrentUser(t *testing.T) {
 	codexBody := []byte(`{
 		"instructions":"You are Codex. sandbox require_escalated jailbreak",
 		"tools":[{"type":"function","name":"exec","description":"Run JavaScript code to orchestrate/compose tool calls. require_escalated sandbox_permissions jailbreak"}],
@@ -100,7 +105,7 @@ func TestPromptServiceBlockingIgnoresCodexInstructionsAndBlocksJailbreakInLatest
 	}), nil, NewAtomicMetrics(), 2, 2)
 	passService := &PromptService{
 		config: &fakeConfigStore{active: true, cfg: ActiveConfig{
-			RiskControlEnabled: true, Enabled: true, BlockingEnabled: true, BlockingLatestTurnOnly: false, AllGroups: true,
+			RiskControlEnabled: true, Enabled: true, BlockingEnabled: true, BlockingLatestTurnOnly: true, AllGroups: true,
 			Scanners: AllScannerIDs, Endpoints: []ActiveEndpoint{{ID: "guard-1", Enabled: true, TimeoutMS: 1000, InputLimit: 8}},
 		}},
 		evaluator: passEvaluator,
@@ -108,8 +113,10 @@ func TestPromptServiceBlockingIgnoresCodexInstructionsAndBlocksJailbreakInLatest
 	decision, err := passService.Evaluate(context.Background(), Request{Protocol: "openai_responses", Body: codexBody})
 	require.NoError(t, err)
 	require.Equal(t, DecisionAllow, decision.Kind)
-	require.Equal(t, []string{"hi"}, seen)
-	require.Equal(t, 1, decision.Result.ChunkTotal)
+	require.Contains(t, strings.Join(seen, ""), "hi")
+	require.Contains(t, strings.Join(seen, ""), "You are Codex")
+	require.Contains(t, strings.Join(seen, ""), "Run JavaScript")
+	require.Greater(t, decision.Result.ChunkTotal, 1)
 
 	jailbreakBody := []byte(`{
 		"instructions":"You are Codex. sandbox require_escalated jailbreak",
@@ -122,7 +129,7 @@ func TestPromptServiceBlockingIgnoresCodexInstructionsAndBlocksJailbreakInLatest
 	}), nil, NewAtomicMetrics(), 2, 2)
 	blockService := &PromptService{
 		config: &fakeConfigStore{active: true, cfg: ActiveConfig{
-			RiskControlEnabled: true, Enabled: true, BlockingEnabled: true, BlockingLatestTurnOnly: false, AllGroups: true,
+			RiskControlEnabled: true, Enabled: true, BlockingEnabled: true, BlockingLatestTurnOnly: true, AllGroups: true,
 			Scanners: AllScannerIDs, Endpoints: []ActiveEndpoint{{ID: "guard-1", Enabled: true, TimeoutMS: 1000, InputLimit: 4096}},
 		}},
 		evaluator: blockEvaluator,
@@ -132,7 +139,7 @@ func TestPromptServiceBlockingIgnoresCodexInstructionsAndBlocksJailbreakInLatest
 	require.Equal(t, DecisionBlock, blocked.Kind)
 }
 
-func TestPromptServiceBlockingAllowsEmptyContentExtractionFailure(t *testing.T) {
+func TestPromptServiceBlockingFailsClosedOnEmptyContentExtractionFailure(t *testing.T) {
 	metrics := NewAtomicMetrics()
 	service := &PromptService{
 		config: &fakeConfigStore{active: true, cfg: ActiveConfig{
@@ -151,13 +158,14 @@ func TestPromptServiceBlockingAllowsEmptyContentExtractionFailure(t *testing.T) 
 		Protocol: "openai_responses",
 		Body:     []byte(`{"input":[{"type":"future_content","payload":"missing adapter"}]}`),
 	})
-	require.NoError(t, err)
-	require.Equal(t, DecisionAllow, decision.Kind)
-	require.True(t, decision.AllowNextStage)
+	require.Nil(t, decision)
+	var guardErr *GuardError
+	require.ErrorAs(t, err, &guardErr)
+	require.Equal(t, ErrorCodeExtractionFailed, guardErr.Code)
 	require.Equal(t, AuditMetricsSnapshot{ExtractionAttempted: 1, ExtractionFailed: 1}, metrics.AuditSnapshot())
 }
 
-func TestPromptServiceBlockingExtractionCompatibilityCasesAllow(t *testing.T) {
+func TestPromptServiceBlockingExtractionCompatibilityCasesFailClosed(t *testing.T) {
 	tests := []struct {
 		name     string
 		protocol string
@@ -188,9 +196,10 @@ func TestPromptServiceBlockingExtractionCompatibilityCasesAllow(t *testing.T) {
 			decision, err := promptService.Evaluate(context.Background(), Request{
 				RequestID: "req-compat", Endpoint: "/v1/compat", Protocol: test.protocol, Body: []byte(test.body), Stage: "subsequent_turn",
 			})
-			require.NoError(t, err)
-			require.Equal(t, DecisionAllow, decision.Kind)
-			require.True(t, decision.AllowNextStage)
+			require.Nil(t, decision)
+			var guardErr *GuardError
+			require.ErrorAs(t, err, &guardErr)
+			require.Equal(t, ErrorCodeExtractionFailed, guardErr.Code)
 			if test.failed {
 				require.Equal(t, AuditMetricsSnapshot{ExtractionAttempted: 1, ExtractionFailed: 1}, metrics.AuditSnapshot())
 			} else {
@@ -200,17 +209,16 @@ func TestPromptServiceBlockingExtractionCompatibilityCasesAllow(t *testing.T) {
 	}
 }
 
-func TestPromptServiceBlockingAuditsExtractedSiblingDespiteIncompleteContent(t *testing.T) {
+func TestPromptServiceBlockingFailsClosedBeforeScanningIncompleteSiblingContent(t *testing.T) {
 	metrics := NewAtomicMetrics()
-	var scanned string
 	service := &PromptService{
 		config: &fakeConfigStore{active: true, cfg: ActiveConfig{
 			RiskControlEnabled: true, Enabled: true, BlockingEnabled: true, AllGroups: true,
 			Scanners: AllScannerIDs, Endpoints: []ActiveEndpoint{{ID: "guard-1", Enabled: true, TimeoutMS: 1000, InputLimit: 4096}},
 		}},
 		evaluator: newGuardEvaluator(PromptScannerFunc(func(_ context.Context, _ ActiveEndpoint, chunk string, _ []string) (*NormalizedResult, error) {
-			scanned = chunk
-			return &NormalizedResult{Decision: EventPass, RiskLevel: RiskLow, Action: ActionAllow, ScannerScores: map[string]float64{}, ScannerEvidence: map[string]string{}}, nil
+			t.Fatal("incomplete extraction must fail before Guard scanning")
+			return nil, nil
 		}), nil, metrics, 1, 1),
 		metrics: metrics,
 	}
@@ -219,9 +227,10 @@ func TestPromptServiceBlockingAuditsExtractedSiblingDespiteIncompleteContent(t *
 		Protocol: "openai_responses",
 		Body:     []byte(`{"input":[{"type":"message","role":"user","content":"audit this sibling"},{"type":"future_content","payload":"missing adapter"}]}`),
 	})
-	require.NoError(t, err)
-	require.Equal(t, DecisionAllow, decision.Kind)
-	require.Contains(t, scanned, "audit this sibling")
+	require.Nil(t, decision)
+	var guardErr *GuardError
+	require.ErrorAs(t, err, &guardErr)
+	require.Equal(t, ErrorCodeExtractionFailed, guardErr.Code)
 	require.Equal(t, AuditMetricsSnapshot{ExtractionAttempted: 1, ExtractionFailed: 1}, metrics.AuditSnapshot())
 }
 

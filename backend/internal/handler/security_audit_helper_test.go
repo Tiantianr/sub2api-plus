@@ -199,7 +199,7 @@ func (s blockingCompatibilityConfigStore) RuntimeState() (int64, int64, *time.Ti
 func (s blockingCompatibilityConfigStore) Encrypt(value string) (string, error) { return value, nil }
 func (s blockingCompatibilityConfigStore) Decrypt(value string) (string, error) { return value, nil }
 
-func TestExtractionFailuresAllowAPIKeyAndOAuthDownstreamStages(t *testing.T) {
+func TestExtractionFailuresBlockAPIKeyAndOAuthBeforeDownstreamStages(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	for _, accountType := range []string{service.AccountTypeAPIKey, service.AccountTypeOAuth} {
 		t.Run(accountType, func(t *testing.T) {
@@ -227,8 +227,9 @@ func TestExtractionFailuresAllowAPIKeyAndOAuthDownstreamStages(t *testing.T) {
 				[]byte(`{"type":"future.client.event","payload":"unrecognized content"}`), "http",
 			)
 			require.NotNil(t, decision)
-			require.Equal(t, securityaudit.DecisionAllow, decision.Kind)
-			require.True(t, decision.AllowNextStage)
+			require.Equal(t, securityaudit.DecisionUnavailable, decision.Kind)
+			require.Equal(t, securityaudit.ErrorCodeExtractionFailed, decision.ErrorCode)
+			require.False(t, decision.AllowNextStage)
 
 			accountSelections, billingChecks, concurrencyAcquisitions, upstreamDispatches := 0, 0, 0, 0
 			selectedCredential := ""
@@ -243,18 +244,45 @@ func TestExtractionFailuresAllowAPIKeyAndOAuthDownstreamStages(t *testing.T) {
 				concurrencyAcquisitions++
 				upstreamDispatches++
 			}
-			require.Equal(t, 1, accountSelections, accountType)
-			require.Equal(t, 1, billingChecks, accountType)
-			require.Equal(t, 1, concurrencyAcquisitions, accountType)
-			require.Equal(t, 1, upstreamDispatches, accountType)
-			if accountType == service.AccountTypeOAuth {
-				require.Equal(t, "oauth-access-token", selectedCredential)
-			} else {
-				require.Equal(t, "api-key-credential", selectedCredential)
-			}
+			require.Zero(t, accountSelections, accountType)
+			require.Zero(t, billingChecks, accountType)
+			require.Zero(t, concurrencyAcquisitions, accountType)
+			require.Zero(t, upstreamDispatches, accountType)
+			require.Empty(t, selectedCredential)
 			require.Equal(t, securityaudit.AuditMetricsSnapshot{ExtractionAttempted: 1, ExtractionFailed: 1}, metrics.AuditSnapshot())
 		})
 	}
+}
+
+func TestExtractionFailuresBlockWebSocketTurnBeforeUpstreamWrite(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	metrics := securityaudit.NewAtomicMetrics()
+	prompt := securityaudit.NewPromptService(blockingCompatibilityConfigStore{cfg: securityaudit.ActiveConfig{
+		RiskControlEnabled: true, Enabled: true, BlockingEnabled: true, AllGroups: true,
+		Scanners: []string{"pii"}, Endpoints: []securityaudit.ActiveEndpoint{{ID: "guard", Enabled: true, TimeoutMS: 1000, InputLimit: 4096}},
+	}}, nil, nil, nil, metrics)
+	coordinator := securityaudit.NewCoordinator(nil, prompt)
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodGet, "/v1/responses", nil)
+	c.Set(securityAuditWSTurnContextKey, 2)
+	groupID := int64(3)
+	apiKey := &service.APIKey{ID: 9, UserID: 7, GroupID: &groupID, Group: &service.Group{ID: groupID, Platform: service.PlatformOpenAI}}
+	decision := runSecurityAudit(
+		c, nil, coordinator, nil, apiKey, middleware2.AuthSubject{UserID: 7, Concurrency: 2},
+		service.ContentModerationProtocolOpenAIResponses, "gpt-test",
+		[]byte(`{"type":"future.client.event","payload":"unrecognized websocket content"}`), "subsequent_turn",
+	)
+	require.NotNil(t, decision)
+	require.Equal(t, securityaudit.DecisionUnavailable, decision.Kind)
+	require.Equal(t, securityaudit.ErrorCodeExtractionFailed, decision.ErrorCode)
+	require.False(t, decision.AllowNextStage)
+	upstreamWrites := 0
+	if decision.AllowNextStage {
+		upstreamWrites++
+	}
+	require.Zero(t, upstreamWrites)
+	require.Equal(t, securityaudit.AuditMetricsSnapshot{ExtractionAttempted: 1, ExtractionFailed: 1}, metrics.AuditSnapshot())
 }
 
 type turnCountingEngine struct {
