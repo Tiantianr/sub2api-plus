@@ -254,7 +254,13 @@ func (h *OpenAIGatewayHandler) LiveSideband(c *gin.Context) {
 	defer func() { _ = downstream.CloseNow() }()
 	if err := h.gatewayService.ProxyLiveSidebandWithHooks(c.Request.Context(), record, downstream, &service.LiveSidebandHooks{
 		BeforeFrame: func(ctx context.Context) error {
-			return h.enforceOpenAIWSIPAccess(ctx, trustedClientIdentity)
+			if err := h.enforceOpenAIWSIPAccess(ctx, trustedClientIdentity); err != nil {
+				return err
+			}
+			if err := h.gatewayService.RevalidateLiveCallUserAccess(ctx, record); err != nil {
+				return service.NewOpenAIWSClientCloseError(coderws.StatusPolicyViolation, "account access changed", err)
+			}
+			return nil
 		},
 		BeforeClientFrame: func(ctx context.Context, _ coderws.MessageType, payload []byte) error {
 			decision := h.checkSecurityAuditStage(

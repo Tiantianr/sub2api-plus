@@ -52,6 +52,10 @@ type Tx struct {
 	IdempotencyRecord *IdempotencyRecordClient
 	// IdentityAdoptionDecision is the client for interacting with the IdentityAdoptionDecision builders.
 	IdentityAdoptionDecision *IdentityAdoptionDecisionClient
+	// OpenAIOAuthAccountAccessPolicy is the client for interacting with the OpenAIOAuthAccountAccessPolicy builders.
+	OpenAIOAuthAccountAccessPolicy *OpenAIOAuthAccountAccessPolicyClient
+	// OpenAIOAuthAccountUserGrant is the client for interacting with the OpenAIOAuthAccountUserGrant builders.
+	OpenAIOAuthAccountUserGrant *OpenAIOAuthAccountUserGrantClient
 	// PaymentAuditLog is the client for interacting with the PaymentAuditLog builders.
 	PaymentAuditLog *PaymentAuditLogClient
 	// PaymentOrder is the client for interacting with the PaymentOrder builders.
@@ -242,6 +246,8 @@ func (tx *Tx) init() {
 	tx.Group = NewGroupClient(tx.config)
 	tx.IdempotencyRecord = NewIdempotencyRecordClient(tx.config)
 	tx.IdentityAdoptionDecision = NewIdentityAdoptionDecisionClient(tx.config)
+	tx.OpenAIOAuthAccountAccessPolicy = NewOpenAIOAuthAccountAccessPolicyClient(tx.config)
+	tx.OpenAIOAuthAccountUserGrant = NewOpenAIOAuthAccountUserGrantClient(tx.config)
 	tx.PaymentAuditLog = NewPaymentAuditLogClient(tx.config)
 	tx.PaymentOrder = NewPaymentOrderClient(tx.config)
 	tx.PaymentProviderInstance = NewPaymentProviderInstanceClient(tx.config)

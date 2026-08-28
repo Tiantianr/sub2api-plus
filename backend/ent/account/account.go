@@ -88,6 +88,10 @@ const (
 	EdgeChildren = "children"
 	// EdgeUsageLogs holds the string denoting the usage_logs edge name in mutations.
 	EdgeUsageLogs = "usage_logs"
+	// EdgeOpenaiOauthAccessPolicy holds the string denoting the openai_oauth_access_policy edge name in mutations.
+	EdgeOpenaiOauthAccessPolicy = "openai_oauth_access_policy"
+	// EdgeOpenaiOauthUserGrants holds the string denoting the openai_oauth_user_grants edge name in mutations.
+	EdgeOpenaiOauthUserGrants = "openai_oauth_user_grants"
 	// EdgeAccountGroups holds the string denoting the account_groups edge name in mutations.
 	EdgeAccountGroups = "account_groups"
 	// Table holds the table name of the account in the database.
@@ -119,6 +123,20 @@ const (
 	UsageLogsInverseTable = "usage_logs"
 	// UsageLogsColumn is the table column denoting the usage_logs relation/edge.
 	UsageLogsColumn = "account_id"
+	// OpenaiOauthAccessPolicyTable is the table that holds the openai_oauth_access_policy relation/edge.
+	OpenaiOauthAccessPolicyTable = "openai_oauth_account_access_policies"
+	// OpenaiOauthAccessPolicyInverseTable is the table name for the OpenAIOAuthAccountAccessPolicy entity.
+	// It exists in this package in order to avoid circular dependency with the "openaioauthaccountaccesspolicy" package.
+	OpenaiOauthAccessPolicyInverseTable = "openai_oauth_account_access_policies"
+	// OpenaiOauthAccessPolicyColumn is the table column denoting the openai_oauth_access_policy relation/edge.
+	OpenaiOauthAccessPolicyColumn = "account_id"
+	// OpenaiOauthUserGrantsTable is the table that holds the openai_oauth_user_grants relation/edge.
+	OpenaiOauthUserGrantsTable = "openai_oauth_account_user_grants"
+	// OpenaiOauthUserGrantsInverseTable is the table name for the OpenAIOAuthAccountUserGrant entity.
+	// It exists in this package in order to avoid circular dependency with the "openaioauthaccountusergrant" package.
+	OpenaiOauthUserGrantsInverseTable = "openai_oauth_account_user_grants"
+	// OpenaiOauthUserGrantsColumn is the table column denoting the openai_oauth_user_grants relation/edge.
+	OpenaiOauthUserGrantsColumn = "account_id"
 	// AccountGroupsTable is the table that holds the account_groups relation/edge.
 	AccountGroupsTable = "account_groups"
 	// AccountGroupsInverseTable is the table name for the AccountGroup entity.
@@ -457,6 +475,27 @@ func ByUsageLogs(term sql.OrderTerm, terms ...sql.OrderTerm) OrderOption {
 	}
 }
 
+// ByOpenaiOauthAccessPolicyField orders the results by openai_oauth_access_policy field.
+func ByOpenaiOauthAccessPolicyField(field string, opts ...sql.OrderTermOption) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborTerms(s, newOpenaiOauthAccessPolicyStep(), sql.OrderByField(field, opts...))
+	}
+}
+
+// ByOpenaiOauthUserGrantsCount orders the results by openai_oauth_user_grants count.
+func ByOpenaiOauthUserGrantsCount(opts ...sql.OrderTermOption) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborsCount(s, newOpenaiOauthUserGrantsStep(), opts...)
+	}
+}
+
+// ByOpenaiOauthUserGrants orders the results by openai_oauth_user_grants terms.
+func ByOpenaiOauthUserGrants(term sql.OrderTerm, terms ...sql.OrderTerm) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborTerms(s, newOpenaiOauthUserGrantsStep(), append([]sql.OrderTerm{term}, terms...)...)
+	}
+}
+
 // ByAccountGroupsCount orders the results by account_groups count.
 func ByAccountGroupsCount(opts ...sql.OrderTermOption) OrderOption {
 	return func(s *sql.Selector) {
@@ -503,6 +542,20 @@ func newUsageLogsStep() *sqlgraph.Step {
 		sqlgraph.From(Table, FieldID),
 		sqlgraph.To(UsageLogsInverseTable, FieldID),
 		sqlgraph.Edge(sqlgraph.O2M, false, UsageLogsTable, UsageLogsColumn),
+	)
+}
+func newOpenaiOauthAccessPolicyStep() *sqlgraph.Step {
+	return sqlgraph.NewStep(
+		sqlgraph.From(Table, FieldID),
+		sqlgraph.To(OpenaiOauthAccessPolicyInverseTable, FieldID),
+		sqlgraph.Edge(sqlgraph.O2O, false, OpenaiOauthAccessPolicyTable, OpenaiOauthAccessPolicyColumn),
+	)
+}
+func newOpenaiOauthUserGrantsStep() *sqlgraph.Step {
+	return sqlgraph.NewStep(
+		sqlgraph.From(Table, FieldID),
+		sqlgraph.To(OpenaiOauthUserGrantsInverseTable, FieldID),
+		sqlgraph.Edge(sqlgraph.O2M, false, OpenaiOauthUserGrantsTable, OpenaiOauthUserGrantsColumn),
 	)
 }
 func newAccountGroupsStep() *sqlgraph.Step {

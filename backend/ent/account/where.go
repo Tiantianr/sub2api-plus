@@ -1720,6 +1720,52 @@ func HasUsageLogsWith(preds ...predicate.UsageLog) predicate.Account {
 	})
 }
 
+// HasOpenaiOauthAccessPolicy applies the HasEdge predicate on the "openai_oauth_access_policy" edge.
+func HasOpenaiOauthAccessPolicy() predicate.Account {
+	return predicate.Account(func(s *sql.Selector) {
+		step := sqlgraph.NewStep(
+			sqlgraph.From(Table, FieldID),
+			sqlgraph.Edge(sqlgraph.O2O, false, OpenaiOauthAccessPolicyTable, OpenaiOauthAccessPolicyColumn),
+		)
+		sqlgraph.HasNeighbors(s, step)
+	})
+}
+
+// HasOpenaiOauthAccessPolicyWith applies the HasEdge predicate on the "openai_oauth_access_policy" edge with a given conditions (other predicates).
+func HasOpenaiOauthAccessPolicyWith(preds ...predicate.OpenAIOAuthAccountAccessPolicy) predicate.Account {
+	return predicate.Account(func(s *sql.Selector) {
+		step := newOpenaiOauthAccessPolicyStep()
+		sqlgraph.HasNeighborsWith(s, step, func(s *sql.Selector) {
+			for _, p := range preds {
+				p(s)
+			}
+		})
+	})
+}
+
+// HasOpenaiOauthUserGrants applies the HasEdge predicate on the "openai_oauth_user_grants" edge.
+func HasOpenaiOauthUserGrants() predicate.Account {
+	return predicate.Account(func(s *sql.Selector) {
+		step := sqlgraph.NewStep(
+			sqlgraph.From(Table, FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, OpenaiOauthUserGrantsTable, OpenaiOauthUserGrantsColumn),
+		)
+		sqlgraph.HasNeighbors(s, step)
+	})
+}
+
+// HasOpenaiOauthUserGrantsWith applies the HasEdge predicate on the "openai_oauth_user_grants" edge with a given conditions (other predicates).
+func HasOpenaiOauthUserGrantsWith(preds ...predicate.OpenAIOAuthAccountUserGrant) predicate.Account {
+	return predicate.Account(func(s *sql.Selector) {
+		step := newOpenaiOauthUserGrantsStep()
+		sqlgraph.HasNeighborsWith(s, step, func(s *sql.Selector) {
+			for _, p := range preds {
+				p(s)
+			}
+		})
+	})
+}
+
 // HasAccountGroups applies the HasEdge predicate on the "account_groups" edge.
 func HasAccountGroups() predicate.Account {
 	return predicate.Account(func(s *sql.Selector) {

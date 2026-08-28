@@ -31,6 +31,8 @@ import (
 	"github.com/LuckyKuang/sub2api-plus/ent/group"
 	"github.com/LuckyKuang/sub2api-plus/ent/idempotencyrecord"
 	"github.com/LuckyKuang/sub2api-plus/ent/identityadoptiondecision"
+	"github.com/LuckyKuang/sub2api-plus/ent/openaioauthaccountaccesspolicy"
+	"github.com/LuckyKuang/sub2api-plus/ent/openaioauthaccountusergrant"
 	"github.com/LuckyKuang/sub2api-plus/ent/paymentauditlog"
 	"github.com/LuckyKuang/sub2api-plus/ent/paymentorder"
 	"github.com/LuckyKuang/sub2api-plus/ent/paymentproviderinstance"
@@ -64,45 +66,47 @@ const (
 	OpUpdateOne = ent.OpUpdateOne
 
 	// Node types.
-	TypeAPIKey                        = "APIKey"
-	TypeAccount                       = "Account"
-	TypeAccountGroup                  = "AccountGroup"
-	TypeAnnouncement                  = "Announcement"
-	TypeAnnouncementRead              = "AnnouncementRead"
-	TypeAuthIdentity                  = "AuthIdentity"
-	TypeAuthIdentityChannel           = "AuthIdentityChannel"
-	TypeBatchImageEvent               = "BatchImageEvent"
-	TypeBatchImageItem                = "BatchImageItem"
-	TypeBatchImageJob                 = "BatchImageJob"
-	TypeChannelMonitor                = "ChannelMonitor"
-	TypeChannelMonitorDailyRollup     = "ChannelMonitorDailyRollup"
-	TypeChannelMonitorHistory         = "ChannelMonitorHistory"
-	TypeChannelMonitorRequestTemplate = "ChannelMonitorRequestTemplate"
-	TypeCompositeModelRoute           = "CompositeModelRoute"
-	TypeErrorPassthroughRule          = "ErrorPassthroughRule"
-	TypeGroup                         = "Group"
-	TypeIdempotencyRecord             = "IdempotencyRecord"
-	TypeIdentityAdoptionDecision      = "IdentityAdoptionDecision"
-	TypePaymentAuditLog               = "PaymentAuditLog"
-	TypePaymentOrder                  = "PaymentOrder"
-	TypePaymentProviderInstance       = "PaymentProviderInstance"
-	TypePendingAuthSession            = "PendingAuthSession"
-	TypePromoCode                     = "PromoCode"
-	TypePromoCodeUsage                = "PromoCodeUsage"
-	TypeProxy                         = "Proxy"
-	TypeRedeemCode                    = "RedeemCode"
-	TypeSecuritySecret                = "SecuritySecret"
-	TypeSetting                       = "Setting"
-	TypeSubscriptionPlan              = "SubscriptionPlan"
-	TypeTLSFingerprintProfile         = "TLSFingerprintProfile"
-	TypeUsageCleanupTask              = "UsageCleanupTask"
-	TypeUsageLog                      = "UsageLog"
-	TypeUser                          = "User"
-	TypeUserAllowedGroup              = "UserAllowedGroup"
-	TypeUserAttributeDefinition       = "UserAttributeDefinition"
-	TypeUserAttributeValue            = "UserAttributeValue"
-	TypeUserPlatformQuota             = "UserPlatformQuota"
-	TypeUserSubscription              = "UserSubscription"
+	TypeAPIKey                         = "APIKey"
+	TypeAccount                        = "Account"
+	TypeAccountGroup                   = "AccountGroup"
+	TypeAnnouncement                   = "Announcement"
+	TypeAnnouncementRead               = "AnnouncementRead"
+	TypeAuthIdentity                   = "AuthIdentity"
+	TypeAuthIdentityChannel            = "AuthIdentityChannel"
+	TypeBatchImageEvent                = "BatchImageEvent"
+	TypeBatchImageItem                 = "BatchImageItem"
+	TypeBatchImageJob                  = "BatchImageJob"
+	TypeChannelMonitor                 = "ChannelMonitor"
+	TypeChannelMonitorDailyRollup      = "ChannelMonitorDailyRollup"
+	TypeChannelMonitorHistory          = "ChannelMonitorHistory"
+	TypeChannelMonitorRequestTemplate  = "ChannelMonitorRequestTemplate"
+	TypeCompositeModelRoute            = "CompositeModelRoute"
+	TypeErrorPassthroughRule           = "ErrorPassthroughRule"
+	TypeGroup                          = "Group"
+	TypeIdempotencyRecord              = "IdempotencyRecord"
+	TypeIdentityAdoptionDecision       = "IdentityAdoptionDecision"
+	TypeOpenAIOAuthAccountAccessPolicy = "OpenAIOAuthAccountAccessPolicy"
+	TypeOpenAIOAuthAccountUserGrant    = "OpenAIOAuthAccountUserGrant"
+	TypePaymentAuditLog                = "PaymentAuditLog"
+	TypePaymentOrder                   = "PaymentOrder"
+	TypePaymentProviderInstance        = "PaymentProviderInstance"
+	TypePendingAuthSession             = "PendingAuthSession"
+	TypePromoCode                      = "PromoCode"
+	TypePromoCodeUsage                 = "PromoCodeUsage"
+	TypeProxy                          = "Proxy"
+	TypeRedeemCode                     = "RedeemCode"
+	TypeSecuritySecret                 = "SecuritySecret"
+	TypeSetting                        = "Setting"
+	TypeSubscriptionPlan               = "SubscriptionPlan"
+	TypeTLSFingerprintProfile          = "TLSFingerprintProfile"
+	TypeUsageCleanupTask               = "UsageCleanupTask"
+	TypeUsageLog                       = "UsageLog"
+	TypeUser                           = "User"
+	TypeUserAllowedGroup               = "UserAllowedGroup"
+	TypeUserAttributeDefinition        = "UserAttributeDefinition"
+	TypeUserAttributeValue             = "UserAttributeValue"
+	TypeUserPlatformQuota              = "UserPlatformQuota"
+	TypeUserSubscription               = "UserSubscription"
 )
 
 // APIKeyMutation represents an operation that mutates the APIKey nodes in the graph.
@@ -2282,60 +2286,65 @@ func (m *APIKeyMutation) ResetEdge(name string) error {
 // AccountMutation represents an operation that mutates the Account nodes in the graph.
 type AccountMutation struct {
 	config
-	op                          Op
-	typ                         string
-	id                          *int64
-	created_at                  *time.Time
-	updated_at                  *time.Time
-	deleted_at                  *time.Time
-	name                        *string
-	notes                       *string
-	platform                    *string
-	_type                       *string
-	credentials                 *map[string]interface{}
-	extra                       *map[string]interface{}
-	proxy_fallback_origin_id    *int64
-	addproxy_fallback_origin_id *int64
-	concurrency                 *int
-	addconcurrency              *int
-	load_factor                 *int
-	addload_factor              *int
-	priority                    *int
-	addpriority                 *int
-	rate_multiplier             *float64
-	addrate_multiplier          *float64
-	status                      *string
-	error_message               *string
-	last_used_at                *time.Time
-	expires_at                  *time.Time
-	auto_pause_on_expired       *bool
-	schedulable                 *bool
-	rate_limited_at             *time.Time
-	rate_limit_reset_at         *time.Time
-	overload_until              *time.Time
-	temp_unschedulable_until    *time.Time
-	temp_unschedulable_reason   *string
-	session_window_start        *time.Time
-	session_window_end          *time.Time
-	session_window_status       *string
-	quota_dimension             *account.QuotaDimension
-	clearedFields               map[string]struct{}
-	groups                      map[int64]struct{}
-	removedgroups               map[int64]struct{}
-	clearedgroups               bool
-	proxy                       *int64
-	clearedproxy                bool
-	parent                      *int64
-	clearedparent               bool
-	children                    map[int64]struct{}
-	removedchildren             map[int64]struct{}
-	clearedchildren             bool
-	usage_logs                  map[int64]struct{}
-	removedusage_logs           map[int64]struct{}
-	clearedusage_logs           bool
-	done                        bool
-	oldValue                    func(context.Context) (*Account, error)
-	predicates                  []predicate.Account
+	op                                Op
+	typ                               string
+	id                                *int64
+	created_at                        *time.Time
+	updated_at                        *time.Time
+	deleted_at                        *time.Time
+	name                              *string
+	notes                             *string
+	platform                          *string
+	_type                             *string
+	credentials                       *map[string]interface{}
+	extra                             *map[string]interface{}
+	proxy_fallback_origin_id          *int64
+	addproxy_fallback_origin_id       *int64
+	concurrency                       *int
+	addconcurrency                    *int
+	load_factor                       *int
+	addload_factor                    *int
+	priority                          *int
+	addpriority                       *int
+	rate_multiplier                   *float64
+	addrate_multiplier                *float64
+	status                            *string
+	error_message                     *string
+	last_used_at                      *time.Time
+	expires_at                        *time.Time
+	auto_pause_on_expired             *bool
+	schedulable                       *bool
+	rate_limited_at                   *time.Time
+	rate_limit_reset_at               *time.Time
+	overload_until                    *time.Time
+	temp_unschedulable_until          *time.Time
+	temp_unschedulable_reason         *string
+	session_window_start              *time.Time
+	session_window_end                *time.Time
+	session_window_status             *string
+	quota_dimension                   *account.QuotaDimension
+	clearedFields                     map[string]struct{}
+	groups                            map[int64]struct{}
+	removedgroups                     map[int64]struct{}
+	clearedgroups                     bool
+	proxy                             *int64
+	clearedproxy                      bool
+	parent                            *int64
+	clearedparent                     bool
+	children                          map[int64]struct{}
+	removedchildren                   map[int64]struct{}
+	clearedchildren                   bool
+	usage_logs                        map[int64]struct{}
+	removedusage_logs                 map[int64]struct{}
+	clearedusage_logs                 bool
+	openai_oauth_access_policy        *int64
+	clearedopenai_oauth_access_policy bool
+	openai_oauth_user_grants          map[int64]struct{}
+	removedopenai_oauth_user_grants   map[int64]struct{}
+	clearedopenai_oauth_user_grants   bool
+	done                              bool
+	oldValue                          func(context.Context) (*Account, error)
+	predicates                        []predicate.Account
 }
 
 var _ ent.Mutation = (*AccountMutation)(nil)
@@ -4104,6 +4113,99 @@ func (m *AccountMutation) ResetUsageLogs() {
 	m.removedusage_logs = nil
 }
 
+// SetOpenaiOauthAccessPolicyID sets the "openai_oauth_access_policy" edge to the OpenAIOAuthAccountAccessPolicy entity by id.
+func (m *AccountMutation) SetOpenaiOauthAccessPolicyID(id int64) {
+	m.openai_oauth_access_policy = &id
+}
+
+// ClearOpenaiOauthAccessPolicy clears the "openai_oauth_access_policy" edge to the OpenAIOAuthAccountAccessPolicy entity.
+func (m *AccountMutation) ClearOpenaiOauthAccessPolicy() {
+	m.clearedopenai_oauth_access_policy = true
+}
+
+// OpenaiOauthAccessPolicyCleared reports if the "openai_oauth_access_policy" edge to the OpenAIOAuthAccountAccessPolicy entity was cleared.
+func (m *AccountMutation) OpenaiOauthAccessPolicyCleared() bool {
+	return m.clearedopenai_oauth_access_policy
+}
+
+// OpenaiOauthAccessPolicyID returns the "openai_oauth_access_policy" edge ID in the mutation.
+func (m *AccountMutation) OpenaiOauthAccessPolicyID() (id int64, exists bool) {
+	if m.openai_oauth_access_policy != nil {
+		return *m.openai_oauth_access_policy, true
+	}
+	return
+}
+
+// OpenaiOauthAccessPolicyIDs returns the "openai_oauth_access_policy" edge IDs in the mutation.
+// Note that IDs always returns len(IDs) <= 1 for unique edges, and you should use
+// OpenaiOauthAccessPolicyID instead. It exists only for internal usage by the builders.
+func (m *AccountMutation) OpenaiOauthAccessPolicyIDs() (ids []int64) {
+	if id := m.openai_oauth_access_policy; id != nil {
+		ids = append(ids, *id)
+	}
+	return
+}
+
+// ResetOpenaiOauthAccessPolicy resets all changes to the "openai_oauth_access_policy" edge.
+func (m *AccountMutation) ResetOpenaiOauthAccessPolicy() {
+	m.openai_oauth_access_policy = nil
+	m.clearedopenai_oauth_access_policy = false
+}
+
+// AddOpenaiOauthUserGrantIDs adds the "openai_oauth_user_grants" edge to the OpenAIOAuthAccountUserGrant entity by ids.
+func (m *AccountMutation) AddOpenaiOauthUserGrantIDs(ids ...int64) {
+	if m.openai_oauth_user_grants == nil {
+		m.openai_oauth_user_grants = make(map[int64]struct{})
+	}
+	for i := range ids {
+		m.openai_oauth_user_grants[ids[i]] = struct{}{}
+	}
+}
+
+// ClearOpenaiOauthUserGrants clears the "openai_oauth_user_grants" edge to the OpenAIOAuthAccountUserGrant entity.
+func (m *AccountMutation) ClearOpenaiOauthUserGrants() {
+	m.clearedopenai_oauth_user_grants = true
+}
+
+// OpenaiOauthUserGrantsCleared reports if the "openai_oauth_user_grants" edge to the OpenAIOAuthAccountUserGrant entity was cleared.
+func (m *AccountMutation) OpenaiOauthUserGrantsCleared() bool {
+	return m.clearedopenai_oauth_user_grants
+}
+
+// RemoveOpenaiOauthUserGrantIDs removes the "openai_oauth_user_grants" edge to the OpenAIOAuthAccountUserGrant entity by IDs.
+func (m *AccountMutation) RemoveOpenaiOauthUserGrantIDs(ids ...int64) {
+	if m.removedopenai_oauth_user_grants == nil {
+		m.removedopenai_oauth_user_grants = make(map[int64]struct{})
+	}
+	for i := range ids {
+		delete(m.openai_oauth_user_grants, ids[i])
+		m.removedopenai_oauth_user_grants[ids[i]] = struct{}{}
+	}
+}
+
+// RemovedOpenaiOauthUserGrants returns the removed IDs of the "openai_oauth_user_grants" edge to the OpenAIOAuthAccountUserGrant entity.
+func (m *AccountMutation) RemovedOpenaiOauthUserGrantsIDs() (ids []int64) {
+	for id := range m.removedopenai_oauth_user_grants {
+		ids = append(ids, id)
+	}
+	return
+}
+
+// OpenaiOauthUserGrantsIDs returns the "openai_oauth_user_grants" edge IDs in the mutation.
+func (m *AccountMutation) OpenaiOauthUserGrantsIDs() (ids []int64) {
+	for id := range m.openai_oauth_user_grants {
+		ids = append(ids, id)
+	}
+	return
+}
+
+// ResetOpenaiOauthUserGrants resets all changes to the "openai_oauth_user_grants" edge.
+func (m *AccountMutation) ResetOpenaiOauthUserGrants() {
+	m.openai_oauth_user_grants = nil
+	m.clearedopenai_oauth_user_grants = false
+	m.removedopenai_oauth_user_grants = nil
+}
+
 // Where appends a list predicates to the AccountMutation builder.
 func (m *AccountMutation) Where(ps ...predicate.Account) {
 	m.predicates = append(m.predicates, ps...)
@@ -4915,7 +5017,7 @@ func (m *AccountMutation) ResetField(name string) error {
 
 // AddedEdges returns all edge names that were set/added in this mutation.
 func (m *AccountMutation) AddedEdges() []string {
-	edges := make([]string, 0, 5)
+	edges := make([]string, 0, 7)
 	if m.groups != nil {
 		edges = append(edges, account.EdgeGroups)
 	}
@@ -4930,6 +5032,12 @@ func (m *AccountMutation) AddedEdges() []string {
 	}
 	if m.usage_logs != nil {
 		edges = append(edges, account.EdgeUsageLogs)
+	}
+	if m.openai_oauth_access_policy != nil {
+		edges = append(edges, account.EdgeOpenaiOauthAccessPolicy)
+	}
+	if m.openai_oauth_user_grants != nil {
+		edges = append(edges, account.EdgeOpenaiOauthUserGrants)
 	}
 	return edges
 }
@@ -4964,13 +5072,23 @@ func (m *AccountMutation) AddedIDs(name string) []ent.Value {
 			ids = append(ids, id)
 		}
 		return ids
+	case account.EdgeOpenaiOauthAccessPolicy:
+		if id := m.openai_oauth_access_policy; id != nil {
+			return []ent.Value{*id}
+		}
+	case account.EdgeOpenaiOauthUserGrants:
+		ids := make([]ent.Value, 0, len(m.openai_oauth_user_grants))
+		for id := range m.openai_oauth_user_grants {
+			ids = append(ids, id)
+		}
+		return ids
 	}
 	return nil
 }
 
 // RemovedEdges returns all edge names that were removed in this mutation.
 func (m *AccountMutation) RemovedEdges() []string {
-	edges := make([]string, 0, 5)
+	edges := make([]string, 0, 7)
 	if m.removedgroups != nil {
 		edges = append(edges, account.EdgeGroups)
 	}
@@ -4979,6 +5097,9 @@ func (m *AccountMutation) RemovedEdges() []string {
 	}
 	if m.removedusage_logs != nil {
 		edges = append(edges, account.EdgeUsageLogs)
+	}
+	if m.removedopenai_oauth_user_grants != nil {
+		edges = append(edges, account.EdgeOpenaiOauthUserGrants)
 	}
 	return edges
 }
@@ -5005,13 +5126,19 @@ func (m *AccountMutation) RemovedIDs(name string) []ent.Value {
 			ids = append(ids, id)
 		}
 		return ids
+	case account.EdgeOpenaiOauthUserGrants:
+		ids := make([]ent.Value, 0, len(m.removedopenai_oauth_user_grants))
+		for id := range m.removedopenai_oauth_user_grants {
+			ids = append(ids, id)
+		}
+		return ids
 	}
 	return nil
 }
 
 // ClearedEdges returns all edge names that were cleared in this mutation.
 func (m *AccountMutation) ClearedEdges() []string {
-	edges := make([]string, 0, 5)
+	edges := make([]string, 0, 7)
 	if m.clearedgroups {
 		edges = append(edges, account.EdgeGroups)
 	}
@@ -5026,6 +5153,12 @@ func (m *AccountMutation) ClearedEdges() []string {
 	}
 	if m.clearedusage_logs {
 		edges = append(edges, account.EdgeUsageLogs)
+	}
+	if m.clearedopenai_oauth_access_policy {
+		edges = append(edges, account.EdgeOpenaiOauthAccessPolicy)
+	}
+	if m.clearedopenai_oauth_user_grants {
+		edges = append(edges, account.EdgeOpenaiOauthUserGrants)
 	}
 	return edges
 }
@@ -5044,6 +5177,10 @@ func (m *AccountMutation) EdgeCleared(name string) bool {
 		return m.clearedchildren
 	case account.EdgeUsageLogs:
 		return m.clearedusage_logs
+	case account.EdgeOpenaiOauthAccessPolicy:
+		return m.clearedopenai_oauth_access_policy
+	case account.EdgeOpenaiOauthUserGrants:
+		return m.clearedopenai_oauth_user_grants
 	}
 	return false
 }
@@ -5057,6 +5194,9 @@ func (m *AccountMutation) ClearEdge(name string) error {
 		return nil
 	case account.EdgeParent:
 		m.ClearParent()
+		return nil
+	case account.EdgeOpenaiOauthAccessPolicy:
+		m.ClearOpenaiOauthAccessPolicy()
 		return nil
 	}
 	return fmt.Errorf("unknown Account unique edge %s", name)
@@ -5080,6 +5220,12 @@ func (m *AccountMutation) ResetEdge(name string) error {
 		return nil
 	case account.EdgeUsageLogs:
 		m.ResetUsageLogs()
+		return nil
+	case account.EdgeOpenaiOauthAccessPolicy:
+		m.ResetOpenaiOauthAccessPolicy()
+		return nil
+	case account.EdgeOpenaiOauthUserGrants:
+		m.ResetOpenaiOauthUserGrants()
 		return nil
 	}
 	return fmt.Errorf("unknown Account edge %s", name)
@@ -29447,6 +29593,1229 @@ func (m *IdentityAdoptionDecisionMutation) ResetEdge(name string) error {
 	return fmt.Errorf("unknown IdentityAdoptionDecision edge %s", name)
 }
 
+// OpenAIOAuthAccountAccessPolicyMutation represents an operation that mutates the OpenAIOAuthAccountAccessPolicy nodes in the graph.
+type OpenAIOAuthAccountAccessPolicyMutation struct {
+	config
+	op                    Op
+	typ                   string
+	id                    *int64
+	mode                  *openaioauthaccountaccesspolicy.Mode
+	default_for_new_users *bool
+	revision              *int64
+	addrevision           *int64
+	created_at            *time.Time
+	updated_at            *time.Time
+	clearedFields         map[string]struct{}
+	account               *int64
+	clearedaccount        bool
+	done                  bool
+	oldValue              func(context.Context) (*OpenAIOAuthAccountAccessPolicy, error)
+	predicates            []predicate.OpenAIOAuthAccountAccessPolicy
+}
+
+var _ ent.Mutation = (*OpenAIOAuthAccountAccessPolicyMutation)(nil)
+
+// openaioauthaccountaccesspolicyOption allows management of the mutation configuration using functional options.
+type openaioauthaccountaccesspolicyOption func(*OpenAIOAuthAccountAccessPolicyMutation)
+
+// newOpenAIOAuthAccountAccessPolicyMutation creates new mutation for the OpenAIOAuthAccountAccessPolicy entity.
+func newOpenAIOAuthAccountAccessPolicyMutation(c config, op Op, opts ...openaioauthaccountaccesspolicyOption) *OpenAIOAuthAccountAccessPolicyMutation {
+	m := &OpenAIOAuthAccountAccessPolicyMutation{
+		config:        c,
+		op:            op,
+		typ:           TypeOpenAIOAuthAccountAccessPolicy,
+		clearedFields: make(map[string]struct{}),
+	}
+	for _, opt := range opts {
+		opt(m)
+	}
+	return m
+}
+
+// withOpenAIOAuthAccountAccessPolicyID sets the ID field of the mutation.
+func withOpenAIOAuthAccountAccessPolicyID(id int64) openaioauthaccountaccesspolicyOption {
+	return func(m *OpenAIOAuthAccountAccessPolicyMutation) {
+		var (
+			err   error
+			once  sync.Once
+			value *OpenAIOAuthAccountAccessPolicy
+		)
+		m.oldValue = func(ctx context.Context) (*OpenAIOAuthAccountAccessPolicy, error) {
+			once.Do(func() {
+				if m.done {
+					err = errors.New("querying old values post mutation is not allowed")
+				} else {
+					value, err = m.Client().OpenAIOAuthAccountAccessPolicy.Get(ctx, id)
+				}
+			})
+			return value, err
+		}
+		m.id = &id
+	}
+}
+
+// withOpenAIOAuthAccountAccessPolicy sets the old OpenAIOAuthAccountAccessPolicy of the mutation.
+func withOpenAIOAuthAccountAccessPolicy(node *OpenAIOAuthAccountAccessPolicy) openaioauthaccountaccesspolicyOption {
+	return func(m *OpenAIOAuthAccountAccessPolicyMutation) {
+		m.oldValue = func(context.Context) (*OpenAIOAuthAccountAccessPolicy, error) {
+			return node, nil
+		}
+		m.id = &node.ID
+	}
+}
+
+// Client returns a new `ent.Client` from the mutation. If the mutation was
+// executed in a transaction (ent.Tx), a transactional client is returned.
+func (m OpenAIOAuthAccountAccessPolicyMutation) Client() *Client {
+	client := &Client{config: m.config}
+	client.init()
+	return client
+}
+
+// Tx returns an `ent.Tx` for mutations that were executed in transactions;
+// it returns an error otherwise.
+func (m OpenAIOAuthAccountAccessPolicyMutation) Tx() (*Tx, error) {
+	if _, ok := m.driver.(*txDriver); !ok {
+		return nil, errors.New("ent: mutation is not running in a transaction")
+	}
+	tx := &Tx{config: m.config}
+	tx.init()
+	return tx, nil
+}
+
+// ID returns the ID value in the mutation. Note that the ID is only available
+// if it was provided to the builder or after it was returned from the database.
+func (m *OpenAIOAuthAccountAccessPolicyMutation) ID() (id int64, exists bool) {
+	if m.id == nil {
+		return
+	}
+	return *m.id, true
+}
+
+// IDs queries the database and returns the entity ids that match the mutation's predicate.
+// That means, if the mutation is applied within a transaction with an isolation level such
+// as sql.LevelSerializable, the returned ids match the ids of the rows that will be updated
+// or updated by the mutation.
+func (m *OpenAIOAuthAccountAccessPolicyMutation) IDs(ctx context.Context) ([]int64, error) {
+	switch {
+	case m.op.Is(OpUpdateOne | OpDeleteOne):
+		id, exists := m.ID()
+		if exists {
+			return []int64{id}, nil
+		}
+		fallthrough
+	case m.op.Is(OpUpdate | OpDelete):
+		return m.Client().OpenAIOAuthAccountAccessPolicy.Query().Where(m.predicates...).IDs(ctx)
+	default:
+		return nil, fmt.Errorf("IDs is not allowed on %s operations", m.op)
+	}
+}
+
+// SetAccountID sets the "account_id" field.
+func (m *OpenAIOAuthAccountAccessPolicyMutation) SetAccountID(i int64) {
+	m.account = &i
+}
+
+// AccountID returns the value of the "account_id" field in the mutation.
+func (m *OpenAIOAuthAccountAccessPolicyMutation) AccountID() (r int64, exists bool) {
+	v := m.account
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldAccountID returns the old "account_id" field's value of the OpenAIOAuthAccountAccessPolicy entity.
+// If the OpenAIOAuthAccountAccessPolicy object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *OpenAIOAuthAccountAccessPolicyMutation) OldAccountID(ctx context.Context) (v int64, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldAccountID is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldAccountID requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldAccountID: %w", err)
+	}
+	return oldValue.AccountID, nil
+}
+
+// ResetAccountID resets all changes to the "account_id" field.
+func (m *OpenAIOAuthAccountAccessPolicyMutation) ResetAccountID() {
+	m.account = nil
+}
+
+// SetMode sets the "mode" field.
+func (m *OpenAIOAuthAccountAccessPolicyMutation) SetMode(o openaioauthaccountaccesspolicy.Mode) {
+	m.mode = &o
+}
+
+// Mode returns the value of the "mode" field in the mutation.
+func (m *OpenAIOAuthAccountAccessPolicyMutation) Mode() (r openaioauthaccountaccesspolicy.Mode, exists bool) {
+	v := m.mode
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldMode returns the old "mode" field's value of the OpenAIOAuthAccountAccessPolicy entity.
+// If the OpenAIOAuthAccountAccessPolicy object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *OpenAIOAuthAccountAccessPolicyMutation) OldMode(ctx context.Context) (v openaioauthaccountaccesspolicy.Mode, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldMode is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldMode requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldMode: %w", err)
+	}
+	return oldValue.Mode, nil
+}
+
+// ResetMode resets all changes to the "mode" field.
+func (m *OpenAIOAuthAccountAccessPolicyMutation) ResetMode() {
+	m.mode = nil
+}
+
+// SetDefaultForNewUsers sets the "default_for_new_users" field.
+func (m *OpenAIOAuthAccountAccessPolicyMutation) SetDefaultForNewUsers(b bool) {
+	m.default_for_new_users = &b
+}
+
+// DefaultForNewUsers returns the value of the "default_for_new_users" field in the mutation.
+func (m *OpenAIOAuthAccountAccessPolicyMutation) DefaultForNewUsers() (r bool, exists bool) {
+	v := m.default_for_new_users
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldDefaultForNewUsers returns the old "default_for_new_users" field's value of the OpenAIOAuthAccountAccessPolicy entity.
+// If the OpenAIOAuthAccountAccessPolicy object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *OpenAIOAuthAccountAccessPolicyMutation) OldDefaultForNewUsers(ctx context.Context) (v bool, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldDefaultForNewUsers is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldDefaultForNewUsers requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldDefaultForNewUsers: %w", err)
+	}
+	return oldValue.DefaultForNewUsers, nil
+}
+
+// ResetDefaultForNewUsers resets all changes to the "default_for_new_users" field.
+func (m *OpenAIOAuthAccountAccessPolicyMutation) ResetDefaultForNewUsers() {
+	m.default_for_new_users = nil
+}
+
+// SetRevision sets the "revision" field.
+func (m *OpenAIOAuthAccountAccessPolicyMutation) SetRevision(i int64) {
+	m.revision = &i
+	m.addrevision = nil
+}
+
+// Revision returns the value of the "revision" field in the mutation.
+func (m *OpenAIOAuthAccountAccessPolicyMutation) Revision() (r int64, exists bool) {
+	v := m.revision
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldRevision returns the old "revision" field's value of the OpenAIOAuthAccountAccessPolicy entity.
+// If the OpenAIOAuthAccountAccessPolicy object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *OpenAIOAuthAccountAccessPolicyMutation) OldRevision(ctx context.Context) (v int64, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldRevision is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldRevision requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldRevision: %w", err)
+	}
+	return oldValue.Revision, nil
+}
+
+// AddRevision adds i to the "revision" field.
+func (m *OpenAIOAuthAccountAccessPolicyMutation) AddRevision(i int64) {
+	if m.addrevision != nil {
+		*m.addrevision += i
+	} else {
+		m.addrevision = &i
+	}
+}
+
+// AddedRevision returns the value that was added to the "revision" field in this mutation.
+func (m *OpenAIOAuthAccountAccessPolicyMutation) AddedRevision() (r int64, exists bool) {
+	v := m.addrevision
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ResetRevision resets all changes to the "revision" field.
+func (m *OpenAIOAuthAccountAccessPolicyMutation) ResetRevision() {
+	m.revision = nil
+	m.addrevision = nil
+}
+
+// SetCreatedAt sets the "created_at" field.
+func (m *OpenAIOAuthAccountAccessPolicyMutation) SetCreatedAt(t time.Time) {
+	m.created_at = &t
+}
+
+// CreatedAt returns the value of the "created_at" field in the mutation.
+func (m *OpenAIOAuthAccountAccessPolicyMutation) CreatedAt() (r time.Time, exists bool) {
+	v := m.created_at
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldCreatedAt returns the old "created_at" field's value of the OpenAIOAuthAccountAccessPolicy entity.
+// If the OpenAIOAuthAccountAccessPolicy object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *OpenAIOAuthAccountAccessPolicyMutation) OldCreatedAt(ctx context.Context) (v time.Time, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldCreatedAt is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldCreatedAt requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldCreatedAt: %w", err)
+	}
+	return oldValue.CreatedAt, nil
+}
+
+// ResetCreatedAt resets all changes to the "created_at" field.
+func (m *OpenAIOAuthAccountAccessPolicyMutation) ResetCreatedAt() {
+	m.created_at = nil
+}
+
+// SetUpdatedAt sets the "updated_at" field.
+func (m *OpenAIOAuthAccountAccessPolicyMutation) SetUpdatedAt(t time.Time) {
+	m.updated_at = &t
+}
+
+// UpdatedAt returns the value of the "updated_at" field in the mutation.
+func (m *OpenAIOAuthAccountAccessPolicyMutation) UpdatedAt() (r time.Time, exists bool) {
+	v := m.updated_at
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldUpdatedAt returns the old "updated_at" field's value of the OpenAIOAuthAccountAccessPolicy entity.
+// If the OpenAIOAuthAccountAccessPolicy object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *OpenAIOAuthAccountAccessPolicyMutation) OldUpdatedAt(ctx context.Context) (v time.Time, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldUpdatedAt is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldUpdatedAt requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldUpdatedAt: %w", err)
+	}
+	return oldValue.UpdatedAt, nil
+}
+
+// ResetUpdatedAt resets all changes to the "updated_at" field.
+func (m *OpenAIOAuthAccountAccessPolicyMutation) ResetUpdatedAt() {
+	m.updated_at = nil
+}
+
+// ClearAccount clears the "account" edge to the Account entity.
+func (m *OpenAIOAuthAccountAccessPolicyMutation) ClearAccount() {
+	m.clearedaccount = true
+	m.clearedFields[openaioauthaccountaccesspolicy.FieldAccountID] = struct{}{}
+}
+
+// AccountCleared reports if the "account" edge to the Account entity was cleared.
+func (m *OpenAIOAuthAccountAccessPolicyMutation) AccountCleared() bool {
+	return m.clearedaccount
+}
+
+// AccountIDs returns the "account" edge IDs in the mutation.
+// Note that IDs always returns len(IDs) <= 1 for unique edges, and you should use
+// AccountID instead. It exists only for internal usage by the builders.
+func (m *OpenAIOAuthAccountAccessPolicyMutation) AccountIDs() (ids []int64) {
+	if id := m.account; id != nil {
+		ids = append(ids, *id)
+	}
+	return
+}
+
+// ResetAccount resets all changes to the "account" edge.
+func (m *OpenAIOAuthAccountAccessPolicyMutation) ResetAccount() {
+	m.account = nil
+	m.clearedaccount = false
+}
+
+// Where appends a list predicates to the OpenAIOAuthAccountAccessPolicyMutation builder.
+func (m *OpenAIOAuthAccountAccessPolicyMutation) Where(ps ...predicate.OpenAIOAuthAccountAccessPolicy) {
+	m.predicates = append(m.predicates, ps...)
+}
+
+// WhereP appends storage-level predicates to the OpenAIOAuthAccountAccessPolicyMutation builder. Using this method,
+// users can use type-assertion to append predicates that do not depend on any generated package.
+func (m *OpenAIOAuthAccountAccessPolicyMutation) WhereP(ps ...func(*sql.Selector)) {
+	p := make([]predicate.OpenAIOAuthAccountAccessPolicy, len(ps))
+	for i := range ps {
+		p[i] = ps[i]
+	}
+	m.Where(p...)
+}
+
+// Op returns the operation name.
+func (m *OpenAIOAuthAccountAccessPolicyMutation) Op() Op {
+	return m.op
+}
+
+// SetOp allows setting the mutation operation.
+func (m *OpenAIOAuthAccountAccessPolicyMutation) SetOp(op Op) {
+	m.op = op
+}
+
+// Type returns the node type of this mutation (OpenAIOAuthAccountAccessPolicy).
+func (m *OpenAIOAuthAccountAccessPolicyMutation) Type() string {
+	return m.typ
+}
+
+// Fields returns all fields that were changed during this mutation. Note that in
+// order to get all numeric fields that were incremented/decremented, call
+// AddedFields().
+func (m *OpenAIOAuthAccountAccessPolicyMutation) Fields() []string {
+	fields := make([]string, 0, 6)
+	if m.account != nil {
+		fields = append(fields, openaioauthaccountaccesspolicy.FieldAccountID)
+	}
+	if m.mode != nil {
+		fields = append(fields, openaioauthaccountaccesspolicy.FieldMode)
+	}
+	if m.default_for_new_users != nil {
+		fields = append(fields, openaioauthaccountaccesspolicy.FieldDefaultForNewUsers)
+	}
+	if m.revision != nil {
+		fields = append(fields, openaioauthaccountaccesspolicy.FieldRevision)
+	}
+	if m.created_at != nil {
+		fields = append(fields, openaioauthaccountaccesspolicy.FieldCreatedAt)
+	}
+	if m.updated_at != nil {
+		fields = append(fields, openaioauthaccountaccesspolicy.FieldUpdatedAt)
+	}
+	return fields
+}
+
+// Field returns the value of a field with the given name. The second boolean
+// return value indicates that this field was not set, or was not defined in the
+// schema.
+func (m *OpenAIOAuthAccountAccessPolicyMutation) Field(name string) (ent.Value, bool) {
+	switch name {
+	case openaioauthaccountaccesspolicy.FieldAccountID:
+		return m.AccountID()
+	case openaioauthaccountaccesspolicy.FieldMode:
+		return m.Mode()
+	case openaioauthaccountaccesspolicy.FieldDefaultForNewUsers:
+		return m.DefaultForNewUsers()
+	case openaioauthaccountaccesspolicy.FieldRevision:
+		return m.Revision()
+	case openaioauthaccountaccesspolicy.FieldCreatedAt:
+		return m.CreatedAt()
+	case openaioauthaccountaccesspolicy.FieldUpdatedAt:
+		return m.UpdatedAt()
+	}
+	return nil, false
+}
+
+// OldField returns the old value of the field from the database. An error is
+// returned if the mutation operation is not UpdateOne, or the query to the
+// database failed.
+func (m *OpenAIOAuthAccountAccessPolicyMutation) OldField(ctx context.Context, name string) (ent.Value, error) {
+	switch name {
+	case openaioauthaccountaccesspolicy.FieldAccountID:
+		return m.OldAccountID(ctx)
+	case openaioauthaccountaccesspolicy.FieldMode:
+		return m.OldMode(ctx)
+	case openaioauthaccountaccesspolicy.FieldDefaultForNewUsers:
+		return m.OldDefaultForNewUsers(ctx)
+	case openaioauthaccountaccesspolicy.FieldRevision:
+		return m.OldRevision(ctx)
+	case openaioauthaccountaccesspolicy.FieldCreatedAt:
+		return m.OldCreatedAt(ctx)
+	case openaioauthaccountaccesspolicy.FieldUpdatedAt:
+		return m.OldUpdatedAt(ctx)
+	}
+	return nil, fmt.Errorf("unknown OpenAIOAuthAccountAccessPolicy field %s", name)
+}
+
+// SetField sets the value of a field with the given name. It returns an error if
+// the field is not defined in the schema, or if the type mismatched the field
+// type.
+func (m *OpenAIOAuthAccountAccessPolicyMutation) SetField(name string, value ent.Value) error {
+	switch name {
+	case openaioauthaccountaccesspolicy.FieldAccountID:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetAccountID(v)
+		return nil
+	case openaioauthaccountaccesspolicy.FieldMode:
+		v, ok := value.(openaioauthaccountaccesspolicy.Mode)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetMode(v)
+		return nil
+	case openaioauthaccountaccesspolicy.FieldDefaultForNewUsers:
+		v, ok := value.(bool)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetDefaultForNewUsers(v)
+		return nil
+	case openaioauthaccountaccesspolicy.FieldRevision:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetRevision(v)
+		return nil
+	case openaioauthaccountaccesspolicy.FieldCreatedAt:
+		v, ok := value.(time.Time)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetCreatedAt(v)
+		return nil
+	case openaioauthaccountaccesspolicy.FieldUpdatedAt:
+		v, ok := value.(time.Time)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetUpdatedAt(v)
+		return nil
+	}
+	return fmt.Errorf("unknown OpenAIOAuthAccountAccessPolicy field %s", name)
+}
+
+// AddedFields returns all numeric fields that were incremented/decremented during
+// this mutation.
+func (m *OpenAIOAuthAccountAccessPolicyMutation) AddedFields() []string {
+	var fields []string
+	if m.addrevision != nil {
+		fields = append(fields, openaioauthaccountaccesspolicy.FieldRevision)
+	}
+	return fields
+}
+
+// AddedField returns the numeric value that was incremented/decremented on a field
+// with the given name. The second boolean return value indicates that this field
+// was not set, or was not defined in the schema.
+func (m *OpenAIOAuthAccountAccessPolicyMutation) AddedField(name string) (ent.Value, bool) {
+	switch name {
+	case openaioauthaccountaccesspolicy.FieldRevision:
+		return m.AddedRevision()
+	}
+	return nil, false
+}
+
+// AddField adds the value to the field with the given name. It returns an error if
+// the field is not defined in the schema, or if the type mismatched the field
+// type.
+func (m *OpenAIOAuthAccountAccessPolicyMutation) AddField(name string, value ent.Value) error {
+	switch name {
+	case openaioauthaccountaccesspolicy.FieldRevision:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddRevision(v)
+		return nil
+	}
+	return fmt.Errorf("unknown OpenAIOAuthAccountAccessPolicy numeric field %s", name)
+}
+
+// ClearedFields returns all nullable fields that were cleared during this
+// mutation.
+func (m *OpenAIOAuthAccountAccessPolicyMutation) ClearedFields() []string {
+	return nil
+}
+
+// FieldCleared returns a boolean indicating if a field with the given name was
+// cleared in this mutation.
+func (m *OpenAIOAuthAccountAccessPolicyMutation) FieldCleared(name string) bool {
+	_, ok := m.clearedFields[name]
+	return ok
+}
+
+// ClearField clears the value of the field with the given name. It returns an
+// error if the field is not defined in the schema.
+func (m *OpenAIOAuthAccountAccessPolicyMutation) ClearField(name string) error {
+	return fmt.Errorf("unknown OpenAIOAuthAccountAccessPolicy nullable field %s", name)
+}
+
+// ResetField resets all changes in the mutation for the field with the given name.
+// It returns an error if the field is not defined in the schema.
+func (m *OpenAIOAuthAccountAccessPolicyMutation) ResetField(name string) error {
+	switch name {
+	case openaioauthaccountaccesspolicy.FieldAccountID:
+		m.ResetAccountID()
+		return nil
+	case openaioauthaccountaccesspolicy.FieldMode:
+		m.ResetMode()
+		return nil
+	case openaioauthaccountaccesspolicy.FieldDefaultForNewUsers:
+		m.ResetDefaultForNewUsers()
+		return nil
+	case openaioauthaccountaccesspolicy.FieldRevision:
+		m.ResetRevision()
+		return nil
+	case openaioauthaccountaccesspolicy.FieldCreatedAt:
+		m.ResetCreatedAt()
+		return nil
+	case openaioauthaccountaccesspolicy.FieldUpdatedAt:
+		m.ResetUpdatedAt()
+		return nil
+	}
+	return fmt.Errorf("unknown OpenAIOAuthAccountAccessPolicy field %s", name)
+}
+
+// AddedEdges returns all edge names that were set/added in this mutation.
+func (m *OpenAIOAuthAccountAccessPolicyMutation) AddedEdges() []string {
+	edges := make([]string, 0, 1)
+	if m.account != nil {
+		edges = append(edges, openaioauthaccountaccesspolicy.EdgeAccount)
+	}
+	return edges
+}
+
+// AddedIDs returns all IDs (to other nodes) that were added for the given edge
+// name in this mutation.
+func (m *OpenAIOAuthAccountAccessPolicyMutation) AddedIDs(name string) []ent.Value {
+	switch name {
+	case openaioauthaccountaccesspolicy.EdgeAccount:
+		if id := m.account; id != nil {
+			return []ent.Value{*id}
+		}
+	}
+	return nil
+}
+
+// RemovedEdges returns all edge names that were removed in this mutation.
+func (m *OpenAIOAuthAccountAccessPolicyMutation) RemovedEdges() []string {
+	edges := make([]string, 0, 1)
+	return edges
+}
+
+// RemovedIDs returns all IDs (to other nodes) that were removed for the edge with
+// the given name in this mutation.
+func (m *OpenAIOAuthAccountAccessPolicyMutation) RemovedIDs(name string) []ent.Value {
+	return nil
+}
+
+// ClearedEdges returns all edge names that were cleared in this mutation.
+func (m *OpenAIOAuthAccountAccessPolicyMutation) ClearedEdges() []string {
+	edges := make([]string, 0, 1)
+	if m.clearedaccount {
+		edges = append(edges, openaioauthaccountaccesspolicy.EdgeAccount)
+	}
+	return edges
+}
+
+// EdgeCleared returns a boolean which indicates if the edge with the given name
+// was cleared in this mutation.
+func (m *OpenAIOAuthAccountAccessPolicyMutation) EdgeCleared(name string) bool {
+	switch name {
+	case openaioauthaccountaccesspolicy.EdgeAccount:
+		return m.clearedaccount
+	}
+	return false
+}
+
+// ClearEdge clears the value of the edge with the given name. It returns an error
+// if that edge is not defined in the schema.
+func (m *OpenAIOAuthAccountAccessPolicyMutation) ClearEdge(name string) error {
+	switch name {
+	case openaioauthaccountaccesspolicy.EdgeAccount:
+		m.ClearAccount()
+		return nil
+	}
+	return fmt.Errorf("unknown OpenAIOAuthAccountAccessPolicy unique edge %s", name)
+}
+
+// ResetEdge resets all changes to the edge with the given name in this mutation.
+// It returns an error if the edge is not defined in the schema.
+func (m *OpenAIOAuthAccountAccessPolicyMutation) ResetEdge(name string) error {
+	switch name {
+	case openaioauthaccountaccesspolicy.EdgeAccount:
+		m.ResetAccount()
+		return nil
+	}
+	return fmt.Errorf("unknown OpenAIOAuthAccountAccessPolicy edge %s", name)
+}
+
+// OpenAIOAuthAccountUserGrantMutation represents an operation that mutates the OpenAIOAuthAccountUserGrant nodes in the graph.
+type OpenAIOAuthAccountUserGrantMutation struct {
+	config
+	op             Op
+	typ            string
+	id             *int64
+	created_at     *time.Time
+	clearedFields  map[string]struct{}
+	account        *int64
+	clearedaccount bool
+	user           *int64
+	cleareduser    bool
+	done           bool
+	oldValue       func(context.Context) (*OpenAIOAuthAccountUserGrant, error)
+	predicates     []predicate.OpenAIOAuthAccountUserGrant
+}
+
+var _ ent.Mutation = (*OpenAIOAuthAccountUserGrantMutation)(nil)
+
+// openaioauthaccountusergrantOption allows management of the mutation configuration using functional options.
+type openaioauthaccountusergrantOption func(*OpenAIOAuthAccountUserGrantMutation)
+
+// newOpenAIOAuthAccountUserGrantMutation creates new mutation for the OpenAIOAuthAccountUserGrant entity.
+func newOpenAIOAuthAccountUserGrantMutation(c config, op Op, opts ...openaioauthaccountusergrantOption) *OpenAIOAuthAccountUserGrantMutation {
+	m := &OpenAIOAuthAccountUserGrantMutation{
+		config:        c,
+		op:            op,
+		typ:           TypeOpenAIOAuthAccountUserGrant,
+		clearedFields: make(map[string]struct{}),
+	}
+	for _, opt := range opts {
+		opt(m)
+	}
+	return m
+}
+
+// withOpenAIOAuthAccountUserGrantID sets the ID field of the mutation.
+func withOpenAIOAuthAccountUserGrantID(id int64) openaioauthaccountusergrantOption {
+	return func(m *OpenAIOAuthAccountUserGrantMutation) {
+		var (
+			err   error
+			once  sync.Once
+			value *OpenAIOAuthAccountUserGrant
+		)
+		m.oldValue = func(ctx context.Context) (*OpenAIOAuthAccountUserGrant, error) {
+			once.Do(func() {
+				if m.done {
+					err = errors.New("querying old values post mutation is not allowed")
+				} else {
+					value, err = m.Client().OpenAIOAuthAccountUserGrant.Get(ctx, id)
+				}
+			})
+			return value, err
+		}
+		m.id = &id
+	}
+}
+
+// withOpenAIOAuthAccountUserGrant sets the old OpenAIOAuthAccountUserGrant of the mutation.
+func withOpenAIOAuthAccountUserGrant(node *OpenAIOAuthAccountUserGrant) openaioauthaccountusergrantOption {
+	return func(m *OpenAIOAuthAccountUserGrantMutation) {
+		m.oldValue = func(context.Context) (*OpenAIOAuthAccountUserGrant, error) {
+			return node, nil
+		}
+		m.id = &node.ID
+	}
+}
+
+// Client returns a new `ent.Client` from the mutation. If the mutation was
+// executed in a transaction (ent.Tx), a transactional client is returned.
+func (m OpenAIOAuthAccountUserGrantMutation) Client() *Client {
+	client := &Client{config: m.config}
+	client.init()
+	return client
+}
+
+// Tx returns an `ent.Tx` for mutations that were executed in transactions;
+// it returns an error otherwise.
+func (m OpenAIOAuthAccountUserGrantMutation) Tx() (*Tx, error) {
+	if _, ok := m.driver.(*txDriver); !ok {
+		return nil, errors.New("ent: mutation is not running in a transaction")
+	}
+	tx := &Tx{config: m.config}
+	tx.init()
+	return tx, nil
+}
+
+// ID returns the ID value in the mutation. Note that the ID is only available
+// if it was provided to the builder or after it was returned from the database.
+func (m *OpenAIOAuthAccountUserGrantMutation) ID() (id int64, exists bool) {
+	if m.id == nil {
+		return
+	}
+	return *m.id, true
+}
+
+// IDs queries the database and returns the entity ids that match the mutation's predicate.
+// That means, if the mutation is applied within a transaction with an isolation level such
+// as sql.LevelSerializable, the returned ids match the ids of the rows that will be updated
+// or updated by the mutation.
+func (m *OpenAIOAuthAccountUserGrantMutation) IDs(ctx context.Context) ([]int64, error) {
+	switch {
+	case m.op.Is(OpUpdateOne | OpDeleteOne):
+		id, exists := m.ID()
+		if exists {
+			return []int64{id}, nil
+		}
+		fallthrough
+	case m.op.Is(OpUpdate | OpDelete):
+		return m.Client().OpenAIOAuthAccountUserGrant.Query().Where(m.predicates...).IDs(ctx)
+	default:
+		return nil, fmt.Errorf("IDs is not allowed on %s operations", m.op)
+	}
+}
+
+// SetAccountID sets the "account_id" field.
+func (m *OpenAIOAuthAccountUserGrantMutation) SetAccountID(i int64) {
+	m.account = &i
+}
+
+// AccountID returns the value of the "account_id" field in the mutation.
+func (m *OpenAIOAuthAccountUserGrantMutation) AccountID() (r int64, exists bool) {
+	v := m.account
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldAccountID returns the old "account_id" field's value of the OpenAIOAuthAccountUserGrant entity.
+// If the OpenAIOAuthAccountUserGrant object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *OpenAIOAuthAccountUserGrantMutation) OldAccountID(ctx context.Context) (v int64, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldAccountID is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldAccountID requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldAccountID: %w", err)
+	}
+	return oldValue.AccountID, nil
+}
+
+// ResetAccountID resets all changes to the "account_id" field.
+func (m *OpenAIOAuthAccountUserGrantMutation) ResetAccountID() {
+	m.account = nil
+}
+
+// SetUserID sets the "user_id" field.
+func (m *OpenAIOAuthAccountUserGrantMutation) SetUserID(i int64) {
+	m.user = &i
+}
+
+// UserID returns the value of the "user_id" field in the mutation.
+func (m *OpenAIOAuthAccountUserGrantMutation) UserID() (r int64, exists bool) {
+	v := m.user
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldUserID returns the old "user_id" field's value of the OpenAIOAuthAccountUserGrant entity.
+// If the OpenAIOAuthAccountUserGrant object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *OpenAIOAuthAccountUserGrantMutation) OldUserID(ctx context.Context) (v int64, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldUserID is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldUserID requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldUserID: %w", err)
+	}
+	return oldValue.UserID, nil
+}
+
+// ResetUserID resets all changes to the "user_id" field.
+func (m *OpenAIOAuthAccountUserGrantMutation) ResetUserID() {
+	m.user = nil
+}
+
+// SetCreatedAt sets the "created_at" field.
+func (m *OpenAIOAuthAccountUserGrantMutation) SetCreatedAt(t time.Time) {
+	m.created_at = &t
+}
+
+// CreatedAt returns the value of the "created_at" field in the mutation.
+func (m *OpenAIOAuthAccountUserGrantMutation) CreatedAt() (r time.Time, exists bool) {
+	v := m.created_at
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldCreatedAt returns the old "created_at" field's value of the OpenAIOAuthAccountUserGrant entity.
+// If the OpenAIOAuthAccountUserGrant object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *OpenAIOAuthAccountUserGrantMutation) OldCreatedAt(ctx context.Context) (v time.Time, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldCreatedAt is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldCreatedAt requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldCreatedAt: %w", err)
+	}
+	return oldValue.CreatedAt, nil
+}
+
+// ResetCreatedAt resets all changes to the "created_at" field.
+func (m *OpenAIOAuthAccountUserGrantMutation) ResetCreatedAt() {
+	m.created_at = nil
+}
+
+// ClearAccount clears the "account" edge to the Account entity.
+func (m *OpenAIOAuthAccountUserGrantMutation) ClearAccount() {
+	m.clearedaccount = true
+	m.clearedFields[openaioauthaccountusergrant.FieldAccountID] = struct{}{}
+}
+
+// AccountCleared reports if the "account" edge to the Account entity was cleared.
+func (m *OpenAIOAuthAccountUserGrantMutation) AccountCleared() bool {
+	return m.clearedaccount
+}
+
+// AccountIDs returns the "account" edge IDs in the mutation.
+// Note that IDs always returns len(IDs) <= 1 for unique edges, and you should use
+// AccountID instead. It exists only for internal usage by the builders.
+func (m *OpenAIOAuthAccountUserGrantMutation) AccountIDs() (ids []int64) {
+	if id := m.account; id != nil {
+		ids = append(ids, *id)
+	}
+	return
+}
+
+// ResetAccount resets all changes to the "account" edge.
+func (m *OpenAIOAuthAccountUserGrantMutation) ResetAccount() {
+	m.account = nil
+	m.clearedaccount = false
+}
+
+// ClearUser clears the "user" edge to the User entity.
+func (m *OpenAIOAuthAccountUserGrantMutation) ClearUser() {
+	m.cleareduser = true
+	m.clearedFields[openaioauthaccountusergrant.FieldUserID] = struct{}{}
+}
+
+// UserCleared reports if the "user" edge to the User entity was cleared.
+func (m *OpenAIOAuthAccountUserGrantMutation) UserCleared() bool {
+	return m.cleareduser
+}
+
+// UserIDs returns the "user" edge IDs in the mutation.
+// Note that IDs always returns len(IDs) <= 1 for unique edges, and you should use
+// UserID instead. It exists only for internal usage by the builders.
+func (m *OpenAIOAuthAccountUserGrantMutation) UserIDs() (ids []int64) {
+	if id := m.user; id != nil {
+		ids = append(ids, *id)
+	}
+	return
+}
+
+// ResetUser resets all changes to the "user" edge.
+func (m *OpenAIOAuthAccountUserGrantMutation) ResetUser() {
+	m.user = nil
+	m.cleareduser = false
+}
+
+// Where appends a list predicates to the OpenAIOAuthAccountUserGrantMutation builder.
+func (m *OpenAIOAuthAccountUserGrantMutation) Where(ps ...predicate.OpenAIOAuthAccountUserGrant) {
+	m.predicates = append(m.predicates, ps...)
+}
+
+// WhereP appends storage-level predicates to the OpenAIOAuthAccountUserGrantMutation builder. Using this method,
+// users can use type-assertion to append predicates that do not depend on any generated package.
+func (m *OpenAIOAuthAccountUserGrantMutation) WhereP(ps ...func(*sql.Selector)) {
+	p := make([]predicate.OpenAIOAuthAccountUserGrant, len(ps))
+	for i := range ps {
+		p[i] = ps[i]
+	}
+	m.Where(p...)
+}
+
+// Op returns the operation name.
+func (m *OpenAIOAuthAccountUserGrantMutation) Op() Op {
+	return m.op
+}
+
+// SetOp allows setting the mutation operation.
+func (m *OpenAIOAuthAccountUserGrantMutation) SetOp(op Op) {
+	m.op = op
+}
+
+// Type returns the node type of this mutation (OpenAIOAuthAccountUserGrant).
+func (m *OpenAIOAuthAccountUserGrantMutation) Type() string {
+	return m.typ
+}
+
+// Fields returns all fields that were changed during this mutation. Note that in
+// order to get all numeric fields that were incremented/decremented, call
+// AddedFields().
+func (m *OpenAIOAuthAccountUserGrantMutation) Fields() []string {
+	fields := make([]string, 0, 3)
+	if m.account != nil {
+		fields = append(fields, openaioauthaccountusergrant.FieldAccountID)
+	}
+	if m.user != nil {
+		fields = append(fields, openaioauthaccountusergrant.FieldUserID)
+	}
+	if m.created_at != nil {
+		fields = append(fields, openaioauthaccountusergrant.FieldCreatedAt)
+	}
+	return fields
+}
+
+// Field returns the value of a field with the given name. The second boolean
+// return value indicates that this field was not set, or was not defined in the
+// schema.
+func (m *OpenAIOAuthAccountUserGrantMutation) Field(name string) (ent.Value, bool) {
+	switch name {
+	case openaioauthaccountusergrant.FieldAccountID:
+		return m.AccountID()
+	case openaioauthaccountusergrant.FieldUserID:
+		return m.UserID()
+	case openaioauthaccountusergrant.FieldCreatedAt:
+		return m.CreatedAt()
+	}
+	return nil, false
+}
+
+// OldField returns the old value of the field from the database. An error is
+// returned if the mutation operation is not UpdateOne, or the query to the
+// database failed.
+func (m *OpenAIOAuthAccountUserGrantMutation) OldField(ctx context.Context, name string) (ent.Value, error) {
+	switch name {
+	case openaioauthaccountusergrant.FieldAccountID:
+		return m.OldAccountID(ctx)
+	case openaioauthaccountusergrant.FieldUserID:
+		return m.OldUserID(ctx)
+	case openaioauthaccountusergrant.FieldCreatedAt:
+		return m.OldCreatedAt(ctx)
+	}
+	return nil, fmt.Errorf("unknown OpenAIOAuthAccountUserGrant field %s", name)
+}
+
+// SetField sets the value of a field with the given name. It returns an error if
+// the field is not defined in the schema, or if the type mismatched the field
+// type.
+func (m *OpenAIOAuthAccountUserGrantMutation) SetField(name string, value ent.Value) error {
+	switch name {
+	case openaioauthaccountusergrant.FieldAccountID:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetAccountID(v)
+		return nil
+	case openaioauthaccountusergrant.FieldUserID:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetUserID(v)
+		return nil
+	case openaioauthaccountusergrant.FieldCreatedAt:
+		v, ok := value.(time.Time)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetCreatedAt(v)
+		return nil
+	}
+	return fmt.Errorf("unknown OpenAIOAuthAccountUserGrant field %s", name)
+}
+
+// AddedFields returns all numeric fields that were incremented/decremented during
+// this mutation.
+func (m *OpenAIOAuthAccountUserGrantMutation) AddedFields() []string {
+	var fields []string
+	return fields
+}
+
+// AddedField returns the numeric value that was incremented/decremented on a field
+// with the given name. The second boolean return value indicates that this field
+// was not set, or was not defined in the schema.
+func (m *OpenAIOAuthAccountUserGrantMutation) AddedField(name string) (ent.Value, bool) {
+	switch name {
+	}
+	return nil, false
+}
+
+// AddField adds the value to the field with the given name. It returns an error if
+// the field is not defined in the schema, or if the type mismatched the field
+// type.
+func (m *OpenAIOAuthAccountUserGrantMutation) AddField(name string, value ent.Value) error {
+	switch name {
+	}
+	return fmt.Errorf("unknown OpenAIOAuthAccountUserGrant numeric field %s", name)
+}
+
+// ClearedFields returns all nullable fields that were cleared during this
+// mutation.
+func (m *OpenAIOAuthAccountUserGrantMutation) ClearedFields() []string {
+	return nil
+}
+
+// FieldCleared returns a boolean indicating if a field with the given name was
+// cleared in this mutation.
+func (m *OpenAIOAuthAccountUserGrantMutation) FieldCleared(name string) bool {
+	_, ok := m.clearedFields[name]
+	return ok
+}
+
+// ClearField clears the value of the field with the given name. It returns an
+// error if the field is not defined in the schema.
+func (m *OpenAIOAuthAccountUserGrantMutation) ClearField(name string) error {
+	return fmt.Errorf("unknown OpenAIOAuthAccountUserGrant nullable field %s", name)
+}
+
+// ResetField resets all changes in the mutation for the field with the given name.
+// It returns an error if the field is not defined in the schema.
+func (m *OpenAIOAuthAccountUserGrantMutation) ResetField(name string) error {
+	switch name {
+	case openaioauthaccountusergrant.FieldAccountID:
+		m.ResetAccountID()
+		return nil
+	case openaioauthaccountusergrant.FieldUserID:
+		m.ResetUserID()
+		return nil
+	case openaioauthaccountusergrant.FieldCreatedAt:
+		m.ResetCreatedAt()
+		return nil
+	}
+	return fmt.Errorf("unknown OpenAIOAuthAccountUserGrant field %s", name)
+}
+
+// AddedEdges returns all edge names that were set/added in this mutation.
+func (m *OpenAIOAuthAccountUserGrantMutation) AddedEdges() []string {
+	edges := make([]string, 0, 2)
+	if m.account != nil {
+		edges = append(edges, openaioauthaccountusergrant.EdgeAccount)
+	}
+	if m.user != nil {
+		edges = append(edges, openaioauthaccountusergrant.EdgeUser)
+	}
+	return edges
+}
+
+// AddedIDs returns all IDs (to other nodes) that were added for the given edge
+// name in this mutation.
+func (m *OpenAIOAuthAccountUserGrantMutation) AddedIDs(name string) []ent.Value {
+	switch name {
+	case openaioauthaccountusergrant.EdgeAccount:
+		if id := m.account; id != nil {
+			return []ent.Value{*id}
+		}
+	case openaioauthaccountusergrant.EdgeUser:
+		if id := m.user; id != nil {
+			return []ent.Value{*id}
+		}
+	}
+	return nil
+}
+
+// RemovedEdges returns all edge names that were removed in this mutation.
+func (m *OpenAIOAuthAccountUserGrantMutation) RemovedEdges() []string {
+	edges := make([]string, 0, 2)
+	return edges
+}
+
+// RemovedIDs returns all IDs (to other nodes) that were removed for the edge with
+// the given name in this mutation.
+func (m *OpenAIOAuthAccountUserGrantMutation) RemovedIDs(name string) []ent.Value {
+	return nil
+}
+
+// ClearedEdges returns all edge names that were cleared in this mutation.
+func (m *OpenAIOAuthAccountUserGrantMutation) ClearedEdges() []string {
+	edges := make([]string, 0, 2)
+	if m.clearedaccount {
+		edges = append(edges, openaioauthaccountusergrant.EdgeAccount)
+	}
+	if m.cleareduser {
+		edges = append(edges, openaioauthaccountusergrant.EdgeUser)
+	}
+	return edges
+}
+
+// EdgeCleared returns a boolean which indicates if the edge with the given name
+// was cleared in this mutation.
+func (m *OpenAIOAuthAccountUserGrantMutation) EdgeCleared(name string) bool {
+	switch name {
+	case openaioauthaccountusergrant.EdgeAccount:
+		return m.clearedaccount
+	case openaioauthaccountusergrant.EdgeUser:
+		return m.cleareduser
+	}
+	return false
+}
+
+// ClearEdge clears the value of the edge with the given name. It returns an error
+// if that edge is not defined in the schema.
+func (m *OpenAIOAuthAccountUserGrantMutation) ClearEdge(name string) error {
+	switch name {
+	case openaioauthaccountusergrant.EdgeAccount:
+		m.ClearAccount()
+		return nil
+	case openaioauthaccountusergrant.EdgeUser:
+		m.ClearUser()
+		return nil
+	}
+	return fmt.Errorf("unknown OpenAIOAuthAccountUserGrant unique edge %s", name)
+}
+
+// ResetEdge resets all changes to the edge with the given name in this mutation.
+// It returns an error if the edge is not defined in the schema.
+func (m *OpenAIOAuthAccountUserGrantMutation) ResetEdge(name string) error {
+	switch name {
+	case openaioauthaccountusergrant.EdgeAccount:
+		m.ResetAccount()
+		return nil
+	case openaioauthaccountusergrant.EdgeUser:
+		m.ResetUser()
+		return nil
+	}
+	return fmt.Errorf("unknown OpenAIOAuthAccountUserGrant edge %s", name)
+}
+
 // PaymentAuditLogMutation represents an operation that mutates the PaymentAuditLog nodes in the graph.
 type PaymentAuditLogMutation struct {
 	config
@@ -48952,82 +50321,85 @@ func (m *UsageLogMutation) ResetEdge(name string) error {
 // UserMutation represents an operation that mutates the User nodes in the graph.
 type UserMutation struct {
 	config
-	op                            Op
-	typ                           string
-	id                            *int64
-	created_at                    *time.Time
-	updated_at                    *time.Time
-	deleted_at                    *time.Time
-	email                         *string
-	password_hash                 *string
-	role                          *string
-	balance                       *float64
-	addbalance                    *float64
-	frozen_balance                *float64
-	addfrozen_balance             *float64
-	concurrency                   *int
-	addconcurrency                *int
-	status                        *string
-	username                      *string
-	notes                         *string
-	totp_secret_encrypted         *string
-	totp_enabled                  *bool
-	totp_enabled_at               *time.Time
-	signup_source                 *string
-	last_login_at                 *time.Time
-	last_active_at                *time.Time
-	balance_notify_enabled        *bool
-	balance_notify_threshold_type *string
-	balance_notify_threshold      *float64
-	addbalance_notify_threshold   *float64
-	balance_notify_extra_emails   *string
-	total_recharged               *float64
-	addtotal_recharged            *float64
-	rpm_limit                     *int
-	addrpm_limit                  *int
-	clearedFields                 map[string]struct{}
-	api_keys                      map[int64]struct{}
-	removedapi_keys               map[int64]struct{}
-	clearedapi_keys               bool
-	redeem_codes                  map[int64]struct{}
-	removedredeem_codes           map[int64]struct{}
-	clearedredeem_codes           bool
-	subscriptions                 map[int64]struct{}
-	removedsubscriptions          map[int64]struct{}
-	clearedsubscriptions          bool
-	assigned_subscriptions        map[int64]struct{}
-	removedassigned_subscriptions map[int64]struct{}
-	clearedassigned_subscriptions bool
-	announcement_reads            map[int64]struct{}
-	removedannouncement_reads     map[int64]struct{}
-	clearedannouncement_reads     bool
-	allowed_groups                map[int64]struct{}
-	removedallowed_groups         map[int64]struct{}
-	clearedallowed_groups         bool
-	usage_logs                    map[int64]struct{}
-	removedusage_logs             map[int64]struct{}
-	clearedusage_logs             bool
-	attribute_values              map[int64]struct{}
-	removedattribute_values       map[int64]struct{}
-	clearedattribute_values       bool
-	promo_code_usages             map[int64]struct{}
-	removedpromo_code_usages      map[int64]struct{}
-	clearedpromo_code_usages      bool
-	payment_orders                map[int64]struct{}
-	removedpayment_orders         map[int64]struct{}
-	clearedpayment_orders         bool
-	auth_identities               map[int64]struct{}
-	removedauth_identities        map[int64]struct{}
-	clearedauth_identities        bool
-	pending_auth_sessions         map[int64]struct{}
-	removedpending_auth_sessions  map[int64]struct{}
-	clearedpending_auth_sessions  bool
-	platform_quotas               map[int64]struct{}
-	removedplatform_quotas        map[int64]struct{}
-	clearedplatform_quotas        bool
-	done                          bool
-	oldValue                      func(context.Context) (*User, error)
-	predicates                    []predicate.User
+	op                                 Op
+	typ                                string
+	id                                 *int64
+	created_at                         *time.Time
+	updated_at                         *time.Time
+	deleted_at                         *time.Time
+	email                              *string
+	password_hash                      *string
+	role                               *string
+	balance                            *float64
+	addbalance                         *float64
+	frozen_balance                     *float64
+	addfrozen_balance                  *float64
+	concurrency                        *int
+	addconcurrency                     *int
+	status                             *string
+	username                           *string
+	notes                              *string
+	totp_secret_encrypted              *string
+	totp_enabled                       *bool
+	totp_enabled_at                    *time.Time
+	signup_source                      *string
+	last_login_at                      *time.Time
+	last_active_at                     *time.Time
+	balance_notify_enabled             *bool
+	balance_notify_threshold_type      *string
+	balance_notify_threshold           *float64
+	addbalance_notify_threshold        *float64
+	balance_notify_extra_emails        *string
+	total_recharged                    *float64
+	addtotal_recharged                 *float64
+	rpm_limit                          *int
+	addrpm_limit                       *int
+	clearedFields                      map[string]struct{}
+	api_keys                           map[int64]struct{}
+	removedapi_keys                    map[int64]struct{}
+	clearedapi_keys                    bool
+	redeem_codes                       map[int64]struct{}
+	removedredeem_codes                map[int64]struct{}
+	clearedredeem_codes                bool
+	subscriptions                      map[int64]struct{}
+	removedsubscriptions               map[int64]struct{}
+	clearedsubscriptions               bool
+	assigned_subscriptions             map[int64]struct{}
+	removedassigned_subscriptions      map[int64]struct{}
+	clearedassigned_subscriptions      bool
+	announcement_reads                 map[int64]struct{}
+	removedannouncement_reads          map[int64]struct{}
+	clearedannouncement_reads          bool
+	allowed_groups                     map[int64]struct{}
+	removedallowed_groups              map[int64]struct{}
+	clearedallowed_groups              bool
+	usage_logs                         map[int64]struct{}
+	removedusage_logs                  map[int64]struct{}
+	clearedusage_logs                  bool
+	attribute_values                   map[int64]struct{}
+	removedattribute_values            map[int64]struct{}
+	clearedattribute_values            bool
+	promo_code_usages                  map[int64]struct{}
+	removedpromo_code_usages           map[int64]struct{}
+	clearedpromo_code_usages           bool
+	payment_orders                     map[int64]struct{}
+	removedpayment_orders              map[int64]struct{}
+	clearedpayment_orders              bool
+	auth_identities                    map[int64]struct{}
+	removedauth_identities             map[int64]struct{}
+	clearedauth_identities             bool
+	pending_auth_sessions              map[int64]struct{}
+	removedpending_auth_sessions       map[int64]struct{}
+	clearedpending_auth_sessions       bool
+	platform_quotas                    map[int64]struct{}
+	removedplatform_quotas             map[int64]struct{}
+	clearedplatform_quotas             bool
+	openai_oauth_account_grants        map[int64]struct{}
+	removedopenai_oauth_account_grants map[int64]struct{}
+	clearedopenai_oauth_account_grants bool
+	done                               bool
+	oldValue                           func(context.Context) (*User, error)
+	predicates                         []predicate.User
 }
 
 var _ ent.Mutation = (*UserMutation)(nil)
@@ -50893,6 +52265,60 @@ func (m *UserMutation) ResetPlatformQuotas() {
 	m.removedplatform_quotas = nil
 }
 
+// AddOpenaiOauthAccountGrantIDs adds the "openai_oauth_account_grants" edge to the OpenAIOAuthAccountUserGrant entity by ids.
+func (m *UserMutation) AddOpenaiOauthAccountGrantIDs(ids ...int64) {
+	if m.openai_oauth_account_grants == nil {
+		m.openai_oauth_account_grants = make(map[int64]struct{})
+	}
+	for i := range ids {
+		m.openai_oauth_account_grants[ids[i]] = struct{}{}
+	}
+}
+
+// ClearOpenaiOauthAccountGrants clears the "openai_oauth_account_grants" edge to the OpenAIOAuthAccountUserGrant entity.
+func (m *UserMutation) ClearOpenaiOauthAccountGrants() {
+	m.clearedopenai_oauth_account_grants = true
+}
+
+// OpenaiOauthAccountGrantsCleared reports if the "openai_oauth_account_grants" edge to the OpenAIOAuthAccountUserGrant entity was cleared.
+func (m *UserMutation) OpenaiOauthAccountGrantsCleared() bool {
+	return m.clearedopenai_oauth_account_grants
+}
+
+// RemoveOpenaiOauthAccountGrantIDs removes the "openai_oauth_account_grants" edge to the OpenAIOAuthAccountUserGrant entity by IDs.
+func (m *UserMutation) RemoveOpenaiOauthAccountGrantIDs(ids ...int64) {
+	if m.removedopenai_oauth_account_grants == nil {
+		m.removedopenai_oauth_account_grants = make(map[int64]struct{})
+	}
+	for i := range ids {
+		delete(m.openai_oauth_account_grants, ids[i])
+		m.removedopenai_oauth_account_grants[ids[i]] = struct{}{}
+	}
+}
+
+// RemovedOpenaiOauthAccountGrants returns the removed IDs of the "openai_oauth_account_grants" edge to the OpenAIOAuthAccountUserGrant entity.
+func (m *UserMutation) RemovedOpenaiOauthAccountGrantsIDs() (ids []int64) {
+	for id := range m.removedopenai_oauth_account_grants {
+		ids = append(ids, id)
+	}
+	return
+}
+
+// OpenaiOauthAccountGrantsIDs returns the "openai_oauth_account_grants" edge IDs in the mutation.
+func (m *UserMutation) OpenaiOauthAccountGrantsIDs() (ids []int64) {
+	for id := range m.openai_oauth_account_grants {
+		ids = append(ids, id)
+	}
+	return
+}
+
+// ResetOpenaiOauthAccountGrants resets all changes to the "openai_oauth_account_grants" edge.
+func (m *UserMutation) ResetOpenaiOauthAccountGrants() {
+	m.openai_oauth_account_grants = nil
+	m.clearedopenai_oauth_account_grants = false
+	m.removedopenai_oauth_account_grants = nil
+}
+
 // Where appends a list predicates to the UserMutation builder.
 func (m *UserMutation) Where(ps ...predicate.User) {
 	m.predicates = append(m.predicates, ps...)
@@ -51531,7 +52957,7 @@ func (m *UserMutation) ResetField(name string) error {
 
 // AddedEdges returns all edge names that were set/added in this mutation.
 func (m *UserMutation) AddedEdges() []string {
-	edges := make([]string, 0, 13)
+	edges := make([]string, 0, 14)
 	if m.api_keys != nil {
 		edges = append(edges, user.EdgeAPIKeys)
 	}
@@ -51570,6 +52996,9 @@ func (m *UserMutation) AddedEdges() []string {
 	}
 	if m.platform_quotas != nil {
 		edges = append(edges, user.EdgePlatformQuotas)
+	}
+	if m.openai_oauth_account_grants != nil {
+		edges = append(edges, user.EdgeOpenaiOauthAccountGrants)
 	}
 	return edges
 }
@@ -51656,13 +53085,19 @@ func (m *UserMutation) AddedIDs(name string) []ent.Value {
 			ids = append(ids, id)
 		}
 		return ids
+	case user.EdgeOpenaiOauthAccountGrants:
+		ids := make([]ent.Value, 0, len(m.openai_oauth_account_grants))
+		for id := range m.openai_oauth_account_grants {
+			ids = append(ids, id)
+		}
+		return ids
 	}
 	return nil
 }
 
 // RemovedEdges returns all edge names that were removed in this mutation.
 func (m *UserMutation) RemovedEdges() []string {
-	edges := make([]string, 0, 13)
+	edges := make([]string, 0, 14)
 	if m.removedapi_keys != nil {
 		edges = append(edges, user.EdgeAPIKeys)
 	}
@@ -51701,6 +53136,9 @@ func (m *UserMutation) RemovedEdges() []string {
 	}
 	if m.removedplatform_quotas != nil {
 		edges = append(edges, user.EdgePlatformQuotas)
+	}
+	if m.removedopenai_oauth_account_grants != nil {
+		edges = append(edges, user.EdgeOpenaiOauthAccountGrants)
 	}
 	return edges
 }
@@ -51787,13 +53225,19 @@ func (m *UserMutation) RemovedIDs(name string) []ent.Value {
 			ids = append(ids, id)
 		}
 		return ids
+	case user.EdgeOpenaiOauthAccountGrants:
+		ids := make([]ent.Value, 0, len(m.removedopenai_oauth_account_grants))
+		for id := range m.removedopenai_oauth_account_grants {
+			ids = append(ids, id)
+		}
+		return ids
 	}
 	return nil
 }
 
 // ClearedEdges returns all edge names that were cleared in this mutation.
 func (m *UserMutation) ClearedEdges() []string {
-	edges := make([]string, 0, 13)
+	edges := make([]string, 0, 14)
 	if m.clearedapi_keys {
 		edges = append(edges, user.EdgeAPIKeys)
 	}
@@ -51833,6 +53277,9 @@ func (m *UserMutation) ClearedEdges() []string {
 	if m.clearedplatform_quotas {
 		edges = append(edges, user.EdgePlatformQuotas)
 	}
+	if m.clearedopenai_oauth_account_grants {
+		edges = append(edges, user.EdgeOpenaiOauthAccountGrants)
+	}
 	return edges
 }
 
@@ -51866,6 +53313,8 @@ func (m *UserMutation) EdgeCleared(name string) bool {
 		return m.clearedpending_auth_sessions
 	case user.EdgePlatformQuotas:
 		return m.clearedplatform_quotas
+	case user.EdgeOpenaiOauthAccountGrants:
+		return m.clearedopenai_oauth_account_grants
 	}
 	return false
 }
@@ -51920,6 +53369,9 @@ func (m *UserMutation) ResetEdge(name string) error {
 		return nil
 	case user.EdgePlatformQuotas:
 		m.ResetPlatformQuotas()
+		return nil
+	case user.EdgeOpenaiOauthAccountGrants:
+		m.ResetOpenaiOauthAccountGrants()
 		return nil
 	}
 	return fmt.Errorf("unknown User edge %s", name)

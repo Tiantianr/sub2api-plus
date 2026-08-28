@@ -13,6 +13,8 @@ import (
 	"entgo.io/ent/schema/field"
 	"github.com/LuckyKuang/sub2api-plus/ent/account"
 	"github.com/LuckyKuang/sub2api-plus/ent/group"
+	"github.com/LuckyKuang/sub2api-plus/ent/openaioauthaccountaccesspolicy"
+	"github.com/LuckyKuang/sub2api-plus/ent/openaioauthaccountusergrant"
 	"github.com/LuckyKuang/sub2api-plus/ent/predicate"
 	"github.com/LuckyKuang/sub2api-plus/ent/proxy"
 	"github.com/LuckyKuang/sub2api-plus/ent/usagelog"
@@ -633,6 +635,40 @@ func (_u *AccountUpdate) AddUsageLogs(v ...*UsageLog) *AccountUpdate {
 	return _u.AddUsageLogIDs(ids...)
 }
 
+// SetOpenaiOauthAccessPolicyID sets the "openai_oauth_access_policy" edge to the OpenAIOAuthAccountAccessPolicy entity by ID.
+func (_u *AccountUpdate) SetOpenaiOauthAccessPolicyID(id int64) *AccountUpdate {
+	_u.mutation.SetOpenaiOauthAccessPolicyID(id)
+	return _u
+}
+
+// SetNillableOpenaiOauthAccessPolicyID sets the "openai_oauth_access_policy" edge to the OpenAIOAuthAccountAccessPolicy entity by ID if the given value is not nil.
+func (_u *AccountUpdate) SetNillableOpenaiOauthAccessPolicyID(id *int64) *AccountUpdate {
+	if id != nil {
+		_u = _u.SetOpenaiOauthAccessPolicyID(*id)
+	}
+	return _u
+}
+
+// SetOpenaiOauthAccessPolicy sets the "openai_oauth_access_policy" edge to the OpenAIOAuthAccountAccessPolicy entity.
+func (_u *AccountUpdate) SetOpenaiOauthAccessPolicy(v *OpenAIOAuthAccountAccessPolicy) *AccountUpdate {
+	return _u.SetOpenaiOauthAccessPolicyID(v.ID)
+}
+
+// AddOpenaiOauthUserGrantIDs adds the "openai_oauth_user_grants" edge to the OpenAIOAuthAccountUserGrant entity by IDs.
+func (_u *AccountUpdate) AddOpenaiOauthUserGrantIDs(ids ...int64) *AccountUpdate {
+	_u.mutation.AddOpenaiOauthUserGrantIDs(ids...)
+	return _u
+}
+
+// AddOpenaiOauthUserGrants adds the "openai_oauth_user_grants" edges to the OpenAIOAuthAccountUserGrant entity.
+func (_u *AccountUpdate) AddOpenaiOauthUserGrants(v ...*OpenAIOAuthAccountUserGrant) *AccountUpdate {
+	ids := make([]int64, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.AddOpenaiOauthUserGrantIDs(ids...)
+}
+
 // Mutation returns the AccountMutation object of the builder.
 func (_u *AccountUpdate) Mutation() *AccountMutation {
 	return _u.mutation
@@ -711,6 +747,33 @@ func (_u *AccountUpdate) RemoveUsageLogs(v ...*UsageLog) *AccountUpdate {
 		ids[i] = v[i].ID
 	}
 	return _u.RemoveUsageLogIDs(ids...)
+}
+
+// ClearOpenaiOauthAccessPolicy clears the "openai_oauth_access_policy" edge to the OpenAIOAuthAccountAccessPolicy entity.
+func (_u *AccountUpdate) ClearOpenaiOauthAccessPolicy() *AccountUpdate {
+	_u.mutation.ClearOpenaiOauthAccessPolicy()
+	return _u
+}
+
+// ClearOpenaiOauthUserGrants clears all "openai_oauth_user_grants" edges to the OpenAIOAuthAccountUserGrant entity.
+func (_u *AccountUpdate) ClearOpenaiOauthUserGrants() *AccountUpdate {
+	_u.mutation.ClearOpenaiOauthUserGrants()
+	return _u
+}
+
+// RemoveOpenaiOauthUserGrantIDs removes the "openai_oauth_user_grants" edge to OpenAIOAuthAccountUserGrant entities by IDs.
+func (_u *AccountUpdate) RemoveOpenaiOauthUserGrantIDs(ids ...int64) *AccountUpdate {
+	_u.mutation.RemoveOpenaiOauthUserGrantIDs(ids...)
+	return _u
+}
+
+// RemoveOpenaiOauthUserGrants removes "openai_oauth_user_grants" edges to OpenAIOAuthAccountUserGrant entities.
+func (_u *AccountUpdate) RemoveOpenaiOauthUserGrants(v ...*OpenAIOAuthAccountUserGrant) *AccountUpdate {
+	ids := make([]int64, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.RemoveOpenaiOauthUserGrantIDs(ids...)
 }
 
 // Save executes the query and returns the number of nodes affected by the update operation.
@@ -1144,6 +1207,80 @@ func (_u *AccountUpdate) sqlSave(ctx context.Context) (_node int, err error) {
 			Bidi:    false,
 			Target: &sqlgraph.EdgeTarget{
 				IDSpec: sqlgraph.NewFieldSpec(usagelog.FieldID, field.TypeInt64),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Add = append(_spec.Edges.Add, edge)
+	}
+	if _u.mutation.OpenaiOauthAccessPolicyCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2O,
+			Inverse: false,
+			Table:   account.OpenaiOauthAccessPolicyTable,
+			Columns: []string{account.OpenaiOauthAccessPolicyColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(openaioauthaccountaccesspolicy.FieldID, field.TypeInt64),
+			},
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.OpenaiOauthAccessPolicyIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2O,
+			Inverse: false,
+			Table:   account.OpenaiOauthAccessPolicyTable,
+			Columns: []string{account.OpenaiOauthAccessPolicyColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(openaioauthaccountaccesspolicy.FieldID, field.TypeInt64),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Add = append(_spec.Edges.Add, edge)
+	}
+	if _u.mutation.OpenaiOauthUserGrantsCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   account.OpenaiOauthUserGrantsTable,
+			Columns: []string{account.OpenaiOauthUserGrantsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(openaioauthaccountusergrant.FieldID, field.TypeInt64),
+			},
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.RemovedOpenaiOauthUserGrantsIDs(); len(nodes) > 0 && !_u.mutation.OpenaiOauthUserGrantsCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   account.OpenaiOauthUserGrantsTable,
+			Columns: []string{account.OpenaiOauthUserGrantsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(openaioauthaccountusergrant.FieldID, field.TypeInt64),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.OpenaiOauthUserGrantsIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   account.OpenaiOauthUserGrantsTable,
+			Columns: []string{account.OpenaiOauthUserGrantsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(openaioauthaccountusergrant.FieldID, field.TypeInt64),
 			},
 		}
 		for _, k := range nodes {
@@ -1773,6 +1910,40 @@ func (_u *AccountUpdateOne) AddUsageLogs(v ...*UsageLog) *AccountUpdateOne {
 	return _u.AddUsageLogIDs(ids...)
 }
 
+// SetOpenaiOauthAccessPolicyID sets the "openai_oauth_access_policy" edge to the OpenAIOAuthAccountAccessPolicy entity by ID.
+func (_u *AccountUpdateOne) SetOpenaiOauthAccessPolicyID(id int64) *AccountUpdateOne {
+	_u.mutation.SetOpenaiOauthAccessPolicyID(id)
+	return _u
+}
+
+// SetNillableOpenaiOauthAccessPolicyID sets the "openai_oauth_access_policy" edge to the OpenAIOAuthAccountAccessPolicy entity by ID if the given value is not nil.
+func (_u *AccountUpdateOne) SetNillableOpenaiOauthAccessPolicyID(id *int64) *AccountUpdateOne {
+	if id != nil {
+		_u = _u.SetOpenaiOauthAccessPolicyID(*id)
+	}
+	return _u
+}
+
+// SetOpenaiOauthAccessPolicy sets the "openai_oauth_access_policy" edge to the OpenAIOAuthAccountAccessPolicy entity.
+func (_u *AccountUpdateOne) SetOpenaiOauthAccessPolicy(v *OpenAIOAuthAccountAccessPolicy) *AccountUpdateOne {
+	return _u.SetOpenaiOauthAccessPolicyID(v.ID)
+}
+
+// AddOpenaiOauthUserGrantIDs adds the "openai_oauth_user_grants" edge to the OpenAIOAuthAccountUserGrant entity by IDs.
+func (_u *AccountUpdateOne) AddOpenaiOauthUserGrantIDs(ids ...int64) *AccountUpdateOne {
+	_u.mutation.AddOpenaiOauthUserGrantIDs(ids...)
+	return _u
+}
+
+// AddOpenaiOauthUserGrants adds the "openai_oauth_user_grants" edges to the OpenAIOAuthAccountUserGrant entity.
+func (_u *AccountUpdateOne) AddOpenaiOauthUserGrants(v ...*OpenAIOAuthAccountUserGrant) *AccountUpdateOne {
+	ids := make([]int64, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.AddOpenaiOauthUserGrantIDs(ids...)
+}
+
 // Mutation returns the AccountMutation object of the builder.
 func (_u *AccountUpdateOne) Mutation() *AccountMutation {
 	return _u.mutation
@@ -1851,6 +2022,33 @@ func (_u *AccountUpdateOne) RemoveUsageLogs(v ...*UsageLog) *AccountUpdateOne {
 		ids[i] = v[i].ID
 	}
 	return _u.RemoveUsageLogIDs(ids...)
+}
+
+// ClearOpenaiOauthAccessPolicy clears the "openai_oauth_access_policy" edge to the OpenAIOAuthAccountAccessPolicy entity.
+func (_u *AccountUpdateOne) ClearOpenaiOauthAccessPolicy() *AccountUpdateOne {
+	_u.mutation.ClearOpenaiOauthAccessPolicy()
+	return _u
+}
+
+// ClearOpenaiOauthUserGrants clears all "openai_oauth_user_grants" edges to the OpenAIOAuthAccountUserGrant entity.
+func (_u *AccountUpdateOne) ClearOpenaiOauthUserGrants() *AccountUpdateOne {
+	_u.mutation.ClearOpenaiOauthUserGrants()
+	return _u
+}
+
+// RemoveOpenaiOauthUserGrantIDs removes the "openai_oauth_user_grants" edge to OpenAIOAuthAccountUserGrant entities by IDs.
+func (_u *AccountUpdateOne) RemoveOpenaiOauthUserGrantIDs(ids ...int64) *AccountUpdateOne {
+	_u.mutation.RemoveOpenaiOauthUserGrantIDs(ids...)
+	return _u
+}
+
+// RemoveOpenaiOauthUserGrants removes "openai_oauth_user_grants" edges to OpenAIOAuthAccountUserGrant entities.
+func (_u *AccountUpdateOne) RemoveOpenaiOauthUserGrants(v ...*OpenAIOAuthAccountUserGrant) *AccountUpdateOne {
+	ids := make([]int64, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.RemoveOpenaiOauthUserGrantIDs(ids...)
 }
 
 // Where appends a list predicates to the AccountUpdate builder.
@@ -2314,6 +2512,80 @@ func (_u *AccountUpdateOne) sqlSave(ctx context.Context) (_node *Account, err er
 			Bidi:    false,
 			Target: &sqlgraph.EdgeTarget{
 				IDSpec: sqlgraph.NewFieldSpec(usagelog.FieldID, field.TypeInt64),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Add = append(_spec.Edges.Add, edge)
+	}
+	if _u.mutation.OpenaiOauthAccessPolicyCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2O,
+			Inverse: false,
+			Table:   account.OpenaiOauthAccessPolicyTable,
+			Columns: []string{account.OpenaiOauthAccessPolicyColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(openaioauthaccountaccesspolicy.FieldID, field.TypeInt64),
+			},
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.OpenaiOauthAccessPolicyIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2O,
+			Inverse: false,
+			Table:   account.OpenaiOauthAccessPolicyTable,
+			Columns: []string{account.OpenaiOauthAccessPolicyColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(openaioauthaccountaccesspolicy.FieldID, field.TypeInt64),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Add = append(_spec.Edges.Add, edge)
+	}
+	if _u.mutation.OpenaiOauthUserGrantsCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   account.OpenaiOauthUserGrantsTable,
+			Columns: []string{account.OpenaiOauthUserGrantsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(openaioauthaccountusergrant.FieldID, field.TypeInt64),
+			},
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.RemovedOpenaiOauthUserGrantsIDs(); len(nodes) > 0 && !_u.mutation.OpenaiOauthUserGrantsCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   account.OpenaiOauthUserGrantsTable,
+			Columns: []string{account.OpenaiOauthUserGrantsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(openaioauthaccountusergrant.FieldID, field.TypeInt64),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.OpenaiOauthUserGrantsIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   account.OpenaiOauthUserGrantsTable,
+			Columns: []string{account.OpenaiOauthUserGrantsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(openaioauthaccountusergrant.FieldID, field.TypeInt64),
 			},
 		}
 		for _, k := range nodes {

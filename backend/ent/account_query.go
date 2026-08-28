@@ -16,6 +16,8 @@ import (
 	"github.com/LuckyKuang/sub2api-plus/ent/account"
 	"github.com/LuckyKuang/sub2api-plus/ent/accountgroup"
 	"github.com/LuckyKuang/sub2api-plus/ent/group"
+	"github.com/LuckyKuang/sub2api-plus/ent/openaioauthaccountaccesspolicy"
+	"github.com/LuckyKuang/sub2api-plus/ent/openaioauthaccountusergrant"
 	"github.com/LuckyKuang/sub2api-plus/ent/predicate"
 	"github.com/LuckyKuang/sub2api-plus/ent/proxy"
 	"github.com/LuckyKuang/sub2api-plus/ent/usagelog"
@@ -24,17 +26,19 @@ import (
 // AccountQuery is the builder for querying Account entities.
 type AccountQuery struct {
 	config
-	ctx               *QueryContext
-	order             []account.OrderOption
-	inters            []Interceptor
-	predicates        []predicate.Account
-	withGroups        *GroupQuery
-	withProxy         *ProxyQuery
-	withParent        *AccountQuery
-	withChildren      *AccountQuery
-	withUsageLogs     *UsageLogQuery
-	withAccountGroups *AccountGroupQuery
-	modifiers         []func(*sql.Selector)
+	ctx                         *QueryContext
+	order                       []account.OrderOption
+	inters                      []Interceptor
+	predicates                  []predicate.Account
+	withGroups                  *GroupQuery
+	withProxy                   *ProxyQuery
+	withParent                  *AccountQuery
+	withChildren                *AccountQuery
+	withUsageLogs               *UsageLogQuery
+	withOpenaiOauthAccessPolicy *OpenAIOAuthAccountAccessPolicyQuery
+	withOpenaiOauthUserGrants   *OpenAIOAuthAccountUserGrantQuery
+	withAccountGroups           *AccountGroupQuery
+	modifiers                   []func(*sql.Selector)
 	// intermediate query (i.e. traversal path).
 	sql  *sql.Selector
 	path func(context.Context) (*sql.Selector, error)
@@ -174,6 +178,50 @@ func (_q *AccountQuery) QueryUsageLogs() *UsageLogQuery {
 			sqlgraph.From(account.Table, account.FieldID, selector),
 			sqlgraph.To(usagelog.Table, usagelog.FieldID),
 			sqlgraph.Edge(sqlgraph.O2M, false, account.UsageLogsTable, account.UsageLogsColumn),
+		)
+		fromU = sqlgraph.SetNeighbors(_q.driver.Dialect(), step)
+		return fromU, nil
+	}
+	return query
+}
+
+// QueryOpenaiOauthAccessPolicy chains the current query on the "openai_oauth_access_policy" edge.
+func (_q *AccountQuery) QueryOpenaiOauthAccessPolicy() *OpenAIOAuthAccountAccessPolicyQuery {
+	query := (&OpenAIOAuthAccountAccessPolicyClient{config: _q.config}).Query()
+	query.path = func(ctx context.Context) (fromU *sql.Selector, err error) {
+		if err := _q.prepareQuery(ctx); err != nil {
+			return nil, err
+		}
+		selector := _q.sqlQuery(ctx)
+		if err := selector.Err(); err != nil {
+			return nil, err
+		}
+		step := sqlgraph.NewStep(
+			sqlgraph.From(account.Table, account.FieldID, selector),
+			sqlgraph.To(openaioauthaccountaccesspolicy.Table, openaioauthaccountaccesspolicy.FieldID),
+			sqlgraph.Edge(sqlgraph.O2O, false, account.OpenaiOauthAccessPolicyTable, account.OpenaiOauthAccessPolicyColumn),
+		)
+		fromU = sqlgraph.SetNeighbors(_q.driver.Dialect(), step)
+		return fromU, nil
+	}
+	return query
+}
+
+// QueryOpenaiOauthUserGrants chains the current query on the "openai_oauth_user_grants" edge.
+func (_q *AccountQuery) QueryOpenaiOauthUserGrants() *OpenAIOAuthAccountUserGrantQuery {
+	query := (&OpenAIOAuthAccountUserGrantClient{config: _q.config}).Query()
+	query.path = func(ctx context.Context) (fromU *sql.Selector, err error) {
+		if err := _q.prepareQuery(ctx); err != nil {
+			return nil, err
+		}
+		selector := _q.sqlQuery(ctx)
+		if err := selector.Err(); err != nil {
+			return nil, err
+		}
+		step := sqlgraph.NewStep(
+			sqlgraph.From(account.Table, account.FieldID, selector),
+			sqlgraph.To(openaioauthaccountusergrant.Table, openaioauthaccountusergrant.FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, account.OpenaiOauthUserGrantsTable, account.OpenaiOauthUserGrantsColumn),
 		)
 		fromU = sqlgraph.SetNeighbors(_q.driver.Dialect(), step)
 		return fromU, nil
@@ -390,17 +438,19 @@ func (_q *AccountQuery) Clone() *AccountQuery {
 		return nil
 	}
 	return &AccountQuery{
-		config:            _q.config,
-		ctx:               _q.ctx.Clone(),
-		order:             append([]account.OrderOption{}, _q.order...),
-		inters:            append([]Interceptor{}, _q.inters...),
-		predicates:        append([]predicate.Account{}, _q.predicates...),
-		withGroups:        _q.withGroups.Clone(),
-		withProxy:         _q.withProxy.Clone(),
-		withParent:        _q.withParent.Clone(),
-		withChildren:      _q.withChildren.Clone(),
-		withUsageLogs:     _q.withUsageLogs.Clone(),
-		withAccountGroups: _q.withAccountGroups.Clone(),
+		config:                      _q.config,
+		ctx:                         _q.ctx.Clone(),
+		order:                       append([]account.OrderOption{}, _q.order...),
+		inters:                      append([]Interceptor{}, _q.inters...),
+		predicates:                  append([]predicate.Account{}, _q.predicates...),
+		withGroups:                  _q.withGroups.Clone(),
+		withProxy:                   _q.withProxy.Clone(),
+		withParent:                  _q.withParent.Clone(),
+		withChildren:                _q.withChildren.Clone(),
+		withUsageLogs:               _q.withUsageLogs.Clone(),
+		withOpenaiOauthAccessPolicy: _q.withOpenaiOauthAccessPolicy.Clone(),
+		withOpenaiOauthUserGrants:   _q.withOpenaiOauthUserGrants.Clone(),
+		withAccountGroups:           _q.withAccountGroups.Clone(),
 		// clone intermediate query.
 		sql:  _q.sql.Clone(),
 		path: _q.path,
@@ -459,6 +509,28 @@ func (_q *AccountQuery) WithUsageLogs(opts ...func(*UsageLogQuery)) *AccountQuer
 		opt(query)
 	}
 	_q.withUsageLogs = query
+	return _q
+}
+
+// WithOpenaiOauthAccessPolicy tells the query-builder to eager-load the nodes that are connected to
+// the "openai_oauth_access_policy" edge. The optional arguments are used to configure the query builder of the edge.
+func (_q *AccountQuery) WithOpenaiOauthAccessPolicy(opts ...func(*OpenAIOAuthAccountAccessPolicyQuery)) *AccountQuery {
+	query := (&OpenAIOAuthAccountAccessPolicyClient{config: _q.config}).Query()
+	for _, opt := range opts {
+		opt(query)
+	}
+	_q.withOpenaiOauthAccessPolicy = query
+	return _q
+}
+
+// WithOpenaiOauthUserGrants tells the query-builder to eager-load the nodes that are connected to
+// the "openai_oauth_user_grants" edge. The optional arguments are used to configure the query builder of the edge.
+func (_q *AccountQuery) WithOpenaiOauthUserGrants(opts ...func(*OpenAIOAuthAccountUserGrantQuery)) *AccountQuery {
+	query := (&OpenAIOAuthAccountUserGrantClient{config: _q.config}).Query()
+	for _, opt := range opts {
+		opt(query)
+	}
+	_q.withOpenaiOauthUserGrants = query
 	return _q
 }
 
@@ -551,12 +623,14 @@ func (_q *AccountQuery) sqlAll(ctx context.Context, hooks ...queryHook) ([]*Acco
 	var (
 		nodes       = []*Account{}
 		_spec       = _q.querySpec()
-		loadedTypes = [6]bool{
+		loadedTypes = [8]bool{
 			_q.withGroups != nil,
 			_q.withProxy != nil,
 			_q.withParent != nil,
 			_q.withChildren != nil,
 			_q.withUsageLogs != nil,
+			_q.withOpenaiOauthAccessPolicy != nil,
+			_q.withOpenaiOauthUserGrants != nil,
 			_q.withAccountGroups != nil,
 		}
 	)
@@ -611,6 +685,21 @@ func (_q *AccountQuery) sqlAll(ctx context.Context, hooks ...queryHook) ([]*Acco
 		if err := _q.loadUsageLogs(ctx, query, nodes,
 			func(n *Account) { n.Edges.UsageLogs = []*UsageLog{} },
 			func(n *Account, e *UsageLog) { n.Edges.UsageLogs = append(n.Edges.UsageLogs, e) }); err != nil {
+			return nil, err
+		}
+	}
+	if query := _q.withOpenaiOauthAccessPolicy; query != nil {
+		if err := _q.loadOpenaiOauthAccessPolicy(ctx, query, nodes, nil,
+			func(n *Account, e *OpenAIOAuthAccountAccessPolicy) { n.Edges.OpenaiOauthAccessPolicy = e }); err != nil {
+			return nil, err
+		}
+	}
+	if query := _q.withOpenaiOauthUserGrants; query != nil {
+		if err := _q.loadOpenaiOauthUserGrants(ctx, query, nodes,
+			func(n *Account) { n.Edges.OpenaiOauthUserGrants = []*OpenAIOAuthAccountUserGrant{} },
+			func(n *Account, e *OpenAIOAuthAccountUserGrant) {
+				n.Edges.OpenaiOauthUserGrants = append(n.Edges.OpenaiOauthUserGrants, e)
+			}); err != nil {
 			return nil, err
 		}
 	}
@@ -797,6 +886,63 @@ func (_q *AccountQuery) loadUsageLogs(ctx context.Context, query *UsageLogQuery,
 	}
 	query.Where(predicate.UsageLog(func(s *sql.Selector) {
 		s.Where(sql.InValues(s.C(account.UsageLogsColumn), fks...))
+	}))
+	neighbors, err := query.All(ctx)
+	if err != nil {
+		return err
+	}
+	for _, n := range neighbors {
+		fk := n.AccountID
+		node, ok := nodeids[fk]
+		if !ok {
+			return fmt.Errorf(`unexpected referenced foreign-key "account_id" returned %v for node %v`, fk, n.ID)
+		}
+		assign(node, n)
+	}
+	return nil
+}
+func (_q *AccountQuery) loadOpenaiOauthAccessPolicy(ctx context.Context, query *OpenAIOAuthAccountAccessPolicyQuery, nodes []*Account, init func(*Account), assign func(*Account, *OpenAIOAuthAccountAccessPolicy)) error {
+	fks := make([]driver.Value, 0, len(nodes))
+	nodeids := make(map[int64]*Account)
+	for i := range nodes {
+		fks = append(fks, nodes[i].ID)
+		nodeids[nodes[i].ID] = nodes[i]
+	}
+	if len(query.ctx.Fields) > 0 {
+		query.ctx.AppendFieldOnce(openaioauthaccountaccesspolicy.FieldAccountID)
+	}
+	query.Where(predicate.OpenAIOAuthAccountAccessPolicy(func(s *sql.Selector) {
+		s.Where(sql.InValues(s.C(account.OpenaiOauthAccessPolicyColumn), fks...))
+	}))
+	neighbors, err := query.All(ctx)
+	if err != nil {
+		return err
+	}
+	for _, n := range neighbors {
+		fk := n.AccountID
+		node, ok := nodeids[fk]
+		if !ok {
+			return fmt.Errorf(`unexpected referenced foreign-key "account_id" returned %v for node %v`, fk, n.ID)
+		}
+		assign(node, n)
+	}
+	return nil
+}
+func (_q *AccountQuery) loadOpenaiOauthUserGrants(ctx context.Context, query *OpenAIOAuthAccountUserGrantQuery, nodes []*Account, init func(*Account), assign func(*Account, *OpenAIOAuthAccountUserGrant)) error {
+	fks := make([]driver.Value, 0, len(nodes))
+	nodeids := make(map[int64]*Account)
+	for i := range nodes {
+		fks = append(fks, nodes[i].ID)
+		nodeids[nodes[i].ID] = nodes[i]
+		if init != nil {
+			init(nodes[i])
+		}
+	}
+	if len(query.ctx.Fields) > 0 {
+		query.ctx.AppendFieldOnce(openaioauthaccountusergrant.FieldAccountID)
+	}
+	query.Where(predicate.OpenAIOAuthAccountUserGrant(func(s *sql.Selector) {
+		s.Where(sql.InValues(s.C(account.OpenaiOauthUserGrantsColumn), fks...))
 	}))
 	neighbors, err := query.All(ctx)
 	if err != nil {

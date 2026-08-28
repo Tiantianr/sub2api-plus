@@ -34,6 +34,8 @@ import (
 	"github.com/LuckyKuang/sub2api-plus/ent/group"
 	"github.com/LuckyKuang/sub2api-plus/ent/idempotencyrecord"
 	"github.com/LuckyKuang/sub2api-plus/ent/identityadoptiondecision"
+	"github.com/LuckyKuang/sub2api-plus/ent/openaioauthaccountaccesspolicy"
+	"github.com/LuckyKuang/sub2api-plus/ent/openaioauthaccountusergrant"
 	"github.com/LuckyKuang/sub2api-plus/ent/paymentauditlog"
 	"github.com/LuckyKuang/sub2api-plus/ent/paymentorder"
 	"github.com/LuckyKuang/sub2api-plus/ent/paymentproviderinstance"
@@ -101,6 +103,10 @@ type Client struct {
 	IdempotencyRecord *IdempotencyRecordClient
 	// IdentityAdoptionDecision is the client for interacting with the IdentityAdoptionDecision builders.
 	IdentityAdoptionDecision *IdentityAdoptionDecisionClient
+	// OpenAIOAuthAccountAccessPolicy is the client for interacting with the OpenAIOAuthAccountAccessPolicy builders.
+	OpenAIOAuthAccountAccessPolicy *OpenAIOAuthAccountAccessPolicyClient
+	// OpenAIOAuthAccountUserGrant is the client for interacting with the OpenAIOAuthAccountUserGrant builders.
+	OpenAIOAuthAccountUserGrant *OpenAIOAuthAccountUserGrantClient
 	// PaymentAuditLog is the client for interacting with the PaymentAuditLog builders.
 	PaymentAuditLog *PaymentAuditLogClient
 	// PaymentOrder is the client for interacting with the PaymentOrder builders.
@@ -171,6 +177,8 @@ func (c *Client) init() {
 	c.Group = NewGroupClient(c.config)
 	c.IdempotencyRecord = NewIdempotencyRecordClient(c.config)
 	c.IdentityAdoptionDecision = NewIdentityAdoptionDecisionClient(c.config)
+	c.OpenAIOAuthAccountAccessPolicy = NewOpenAIOAuthAccountAccessPolicyClient(c.config)
+	c.OpenAIOAuthAccountUserGrant = NewOpenAIOAuthAccountUserGrantClient(c.config)
 	c.PaymentAuditLog = NewPaymentAuditLogClient(c.config)
 	c.PaymentOrder = NewPaymentOrderClient(c.config)
 	c.PaymentProviderInstance = NewPaymentProviderInstanceClient(c.config)
@@ -281,47 +289,49 @@ func (c *Client) Tx(ctx context.Context) (*Tx, error) {
 	cfg := c.config
 	cfg.driver = tx
 	return &Tx{
-		ctx:                           ctx,
-		config:                        cfg,
-		APIKey:                        NewAPIKeyClient(cfg),
-		Account:                       NewAccountClient(cfg),
-		AccountGroup:                  NewAccountGroupClient(cfg),
-		Announcement:                  NewAnnouncementClient(cfg),
-		AnnouncementRead:              NewAnnouncementReadClient(cfg),
-		AuthIdentity:                  NewAuthIdentityClient(cfg),
-		AuthIdentityChannel:           NewAuthIdentityChannelClient(cfg),
-		BatchImageEvent:               NewBatchImageEventClient(cfg),
-		BatchImageItem:                NewBatchImageItemClient(cfg),
-		BatchImageJob:                 NewBatchImageJobClient(cfg),
-		ChannelMonitor:                NewChannelMonitorClient(cfg),
-		ChannelMonitorDailyRollup:     NewChannelMonitorDailyRollupClient(cfg),
-		ChannelMonitorHistory:         NewChannelMonitorHistoryClient(cfg),
-		ChannelMonitorRequestTemplate: NewChannelMonitorRequestTemplateClient(cfg),
-		CompositeModelRoute:           NewCompositeModelRouteClient(cfg),
-		ErrorPassthroughRule:          NewErrorPassthroughRuleClient(cfg),
-		Group:                         NewGroupClient(cfg),
-		IdempotencyRecord:             NewIdempotencyRecordClient(cfg),
-		IdentityAdoptionDecision:      NewIdentityAdoptionDecisionClient(cfg),
-		PaymentAuditLog:               NewPaymentAuditLogClient(cfg),
-		PaymentOrder:                  NewPaymentOrderClient(cfg),
-		PaymentProviderInstance:       NewPaymentProviderInstanceClient(cfg),
-		PendingAuthSession:            NewPendingAuthSessionClient(cfg),
-		PromoCode:                     NewPromoCodeClient(cfg),
-		PromoCodeUsage:                NewPromoCodeUsageClient(cfg),
-		Proxy:                         NewProxyClient(cfg),
-		RedeemCode:                    NewRedeemCodeClient(cfg),
-		SecuritySecret:                NewSecuritySecretClient(cfg),
-		Setting:                       NewSettingClient(cfg),
-		SubscriptionPlan:              NewSubscriptionPlanClient(cfg),
-		TLSFingerprintProfile:         NewTLSFingerprintProfileClient(cfg),
-		UsageCleanupTask:              NewUsageCleanupTaskClient(cfg),
-		UsageLog:                      NewUsageLogClient(cfg),
-		User:                          NewUserClient(cfg),
-		UserAllowedGroup:              NewUserAllowedGroupClient(cfg),
-		UserAttributeDefinition:       NewUserAttributeDefinitionClient(cfg),
-		UserAttributeValue:            NewUserAttributeValueClient(cfg),
-		UserPlatformQuota:             NewUserPlatformQuotaClient(cfg),
-		UserSubscription:              NewUserSubscriptionClient(cfg),
+		ctx:                            ctx,
+		config:                         cfg,
+		APIKey:                         NewAPIKeyClient(cfg),
+		Account:                        NewAccountClient(cfg),
+		AccountGroup:                   NewAccountGroupClient(cfg),
+		Announcement:                   NewAnnouncementClient(cfg),
+		AnnouncementRead:               NewAnnouncementReadClient(cfg),
+		AuthIdentity:                   NewAuthIdentityClient(cfg),
+		AuthIdentityChannel:            NewAuthIdentityChannelClient(cfg),
+		BatchImageEvent:                NewBatchImageEventClient(cfg),
+		BatchImageItem:                 NewBatchImageItemClient(cfg),
+		BatchImageJob:                  NewBatchImageJobClient(cfg),
+		ChannelMonitor:                 NewChannelMonitorClient(cfg),
+		ChannelMonitorDailyRollup:      NewChannelMonitorDailyRollupClient(cfg),
+		ChannelMonitorHistory:          NewChannelMonitorHistoryClient(cfg),
+		ChannelMonitorRequestTemplate:  NewChannelMonitorRequestTemplateClient(cfg),
+		CompositeModelRoute:            NewCompositeModelRouteClient(cfg),
+		ErrorPassthroughRule:           NewErrorPassthroughRuleClient(cfg),
+		Group:                          NewGroupClient(cfg),
+		IdempotencyRecord:              NewIdempotencyRecordClient(cfg),
+		IdentityAdoptionDecision:       NewIdentityAdoptionDecisionClient(cfg),
+		OpenAIOAuthAccountAccessPolicy: NewOpenAIOAuthAccountAccessPolicyClient(cfg),
+		OpenAIOAuthAccountUserGrant:    NewOpenAIOAuthAccountUserGrantClient(cfg),
+		PaymentAuditLog:                NewPaymentAuditLogClient(cfg),
+		PaymentOrder:                   NewPaymentOrderClient(cfg),
+		PaymentProviderInstance:        NewPaymentProviderInstanceClient(cfg),
+		PendingAuthSession:             NewPendingAuthSessionClient(cfg),
+		PromoCode:                      NewPromoCodeClient(cfg),
+		PromoCodeUsage:                 NewPromoCodeUsageClient(cfg),
+		Proxy:                          NewProxyClient(cfg),
+		RedeemCode:                     NewRedeemCodeClient(cfg),
+		SecuritySecret:                 NewSecuritySecretClient(cfg),
+		Setting:                        NewSettingClient(cfg),
+		SubscriptionPlan:               NewSubscriptionPlanClient(cfg),
+		TLSFingerprintProfile:          NewTLSFingerprintProfileClient(cfg),
+		UsageCleanupTask:               NewUsageCleanupTaskClient(cfg),
+		UsageLog:                       NewUsageLogClient(cfg),
+		User:                           NewUserClient(cfg),
+		UserAllowedGroup:               NewUserAllowedGroupClient(cfg),
+		UserAttributeDefinition:        NewUserAttributeDefinitionClient(cfg),
+		UserAttributeValue:             NewUserAttributeValueClient(cfg),
+		UserPlatformQuota:              NewUserPlatformQuotaClient(cfg),
+		UserSubscription:               NewUserSubscriptionClient(cfg),
 	}, nil
 }
 
@@ -339,47 +349,49 @@ func (c *Client) BeginTx(ctx context.Context, opts *sql.TxOptions) (*Tx, error) 
 	cfg := c.config
 	cfg.driver = &txDriver{tx: tx, drv: c.driver}
 	return &Tx{
-		ctx:                           ctx,
-		config:                        cfg,
-		APIKey:                        NewAPIKeyClient(cfg),
-		Account:                       NewAccountClient(cfg),
-		AccountGroup:                  NewAccountGroupClient(cfg),
-		Announcement:                  NewAnnouncementClient(cfg),
-		AnnouncementRead:              NewAnnouncementReadClient(cfg),
-		AuthIdentity:                  NewAuthIdentityClient(cfg),
-		AuthIdentityChannel:           NewAuthIdentityChannelClient(cfg),
-		BatchImageEvent:               NewBatchImageEventClient(cfg),
-		BatchImageItem:                NewBatchImageItemClient(cfg),
-		BatchImageJob:                 NewBatchImageJobClient(cfg),
-		ChannelMonitor:                NewChannelMonitorClient(cfg),
-		ChannelMonitorDailyRollup:     NewChannelMonitorDailyRollupClient(cfg),
-		ChannelMonitorHistory:         NewChannelMonitorHistoryClient(cfg),
-		ChannelMonitorRequestTemplate: NewChannelMonitorRequestTemplateClient(cfg),
-		CompositeModelRoute:           NewCompositeModelRouteClient(cfg),
-		ErrorPassthroughRule:          NewErrorPassthroughRuleClient(cfg),
-		Group:                         NewGroupClient(cfg),
-		IdempotencyRecord:             NewIdempotencyRecordClient(cfg),
-		IdentityAdoptionDecision:      NewIdentityAdoptionDecisionClient(cfg),
-		PaymentAuditLog:               NewPaymentAuditLogClient(cfg),
-		PaymentOrder:                  NewPaymentOrderClient(cfg),
-		PaymentProviderInstance:       NewPaymentProviderInstanceClient(cfg),
-		PendingAuthSession:            NewPendingAuthSessionClient(cfg),
-		PromoCode:                     NewPromoCodeClient(cfg),
-		PromoCodeUsage:                NewPromoCodeUsageClient(cfg),
-		Proxy:                         NewProxyClient(cfg),
-		RedeemCode:                    NewRedeemCodeClient(cfg),
-		SecuritySecret:                NewSecuritySecretClient(cfg),
-		Setting:                       NewSettingClient(cfg),
-		SubscriptionPlan:              NewSubscriptionPlanClient(cfg),
-		TLSFingerprintProfile:         NewTLSFingerprintProfileClient(cfg),
-		UsageCleanupTask:              NewUsageCleanupTaskClient(cfg),
-		UsageLog:                      NewUsageLogClient(cfg),
-		User:                          NewUserClient(cfg),
-		UserAllowedGroup:              NewUserAllowedGroupClient(cfg),
-		UserAttributeDefinition:       NewUserAttributeDefinitionClient(cfg),
-		UserAttributeValue:            NewUserAttributeValueClient(cfg),
-		UserPlatformQuota:             NewUserPlatformQuotaClient(cfg),
-		UserSubscription:              NewUserSubscriptionClient(cfg),
+		ctx:                            ctx,
+		config:                         cfg,
+		APIKey:                         NewAPIKeyClient(cfg),
+		Account:                        NewAccountClient(cfg),
+		AccountGroup:                   NewAccountGroupClient(cfg),
+		Announcement:                   NewAnnouncementClient(cfg),
+		AnnouncementRead:               NewAnnouncementReadClient(cfg),
+		AuthIdentity:                   NewAuthIdentityClient(cfg),
+		AuthIdentityChannel:            NewAuthIdentityChannelClient(cfg),
+		BatchImageEvent:                NewBatchImageEventClient(cfg),
+		BatchImageItem:                 NewBatchImageItemClient(cfg),
+		BatchImageJob:                  NewBatchImageJobClient(cfg),
+		ChannelMonitor:                 NewChannelMonitorClient(cfg),
+		ChannelMonitorDailyRollup:      NewChannelMonitorDailyRollupClient(cfg),
+		ChannelMonitorHistory:          NewChannelMonitorHistoryClient(cfg),
+		ChannelMonitorRequestTemplate:  NewChannelMonitorRequestTemplateClient(cfg),
+		CompositeModelRoute:            NewCompositeModelRouteClient(cfg),
+		ErrorPassthroughRule:           NewErrorPassthroughRuleClient(cfg),
+		Group:                          NewGroupClient(cfg),
+		IdempotencyRecord:              NewIdempotencyRecordClient(cfg),
+		IdentityAdoptionDecision:       NewIdentityAdoptionDecisionClient(cfg),
+		OpenAIOAuthAccountAccessPolicy: NewOpenAIOAuthAccountAccessPolicyClient(cfg),
+		OpenAIOAuthAccountUserGrant:    NewOpenAIOAuthAccountUserGrantClient(cfg),
+		PaymentAuditLog:                NewPaymentAuditLogClient(cfg),
+		PaymentOrder:                   NewPaymentOrderClient(cfg),
+		PaymentProviderInstance:        NewPaymentProviderInstanceClient(cfg),
+		PendingAuthSession:             NewPendingAuthSessionClient(cfg),
+		PromoCode:                      NewPromoCodeClient(cfg),
+		PromoCodeUsage:                 NewPromoCodeUsageClient(cfg),
+		Proxy:                          NewProxyClient(cfg),
+		RedeemCode:                     NewRedeemCodeClient(cfg),
+		SecuritySecret:                 NewSecuritySecretClient(cfg),
+		Setting:                        NewSettingClient(cfg),
+		SubscriptionPlan:               NewSubscriptionPlanClient(cfg),
+		TLSFingerprintProfile:          NewTLSFingerprintProfileClient(cfg),
+		UsageCleanupTask:               NewUsageCleanupTaskClient(cfg),
+		UsageLog:                       NewUsageLogClient(cfg),
+		User:                           NewUserClient(cfg),
+		UserAllowedGroup:               NewUserAllowedGroupClient(cfg),
+		UserAttributeDefinition:        NewUserAttributeDefinitionClient(cfg),
+		UserAttributeValue:             NewUserAttributeValueClient(cfg),
+		UserPlatformQuota:              NewUserPlatformQuotaClient(cfg),
+		UserSubscription:               NewUserSubscriptionClient(cfg),
 	}, nil
 }
 
@@ -414,7 +426,8 @@ func (c *Client) Use(hooks ...Hook) {
 		c.BatchImageJob, c.ChannelMonitor, c.ChannelMonitorDailyRollup,
 		c.ChannelMonitorHistory, c.ChannelMonitorRequestTemplate,
 		c.CompositeModelRoute, c.ErrorPassthroughRule, c.Group, c.IdempotencyRecord,
-		c.IdentityAdoptionDecision, c.PaymentAuditLog, c.PaymentOrder,
+		c.IdentityAdoptionDecision, c.OpenAIOAuthAccountAccessPolicy,
+		c.OpenAIOAuthAccountUserGrant, c.PaymentAuditLog, c.PaymentOrder,
 		c.PaymentProviderInstance, c.PendingAuthSession, c.PromoCode, c.PromoCodeUsage,
 		c.Proxy, c.RedeemCode, c.SecuritySecret, c.Setting, c.SubscriptionPlan,
 		c.TLSFingerprintProfile, c.UsageCleanupTask, c.UsageLog, c.User,
@@ -434,7 +447,8 @@ func (c *Client) Intercept(interceptors ...Interceptor) {
 		c.BatchImageJob, c.ChannelMonitor, c.ChannelMonitorDailyRollup,
 		c.ChannelMonitorHistory, c.ChannelMonitorRequestTemplate,
 		c.CompositeModelRoute, c.ErrorPassthroughRule, c.Group, c.IdempotencyRecord,
-		c.IdentityAdoptionDecision, c.PaymentAuditLog, c.PaymentOrder,
+		c.IdentityAdoptionDecision, c.OpenAIOAuthAccountAccessPolicy,
+		c.OpenAIOAuthAccountUserGrant, c.PaymentAuditLog, c.PaymentOrder,
 		c.PaymentProviderInstance, c.PendingAuthSession, c.PromoCode, c.PromoCodeUsage,
 		c.Proxy, c.RedeemCode, c.SecuritySecret, c.Setting, c.SubscriptionPlan,
 		c.TLSFingerprintProfile, c.UsageCleanupTask, c.UsageLog, c.User,
@@ -486,6 +500,10 @@ func (c *Client) Mutate(ctx context.Context, m Mutation) (Value, error) {
 		return c.IdempotencyRecord.mutate(ctx, m)
 	case *IdentityAdoptionDecisionMutation:
 		return c.IdentityAdoptionDecision.mutate(ctx, m)
+	case *OpenAIOAuthAccountAccessPolicyMutation:
+		return c.OpenAIOAuthAccountAccessPolicy.mutate(ctx, m)
+	case *OpenAIOAuthAccountUserGrantMutation:
+		return c.OpenAIOAuthAccountUserGrant.mutate(ctx, m)
 	case *PaymentAuditLogMutation:
 		return c.PaymentAuditLog.mutate(ctx, m)
 	case *PaymentOrderMutation:
@@ -895,6 +913,38 @@ func (c *AccountClient) QueryUsageLogs(_m *Account) *UsageLogQuery {
 			sqlgraph.From(account.Table, account.FieldID, id),
 			sqlgraph.To(usagelog.Table, usagelog.FieldID),
 			sqlgraph.Edge(sqlgraph.O2M, false, account.UsageLogsTable, account.UsageLogsColumn),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
+// QueryOpenaiOauthAccessPolicy queries the openai_oauth_access_policy edge of a Account.
+func (c *AccountClient) QueryOpenaiOauthAccessPolicy(_m *Account) *OpenAIOAuthAccountAccessPolicyQuery {
+	query := (&OpenAIOAuthAccountAccessPolicyClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(account.Table, account.FieldID, id),
+			sqlgraph.To(openaioauthaccountaccesspolicy.Table, openaioauthaccountaccesspolicy.FieldID),
+			sqlgraph.Edge(sqlgraph.O2O, false, account.OpenaiOauthAccessPolicyTable, account.OpenaiOauthAccessPolicyColumn),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
+// QueryOpenaiOauthUserGrants queries the openai_oauth_user_grants edge of a Account.
+func (c *AccountClient) QueryOpenaiOauthUserGrants(_m *Account) *OpenAIOAuthAccountUserGrantQuery {
+	query := (&OpenAIOAuthAccountUserGrantClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(account.Table, account.FieldID, id),
+			sqlgraph.To(openaioauthaccountusergrant.Table, openaioauthaccountusergrant.FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, account.OpenaiOauthUserGrantsTable, account.OpenaiOauthUserGrantsColumn),
 		)
 		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
 		return fromV, nil
@@ -3577,6 +3627,320 @@ func (c *IdentityAdoptionDecisionClient) mutate(ctx context.Context, m *Identity
 	}
 }
 
+// OpenAIOAuthAccountAccessPolicyClient is a client for the OpenAIOAuthAccountAccessPolicy schema.
+type OpenAIOAuthAccountAccessPolicyClient struct {
+	config
+}
+
+// NewOpenAIOAuthAccountAccessPolicyClient returns a client for the OpenAIOAuthAccountAccessPolicy from the given config.
+func NewOpenAIOAuthAccountAccessPolicyClient(c config) *OpenAIOAuthAccountAccessPolicyClient {
+	return &OpenAIOAuthAccountAccessPolicyClient{config: c}
+}
+
+// Use adds a list of mutation hooks to the hooks stack.
+// A call to `Use(f, g, h)` equals to `openaioauthaccountaccesspolicy.Hooks(f(g(h())))`.
+func (c *OpenAIOAuthAccountAccessPolicyClient) Use(hooks ...Hook) {
+	c.hooks.OpenAIOAuthAccountAccessPolicy = append(c.hooks.OpenAIOAuthAccountAccessPolicy, hooks...)
+}
+
+// Intercept adds a list of query interceptors to the interceptors stack.
+// A call to `Intercept(f, g, h)` equals to `openaioauthaccountaccesspolicy.Intercept(f(g(h())))`.
+func (c *OpenAIOAuthAccountAccessPolicyClient) Intercept(interceptors ...Interceptor) {
+	c.inters.OpenAIOAuthAccountAccessPolicy = append(c.inters.OpenAIOAuthAccountAccessPolicy, interceptors...)
+}
+
+// Create returns a builder for creating a OpenAIOAuthAccountAccessPolicy entity.
+func (c *OpenAIOAuthAccountAccessPolicyClient) Create() *OpenAIOAuthAccountAccessPolicyCreate {
+	mutation := newOpenAIOAuthAccountAccessPolicyMutation(c.config, OpCreate)
+	return &OpenAIOAuthAccountAccessPolicyCreate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// CreateBulk returns a builder for creating a bulk of OpenAIOAuthAccountAccessPolicy entities.
+func (c *OpenAIOAuthAccountAccessPolicyClient) CreateBulk(builders ...*OpenAIOAuthAccountAccessPolicyCreate) *OpenAIOAuthAccountAccessPolicyCreateBulk {
+	return &OpenAIOAuthAccountAccessPolicyCreateBulk{config: c.config, builders: builders}
+}
+
+// MapCreateBulk creates a bulk creation builder from the given slice. For each item in the slice, the function creates
+// a builder and applies setFunc on it.
+func (c *OpenAIOAuthAccountAccessPolicyClient) MapCreateBulk(slice any, setFunc func(*OpenAIOAuthAccountAccessPolicyCreate, int)) *OpenAIOAuthAccountAccessPolicyCreateBulk {
+	rv := reflect.ValueOf(slice)
+	if rv.Kind() != reflect.Slice {
+		return &OpenAIOAuthAccountAccessPolicyCreateBulk{err: fmt.Errorf("calling to OpenAIOAuthAccountAccessPolicyClient.MapCreateBulk with wrong type %T, need slice", slice)}
+	}
+	builders := make([]*OpenAIOAuthAccountAccessPolicyCreate, rv.Len())
+	for i := 0; i < rv.Len(); i++ {
+		builders[i] = c.Create()
+		setFunc(builders[i], i)
+	}
+	return &OpenAIOAuthAccountAccessPolicyCreateBulk{config: c.config, builders: builders}
+}
+
+// Update returns an update builder for OpenAIOAuthAccountAccessPolicy.
+func (c *OpenAIOAuthAccountAccessPolicyClient) Update() *OpenAIOAuthAccountAccessPolicyUpdate {
+	mutation := newOpenAIOAuthAccountAccessPolicyMutation(c.config, OpUpdate)
+	return &OpenAIOAuthAccountAccessPolicyUpdate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOne returns an update builder for the given entity.
+func (c *OpenAIOAuthAccountAccessPolicyClient) UpdateOne(_m *OpenAIOAuthAccountAccessPolicy) *OpenAIOAuthAccountAccessPolicyUpdateOne {
+	mutation := newOpenAIOAuthAccountAccessPolicyMutation(c.config, OpUpdateOne, withOpenAIOAuthAccountAccessPolicy(_m))
+	return &OpenAIOAuthAccountAccessPolicyUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOneID returns an update builder for the given id.
+func (c *OpenAIOAuthAccountAccessPolicyClient) UpdateOneID(id int64) *OpenAIOAuthAccountAccessPolicyUpdateOne {
+	mutation := newOpenAIOAuthAccountAccessPolicyMutation(c.config, OpUpdateOne, withOpenAIOAuthAccountAccessPolicyID(id))
+	return &OpenAIOAuthAccountAccessPolicyUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// Delete returns a delete builder for OpenAIOAuthAccountAccessPolicy.
+func (c *OpenAIOAuthAccountAccessPolicyClient) Delete() *OpenAIOAuthAccountAccessPolicyDelete {
+	mutation := newOpenAIOAuthAccountAccessPolicyMutation(c.config, OpDelete)
+	return &OpenAIOAuthAccountAccessPolicyDelete{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// DeleteOne returns a builder for deleting the given entity.
+func (c *OpenAIOAuthAccountAccessPolicyClient) DeleteOne(_m *OpenAIOAuthAccountAccessPolicy) *OpenAIOAuthAccountAccessPolicyDeleteOne {
+	return c.DeleteOneID(_m.ID)
+}
+
+// DeleteOneID returns a builder for deleting the given entity by its id.
+func (c *OpenAIOAuthAccountAccessPolicyClient) DeleteOneID(id int64) *OpenAIOAuthAccountAccessPolicyDeleteOne {
+	builder := c.Delete().Where(openaioauthaccountaccesspolicy.ID(id))
+	builder.mutation.id = &id
+	builder.mutation.op = OpDeleteOne
+	return &OpenAIOAuthAccountAccessPolicyDeleteOne{builder}
+}
+
+// Query returns a query builder for OpenAIOAuthAccountAccessPolicy.
+func (c *OpenAIOAuthAccountAccessPolicyClient) Query() *OpenAIOAuthAccountAccessPolicyQuery {
+	return &OpenAIOAuthAccountAccessPolicyQuery{
+		config: c.config,
+		ctx:    &QueryContext{Type: TypeOpenAIOAuthAccountAccessPolicy},
+		inters: c.Interceptors(),
+	}
+}
+
+// Get returns a OpenAIOAuthAccountAccessPolicy entity by its id.
+func (c *OpenAIOAuthAccountAccessPolicyClient) Get(ctx context.Context, id int64) (*OpenAIOAuthAccountAccessPolicy, error) {
+	return c.Query().Where(openaioauthaccountaccesspolicy.ID(id)).Only(ctx)
+}
+
+// GetX is like Get, but panics if an error occurs.
+func (c *OpenAIOAuthAccountAccessPolicyClient) GetX(ctx context.Context, id int64) *OpenAIOAuthAccountAccessPolicy {
+	obj, err := c.Get(ctx, id)
+	if err != nil {
+		panic(err)
+	}
+	return obj
+}
+
+// QueryAccount queries the account edge of a OpenAIOAuthAccountAccessPolicy.
+func (c *OpenAIOAuthAccountAccessPolicyClient) QueryAccount(_m *OpenAIOAuthAccountAccessPolicy) *AccountQuery {
+	query := (&AccountClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(openaioauthaccountaccesspolicy.Table, openaioauthaccountaccesspolicy.FieldID, id),
+			sqlgraph.To(account.Table, account.FieldID),
+			sqlgraph.Edge(sqlgraph.O2O, true, openaioauthaccountaccesspolicy.AccountTable, openaioauthaccountaccesspolicy.AccountColumn),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
+// Hooks returns the client hooks.
+func (c *OpenAIOAuthAccountAccessPolicyClient) Hooks() []Hook {
+	return c.hooks.OpenAIOAuthAccountAccessPolicy
+}
+
+// Interceptors returns the client interceptors.
+func (c *OpenAIOAuthAccountAccessPolicyClient) Interceptors() []Interceptor {
+	return c.inters.OpenAIOAuthAccountAccessPolicy
+}
+
+func (c *OpenAIOAuthAccountAccessPolicyClient) mutate(ctx context.Context, m *OpenAIOAuthAccountAccessPolicyMutation) (Value, error) {
+	switch m.Op() {
+	case OpCreate:
+		return (&OpenAIOAuthAccountAccessPolicyCreate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdate:
+		return (&OpenAIOAuthAccountAccessPolicyUpdate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdateOne:
+		return (&OpenAIOAuthAccountAccessPolicyUpdateOne{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpDelete, OpDeleteOne:
+		return (&OpenAIOAuthAccountAccessPolicyDelete{config: c.config, hooks: c.Hooks(), mutation: m}).Exec(ctx)
+	default:
+		return nil, fmt.Errorf("ent: unknown OpenAIOAuthAccountAccessPolicy mutation op: %q", m.Op())
+	}
+}
+
+// OpenAIOAuthAccountUserGrantClient is a client for the OpenAIOAuthAccountUserGrant schema.
+type OpenAIOAuthAccountUserGrantClient struct {
+	config
+}
+
+// NewOpenAIOAuthAccountUserGrantClient returns a client for the OpenAIOAuthAccountUserGrant from the given config.
+func NewOpenAIOAuthAccountUserGrantClient(c config) *OpenAIOAuthAccountUserGrantClient {
+	return &OpenAIOAuthAccountUserGrantClient{config: c}
+}
+
+// Use adds a list of mutation hooks to the hooks stack.
+// A call to `Use(f, g, h)` equals to `openaioauthaccountusergrant.Hooks(f(g(h())))`.
+func (c *OpenAIOAuthAccountUserGrantClient) Use(hooks ...Hook) {
+	c.hooks.OpenAIOAuthAccountUserGrant = append(c.hooks.OpenAIOAuthAccountUserGrant, hooks...)
+}
+
+// Intercept adds a list of query interceptors to the interceptors stack.
+// A call to `Intercept(f, g, h)` equals to `openaioauthaccountusergrant.Intercept(f(g(h())))`.
+func (c *OpenAIOAuthAccountUserGrantClient) Intercept(interceptors ...Interceptor) {
+	c.inters.OpenAIOAuthAccountUserGrant = append(c.inters.OpenAIOAuthAccountUserGrant, interceptors...)
+}
+
+// Create returns a builder for creating a OpenAIOAuthAccountUserGrant entity.
+func (c *OpenAIOAuthAccountUserGrantClient) Create() *OpenAIOAuthAccountUserGrantCreate {
+	mutation := newOpenAIOAuthAccountUserGrantMutation(c.config, OpCreate)
+	return &OpenAIOAuthAccountUserGrantCreate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// CreateBulk returns a builder for creating a bulk of OpenAIOAuthAccountUserGrant entities.
+func (c *OpenAIOAuthAccountUserGrantClient) CreateBulk(builders ...*OpenAIOAuthAccountUserGrantCreate) *OpenAIOAuthAccountUserGrantCreateBulk {
+	return &OpenAIOAuthAccountUserGrantCreateBulk{config: c.config, builders: builders}
+}
+
+// MapCreateBulk creates a bulk creation builder from the given slice. For each item in the slice, the function creates
+// a builder and applies setFunc on it.
+func (c *OpenAIOAuthAccountUserGrantClient) MapCreateBulk(slice any, setFunc func(*OpenAIOAuthAccountUserGrantCreate, int)) *OpenAIOAuthAccountUserGrantCreateBulk {
+	rv := reflect.ValueOf(slice)
+	if rv.Kind() != reflect.Slice {
+		return &OpenAIOAuthAccountUserGrantCreateBulk{err: fmt.Errorf("calling to OpenAIOAuthAccountUserGrantClient.MapCreateBulk with wrong type %T, need slice", slice)}
+	}
+	builders := make([]*OpenAIOAuthAccountUserGrantCreate, rv.Len())
+	for i := 0; i < rv.Len(); i++ {
+		builders[i] = c.Create()
+		setFunc(builders[i], i)
+	}
+	return &OpenAIOAuthAccountUserGrantCreateBulk{config: c.config, builders: builders}
+}
+
+// Update returns an update builder for OpenAIOAuthAccountUserGrant.
+func (c *OpenAIOAuthAccountUserGrantClient) Update() *OpenAIOAuthAccountUserGrantUpdate {
+	mutation := newOpenAIOAuthAccountUserGrantMutation(c.config, OpUpdate)
+	return &OpenAIOAuthAccountUserGrantUpdate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOne returns an update builder for the given entity.
+func (c *OpenAIOAuthAccountUserGrantClient) UpdateOne(_m *OpenAIOAuthAccountUserGrant) *OpenAIOAuthAccountUserGrantUpdateOne {
+	mutation := newOpenAIOAuthAccountUserGrantMutation(c.config, OpUpdateOne, withOpenAIOAuthAccountUserGrant(_m))
+	return &OpenAIOAuthAccountUserGrantUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOneID returns an update builder for the given id.
+func (c *OpenAIOAuthAccountUserGrantClient) UpdateOneID(id int64) *OpenAIOAuthAccountUserGrantUpdateOne {
+	mutation := newOpenAIOAuthAccountUserGrantMutation(c.config, OpUpdateOne, withOpenAIOAuthAccountUserGrantID(id))
+	return &OpenAIOAuthAccountUserGrantUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// Delete returns a delete builder for OpenAIOAuthAccountUserGrant.
+func (c *OpenAIOAuthAccountUserGrantClient) Delete() *OpenAIOAuthAccountUserGrantDelete {
+	mutation := newOpenAIOAuthAccountUserGrantMutation(c.config, OpDelete)
+	return &OpenAIOAuthAccountUserGrantDelete{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// DeleteOne returns a builder for deleting the given entity.
+func (c *OpenAIOAuthAccountUserGrantClient) DeleteOne(_m *OpenAIOAuthAccountUserGrant) *OpenAIOAuthAccountUserGrantDeleteOne {
+	return c.DeleteOneID(_m.ID)
+}
+
+// DeleteOneID returns a builder for deleting the given entity by its id.
+func (c *OpenAIOAuthAccountUserGrantClient) DeleteOneID(id int64) *OpenAIOAuthAccountUserGrantDeleteOne {
+	builder := c.Delete().Where(openaioauthaccountusergrant.ID(id))
+	builder.mutation.id = &id
+	builder.mutation.op = OpDeleteOne
+	return &OpenAIOAuthAccountUserGrantDeleteOne{builder}
+}
+
+// Query returns a query builder for OpenAIOAuthAccountUserGrant.
+func (c *OpenAIOAuthAccountUserGrantClient) Query() *OpenAIOAuthAccountUserGrantQuery {
+	return &OpenAIOAuthAccountUserGrantQuery{
+		config: c.config,
+		ctx:    &QueryContext{Type: TypeOpenAIOAuthAccountUserGrant},
+		inters: c.Interceptors(),
+	}
+}
+
+// Get returns a OpenAIOAuthAccountUserGrant entity by its id.
+func (c *OpenAIOAuthAccountUserGrantClient) Get(ctx context.Context, id int64) (*OpenAIOAuthAccountUserGrant, error) {
+	return c.Query().Where(openaioauthaccountusergrant.ID(id)).Only(ctx)
+}
+
+// GetX is like Get, but panics if an error occurs.
+func (c *OpenAIOAuthAccountUserGrantClient) GetX(ctx context.Context, id int64) *OpenAIOAuthAccountUserGrant {
+	obj, err := c.Get(ctx, id)
+	if err != nil {
+		panic(err)
+	}
+	return obj
+}
+
+// QueryAccount queries the account edge of a OpenAIOAuthAccountUserGrant.
+func (c *OpenAIOAuthAccountUserGrantClient) QueryAccount(_m *OpenAIOAuthAccountUserGrant) *AccountQuery {
+	query := (&AccountClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(openaioauthaccountusergrant.Table, openaioauthaccountusergrant.FieldID, id),
+			sqlgraph.To(account.Table, account.FieldID),
+			sqlgraph.Edge(sqlgraph.M2O, true, openaioauthaccountusergrant.AccountTable, openaioauthaccountusergrant.AccountColumn),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
+// QueryUser queries the user edge of a OpenAIOAuthAccountUserGrant.
+func (c *OpenAIOAuthAccountUserGrantClient) QueryUser(_m *OpenAIOAuthAccountUserGrant) *UserQuery {
+	query := (&UserClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(openaioauthaccountusergrant.Table, openaioauthaccountusergrant.FieldID, id),
+			sqlgraph.To(user.Table, user.FieldID),
+			sqlgraph.Edge(sqlgraph.M2O, true, openaioauthaccountusergrant.UserTable, openaioauthaccountusergrant.UserColumn),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
+// Hooks returns the client hooks.
+func (c *OpenAIOAuthAccountUserGrantClient) Hooks() []Hook {
+	return c.hooks.OpenAIOAuthAccountUserGrant
+}
+
+// Interceptors returns the client interceptors.
+func (c *OpenAIOAuthAccountUserGrantClient) Interceptors() []Interceptor {
+	return c.inters.OpenAIOAuthAccountUserGrant
+}
+
+func (c *OpenAIOAuthAccountUserGrantClient) mutate(ctx context.Context, m *OpenAIOAuthAccountUserGrantMutation) (Value, error) {
+	switch m.Op() {
+	case OpCreate:
+		return (&OpenAIOAuthAccountUserGrantCreate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdate:
+		return (&OpenAIOAuthAccountUserGrantUpdate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdateOne:
+		return (&OpenAIOAuthAccountUserGrantUpdateOne{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpDelete, OpDeleteOne:
+		return (&OpenAIOAuthAccountUserGrantDelete{config: c.config, hooks: c.Hooks(), mutation: m}).Exec(ctx)
+	default:
+		return nil, fmt.Errorf("ent: unknown OpenAIOAuthAccountUserGrant mutation op: %q", m.Op())
+	}
+}
+
 // PaymentAuditLogClient is a client for the PaymentAuditLog schema.
 type PaymentAuditLogClient struct {
 	config
@@ -5997,6 +6361,22 @@ func (c *UserClient) QueryPlatformQuotas(_m *User) *UserPlatformQuotaQuery {
 	return query
 }
 
+// QueryOpenaiOauthAccountGrants queries the openai_oauth_account_grants edge of a User.
+func (c *UserClient) QueryOpenaiOauthAccountGrants(_m *User) *OpenAIOAuthAccountUserGrantQuery {
+	query := (&OpenAIOAuthAccountUserGrantClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(user.Table, user.FieldID, id),
+			sqlgraph.To(openaioauthaccountusergrant.Table, openaioauthaccountusergrant.FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, user.OpenaiOauthAccountGrantsTable, user.OpenaiOauthAccountGrantsColumn),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
 // QueryUserAllowedGroups queries the user_allowed_groups edge of a User.
 func (c *UserClient) QueryUserAllowedGroups(_m *User) *UserAllowedGroupQuery {
 	query := (&UserAllowedGroupClient{config: c.config}).Query()
@@ -6829,7 +7209,8 @@ type (
 		AuthIdentityChannel, BatchImageEvent, BatchImageItem, BatchImageJob,
 		ChannelMonitor, ChannelMonitorDailyRollup, ChannelMonitorHistory,
 		ChannelMonitorRequestTemplate, CompositeModelRoute, ErrorPassthroughRule,
-		Group, IdempotencyRecord, IdentityAdoptionDecision, PaymentAuditLog,
+		Group, IdempotencyRecord, IdentityAdoptionDecision,
+		OpenAIOAuthAccountAccessPolicy, OpenAIOAuthAccountUserGrant, PaymentAuditLog,
 		PaymentOrder, PaymentProviderInstance, PendingAuthSession, PromoCode,
 		PromoCodeUsage, Proxy, RedeemCode, SecuritySecret, Setting, SubscriptionPlan,
 		TLSFingerprintProfile, UsageCleanupTask, UsageLog, User, UserAllowedGroup,
@@ -6841,7 +7222,8 @@ type (
 		AuthIdentityChannel, BatchImageEvent, BatchImageItem, BatchImageJob,
 		ChannelMonitor, ChannelMonitorDailyRollup, ChannelMonitorHistory,
 		ChannelMonitorRequestTemplate, CompositeModelRoute, ErrorPassthroughRule,
-		Group, IdempotencyRecord, IdentityAdoptionDecision, PaymentAuditLog,
+		Group, IdempotencyRecord, IdentityAdoptionDecision,
+		OpenAIOAuthAccountAccessPolicy, OpenAIOAuthAccountUserGrant, PaymentAuditLog,
 		PaymentOrder, PaymentProviderInstance, PendingAuthSession, PromoCode,
 		PromoCodeUsage, Proxy, RedeemCode, SecuritySecret, Setting, SubscriptionPlan,
 		TLSFingerprintProfile, UsageCleanupTask, UsageLog, User, UserAllowedGroup,

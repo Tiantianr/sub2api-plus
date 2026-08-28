@@ -54,6 +54,7 @@ func RegisterAdminRoutes(
 
 		// OpenAI OAuth
 		registerOpenAIOAuthRoutes(admin, h)
+		registerOpenAIOAuthUserAccessRoutes(admin, h, stepUpAuth)
 
 		// Gemini OAuth
 		registerGeminiOAuthRoutes(admin, h)
@@ -136,6 +137,16 @@ func RegisterAdminRoutes(
 
 		// 操作审计日志
 		registerAuditLogRoutes(admin, h, stepUpAuth)
+	}
+}
+
+func registerOpenAIOAuthUserAccessRoutes(admin *gin.RouterGroup, h *handler.Handlers, stepUpAuth middleware.StepUpAuthMiddleware) {
+	access := admin.Group("/openai-oauth-access")
+	{
+		access.GET("/accounts", h.Admin.OpenAIOAuthUserAccess.ListAccounts)
+		access.GET("/users", h.Admin.OpenAIOAuthUserAccess.ListUsers)
+		access.POST("/preview", h.Admin.OpenAIOAuthUserAccess.Preview)
+		access.PUT("/policies", gin.HandlerFunc(stepUpAuth), h.Admin.OpenAIOAuthUserAccess.Apply)
 	}
 }
 

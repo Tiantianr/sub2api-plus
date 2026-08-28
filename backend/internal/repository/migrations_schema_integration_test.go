@@ -165,6 +165,23 @@ WHERE ns.nspname = 'public'
 	requireColumn(t, tx, "scheduler_outbox", "dedup_key", "text", 0, true)
 	requireIndex(t, tx, "scheduler_outbox", "idx_scheduler_outbox_pending_dedup_key")
 
+	// OpenAI OAuth local-user access control.
+	requireColumn(t, tx, "openai_oauth_account_access_policies", "account_id", "bigint", 0, false)
+	requireColumn(t, tx, "openai_oauth_account_access_policies", "mode", "character varying", 16, false)
+	requireColumn(t, tx, "openai_oauth_account_access_policies", "revision", "bigint", 0, false)
+	requireColumn(t, tx, "openai_oauth_account_user_grants", "user_id", "bigint", 0, false)
+	requireIndex(t, tx, "openai_oauth_account_user_grants", "idx_openai_oauth_account_user_grants_user")
+	requireIndex(t, tx, "openai_oauth_account_access_policies", "idx_openai_oauth_access_default_new_users")
+	var grantAccountForeignTable string
+	require.NoError(t, tx.QueryRowContext(context.Background(), `
+		SELECT confrelid::regclass::text
+		FROM pg_constraint
+		WHERE conrelid = 'openai_oauth_account_user_grants'::regclass
+		  AND contype = 'f'
+		  AND pg_get_constraintdef(oid) LIKE 'FOREIGN KEY (account_id)%'
+	`).Scan(&grantAccountForeignTable))
+	require.Equal(t, "accounts", grantAccountForeignTable)
+
 	// ops_system_logs: API key id index for operational log triage
 	requireColumn(t, tx, "ops_system_logs", "api_key_id", "bigint", 0, true)
 	requireIndex(t, tx, "ops_system_logs", "idx_ops_system_logs_api_key_id_created_at")
