@@ -16,10 +16,11 @@ const (
 )
 
 var (
-	ErrQueueFull          = errors.New("prompt audit queue full")
-	ErrQueueAdmissionBusy = errors.New("prompt audit queue admission busy")
-	ErrLeaseLost          = errors.New("prompt audit worker lease lost")
-	ErrEventNotFound      = errors.New("prompt audit event not found")
+	ErrQueueFull            = errors.New("prompt audit queue full")
+	ErrQueueAdmissionBusy   = errors.New("prompt audit queue admission busy")
+	ErrLeaseLost            = errors.New("prompt audit worker lease lost")
+	ErrEventNotFound        = errors.New("prompt audit event not found")
+	ErrEventContextNotFound = errors.New("prompt audit event context not found")
 )
 
 type Job struct {
@@ -41,30 +42,31 @@ type Job struct {
 }
 
 type Event struct {
-	ID                int64              `json:"id"`
-	JobID             int64              `json:"job_id"`
-	Snapshot          PromptSnapshot     `json:"snapshot"`
-	ExecutionMode     Mode               `json:"execution_mode"`
-	Decision          EventDecision      `json:"decision"`
-	RiskLevel         RiskLevel          `json:"risk_level"`
-	Action            Action             `json:"action"`
-	Categories        []string           `json:"categories"`
-	MatchedScanners   []string           `json:"matched_scanners"`
-	ScannerScores     map[string]float64 `json:"scanner_scores"`
-	ScannerEvidence   map[string]string  `json:"scanner_evidence"`
-	ScannerBackend    string             `json:"scanner_backend"`
-	ScannerVersion    string             `json:"scanner_version"`
-	GuardEndpointID   string             `json:"guard_endpoint_id"`
-	PolicyID          string             `json:"policy_id"`
-	PolicyVersion     int                `json:"policy_version"`
-	ConfigVersion     int64              `json:"config_version"`
-	ChunkTotal        int                `json:"chunk_total"`
-	QueueDelayMS      *int               `json:"queue_delay_ms"`
-	InputLimit        *int               `json:"input_limit"`
-	MatchedChunkIndex *int               `json:"matched_chunk_index"`
-	LatencyMS         int                `json:"latency_ms"`
-	IssueSummaries    []IssueSummary     `json:"issue_summaries"`
-	CreatedAt         time.Time          `json:"created_at"`
+	ID                   int64              `json:"id"`
+	JobID                int64              `json:"job_id"`
+	Snapshot             PromptSnapshot     `json:"snapshot"`
+	ExecutionMode        Mode               `json:"execution_mode"`
+	Decision             EventDecision      `json:"decision"`
+	RiskLevel            RiskLevel          `json:"risk_level"`
+	Action               Action             `json:"action"`
+	Categories           []string           `json:"categories"`
+	MatchedScanners      []string           `json:"matched_scanners"`
+	ScannerScores        map[string]float64 `json:"scanner_scores"`
+	ScannerEvidence      map[string]string  `json:"scanner_evidence"`
+	ScannerBackend       string             `json:"scanner_backend"`
+	ScannerVersion       string             `json:"scanner_version"`
+	GuardEndpointID      string             `json:"guard_endpoint_id"`
+	PolicyID             string             `json:"policy_id"`
+	PolicyVersion        int                `json:"policy_version"`
+	ConfigVersion        int64              `json:"config_version"`
+	ChunkTotal           int                `json:"chunk_total"`
+	QueueDelayMS         *int               `json:"queue_delay_ms"`
+	InputLimit           *int               `json:"input_limit"`
+	MatchedChunkIndex    *int               `json:"matched_chunk_index"`
+	LatencyMS            int                `json:"latency_ms"`
+	IssueSummaries       []IssueSummary     `json:"issue_summaries"`
+	CreatedAt            time.Time          `json:"created_at"`
+	FullContextAvailable bool               `json:"full_context_available"`
 }
 
 type JobRepository interface {
@@ -323,6 +325,7 @@ func queueDelayMilliseconds(job *Job) int {
 
 type sqlQueryer interface {
 	QueryRowContext(context.Context, string, ...any) *sql.Row
+	ExecContext(context.Context, string, ...any) (sql.Result, error)
 }
 
 func insertJob(ctx context.Context, queryer sqlQueryer, snapshot PromptSnapshot, mode Mode, configVersion int64, status string, maxAttempts int) (*Job, error) {
@@ -374,7 +377,21 @@ func insertEvent(ctx context.Context, queryer sqlQueryer, jobID int64, snapshot 
 		result.GuardEndpointID, result.PolicyID, result.PolicyVersion, configVersion, result.ChunkTotal, result.LatencyMS,
 		snapshot.FullPrompt, snapshot.ClientIP, snapshot.PromptLength, snapshot.MessageCount, string(executionMode), queueDelayMS,
 		nullablePositiveInt(result.InputLimit), nullablePositiveInt(result.MatchedChunkIndex), snapshot.FullPromptTruncated)
-	return scanEvent(row, true)
+	event, err := scanEvent(row, true)
+	if err != nil {
+		return nil, err
+	}
+	if snapshot.FullContextCiphertext != "" {
+		if _, err := queryer.ExecContext(ctx, `
+			INSERT INTO prompt_audit_event_contexts (
+				event_id,context_ciphertext,context_sha256,context_bytes,segment_count
+			) VALUES ($1,$2,$3,$4,$5)`, event.ID, snapshot.FullContextCiphertext,
+			snapshot.FullContextHash, snapshot.FullContextBytes, snapshot.FullContextSegmentCount); err != nil {
+			return nil, err
+		}
+		event.FullContextAvailable = true
+	}
+	return event, nil
 }
 
 type rowScanner interface{ Scan(...any) error }

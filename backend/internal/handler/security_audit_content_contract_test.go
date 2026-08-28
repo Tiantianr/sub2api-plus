@@ -103,84 +103,82 @@ func TestContentModerationUsesLatestUserTextWithoutInstructionContext(t *testing
 	}
 }
 
-func TestPromptAuditUsesCompleteConversationTextWhileLatestHelperStaysNarrow(t *testing.T) {
+func TestPromptAuditUsesUserAuthoredConversationText(t *testing.T) {
 	tests := []struct {
-		name       string
-		protocol   string
-		body       string
-		full       []string
-		latest     string
-		omitFull   []string
-		omitLatest []string
-		noLatest   bool
+		name     string
+		protocol string
+		body     string
+		full     []string
+		latest   string
+		omit     []string
+		noFull   bool
+		noLatest bool
 	}{
 		{
-			name: "assistant text and tool schema are scanned in complete context", protocol: service.ContentModerationProtocolOpenAIResponses,
+			name: "assistant text and tool schema are excluded", protocol: service.ContentModerationProtocolOpenAIResponses,
 			body: `{"instructions":"audit instruction","tools":[{"type":"function","name":"lookup","description":"audit tool definition"}],` +
 				`"input":[{"type":"message","role":"user","content":"older prompt"},{"type":"message","role":"assistant","content":"current assistant payload"}]}`,
-			full:       []string{"current assistant payload", "audit instruction", "audit tool definition", "older prompt"},
-			latest:     "older prompt",
-			omitLatest: []string{"current assistant payload", "audit instruction", "audit tool definition"},
+			full:   []string{"older prompt"},
+			latest: "older prompt",
+			omit:   []string{"audit tool definition", "current assistant payload", "audit instruction"},
 		},
 		{
-			name: "responses function result remains complete prompt-audit context", protocol: service.ContentModerationProtocolOpenAIResponses,
-			body:       `{"input":[{"type":"message","role":"user","content":"older prompt"},{"type":"function_call_output","call_id":"call_1","output":"current tool result"}]}`,
-			full:       []string{"older prompt", "current tool result"},
-			latest:     "older prompt",
-			omitLatest: []string{"current tool result"},
+			name: "responses function result is excluded", protocol: service.ContentModerationProtocolOpenAIResponses,
+			body:   `{"input":[{"type":"message","role":"user","content":"older prompt"},{"type":"function_call_output","call_id":"call_1","output":"current tool result"}]}`,
+			full:   []string{"older prompt"},
+			latest: "older prompt",
+			omit:   []string{"current tool result"},
 		},
 		{
-			name: "responses reusable prompt variables remain conversation text", protocol: service.ContentModerationProtocolOpenAIResponses,
+			name: "responses reusable prompt variables are excluded", protocol: service.ContentModerationProtocolOpenAIResponses,
 			body:     `{"prompt":{"id":"pmpt_1","variables":{"plain":"reusable variable","typed":{"type":"input_text","text":"typed variable"}}}}`,
-			full:     []string{"reusable variable", "typed variable"},
+			omit:     []string{"reusable variable", "typed variable"},
+			noFull:   true,
 			noLatest: true,
 		},
 		{
 			name: "responses legacy messages follow input conversion", protocol: service.ContentModerationProtocolOpenAIResponses,
 			body:   `{"model":"gpt-test","messages":[{"role":"system","content":"legacy system"},{"role":"user","content":"legacy user"}]}`,
-			full:   []string{"legacy system", "legacy user"},
+			full:   []string{"legacy user"},
 			latest: "legacy user",
+			omit:   []string{"legacy system"},
 		},
 		{
-			name: "chat reasoning remains full-session context", protocol: service.ContentModerationProtocolOpenAIChat,
+			name: "chat reasoning is excluded", protocol: service.ContentModerationProtocolOpenAIChat,
 			body:   `{"messages":[{"role":"assistant","reasoning_content":"visible reasoning"},{"role":"user","content":"continue"}]}`,
-			full:   []string{"visible reasoning", "continue"},
+			full:   []string{"continue"},
 			latest: "continue",
+			omit:   []string{"visible reasoning"},
 		},
 		{
-			name: "chat user reasoning is current input", protocol: service.ContentModerationProtocolOpenAIChat,
+			name: "chat user reasoning remains user-authored text", protocol: service.ContentModerationProtocolOpenAIChat,
 			body:   `{"messages":[{"role":"assistant","reasoning_content":"assistant reasoning"},{"role":"user","content":"continue","reasoning_content":"user reasoning"}]}`,
-			full:   []string{"assistant reasoning", "continue", "user reasoning"},
-			latest: "continue",
+			full:   []string{"continue", "user reasoning"},
+			latest: "continue\n\nuser reasoning",
+			omit:   []string{"assistant reasoning"},
 		},
 		{
-			name: "alpha search covers PAT fallback fields", protocol: "openai_alpha_search",
-			body:   `{"commands":{"search_query":[{"q":"security query"}],"mode":"deep"},"settings":{"region":"global"},"input":[{"type":"message","role":"user","content":"recent context"}]}`,
-			full:   []string{`"security query"`, `"mode":"deep"`, `"region":"global"`, `"recent context"`},
-			latest: "security query",
-		},
-		{
-			name: "responses compaction controls are opaque", protocol: service.ContentModerationProtocolOpenAIResponses,
-			body:       `{"input":[{"type":"compaction","encrypted_content":"opaque-one"},{"type":"compaction_summary","encrypted_content":"opaque-two","summary":[{"type":"summary_text","text":"visible summary"}]},{"type":"compaction_trigger","future_visible":"visible trigger field"},{"type":"message","role":"user","content":"visible sibling"}]}`,
-			full:       []string{"visible summary", "visible trigger field", "visible sibling"},
-			latest:     "visible sibling",
-			omitFull:   []string{"opaque-one", "opaque-two"},
-			omitLatest: []string{"opaque-one", "opaque-two"},
-		},
-		{
-			name: "live initial session instructions remain conversation text", protocol: service.ContentModerationProtocolOpenAILive,
+			name: "live session instructions and transcription context are excluded", protocol: service.ContentModerationProtocolOpenAILive,
 			body: `{"model":"gpt-live-test","instructions":"live instructions",` +
 				`"input_audio_transcription":{"model":"gpt-4o-transcribe","prompt":"legacy transcription context"},` +
 				`"audio":{"input":{"transcription":{"model":"gpt-live-transcribe","prompt":"current transcription context","keywords":["premium plan","AC-42"]}}}}`,
-			full:     []string{"live instructions", "legacy transcription context", "current transcription context", "premium plan", "AC-42"},
+			omit:     []string{"live instructions", "legacy transcription context", "current transcription context", "premium plan", "AC-42"},
+			noFull:   true,
 			noLatest: true,
 		},
 		{
-			name: "chat tool-role and tool-call arguments remain complete context", protocol: service.ContentModerationProtocolOpenAIChat,
-			body:       `{"messages":[{"role":"system","content":"chat system context"},{"role":"user","content":"older"},{"role":"assistant","tool_calls":[{"function":{"arguments":"{\"secret\":true}"}}]},{"role":"tool","content":{"first":true}},{"role":"function","content":{"second":false}}]}`,
-			full:       []string{"chat system context", "older", `"secret":true`, `{"first":true}`, `{"second":false}`},
-			latest:     "older",
-			omitLatest: []string{`"secret":true`, `{"first":true}`, `{"second":false}`},
+			name: "client environment xml is stripped from user text", protocol: service.ContentModerationProtocolOpenAIResponses,
+			body:   `{"input":[{"type":"message","role":"user","content":"继续"},{"type":"message","role":"user","content":"<environment_context><cwd>/Users/pontus</cwd><permission_profile type=\"managed\"></permission_profile></environment_context>"},{"type":"message","role":"user","content":"你能做什么？"}]}`,
+			full:   []string{"继续", "你能做什么？"},
+			latest: "继续\n\n你能做什么？",
+			omit:   []string{"environment_context", "permission_profile", "/Users/pontus"},
+		},
+		{
+			name: "chat tool-role and tool-call arguments are omitted", protocol: service.ContentModerationProtocolOpenAIChat,
+			body:   `{"messages":[{"role":"system","content":"chat system context"},{"role":"user","content":"older"},{"role":"assistant","tool_calls":[{"function":{"arguments":"{\"secret\":true}"}}]},{"role":"tool","content":{"first":true}},{"role":"function","content":{"second":false}}]}`,
+			full:   []string{"older"},
+			latest: "older",
+			omit:   []string{`"secret":true`, `{"first":true}`, `{"second":false}`, "chat system context"},
 		},
 	}
 
@@ -190,7 +188,17 @@ func TestPromptAuditUsesCompleteConversationTextWhileLatestHelperStaysNarrow(t *
 				Protocol: test.protocol,
 				Body:     []byte(test.body),
 			})
-			require.NoError(t, err)
+			if test.noFull {
+				require.ErrorIs(t, err, securityaudit.ErrNoPromptText)
+			} else {
+				require.NoError(t, err)
+				for _, expected := range test.full {
+					require.Contains(t, full.ScanText, expected)
+				}
+				for _, omitted := range test.omit {
+					require.NotContains(t, full.ScanText, omitted)
+				}
+			}
 			latest, err := securityaudit.ExtractBlockingPromptSnapshot(securityaudit.Request{
 				Protocol: test.protocol,
 				Body:     []byte(test.body),
@@ -199,17 +207,10 @@ func TestPromptAuditUsesCompleteConversationTextWhileLatestHelperStaysNarrow(t *
 				require.ErrorIs(t, err, securityaudit.ErrNoPromptText)
 			} else {
 				require.NoError(t, err)
-				require.Contains(t, latest.ScanText, test.latest)
-				for _, omitted := range test.omitLatest {
+				require.Equal(t, test.latest, latest.ScanText)
+				for _, omitted := range test.omit {
 					require.NotContains(t, latest.ScanText, omitted)
 				}
-			}
-
-			for _, expected := range test.full {
-				require.Contains(t, full.ScanText, expected)
-			}
-			for _, omitted := range test.omitFull {
-				require.NotContains(t, full.ScanText, omitted)
 			}
 		})
 	}

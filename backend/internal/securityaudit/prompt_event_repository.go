@@ -108,7 +108,29 @@ func (r *PostgreSQLRepository) GetEvent(ctx context.Context, id int64) (*Event, 
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrEventNotFound
 	}
-	return event, err
+	if err != nil {
+		return nil, err
+	}
+	if err := r.db.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM prompt_audit_event_contexts WHERE event_id=$1)`, id).Scan(&event.FullContextAvailable); err != nil {
+		return nil, err
+	}
+	return event, nil
+}
+
+type eventContextRecord struct {
+	Ciphertext string
+	SHA256     string
+}
+
+func (r *PostgreSQLRepository) GetEventContext(ctx context.Context, id int64) (eventContextRecord, error) {
+	var result eventContextRecord
+	err := r.db.QueryRowContext(ctx, `
+		SELECT context_ciphertext,context_sha256
+		FROM prompt_audit_event_contexts WHERE event_id=$1`, id).Scan(&result.Ciphertext, &result.SHA256)
+	if errors.Is(err, sql.ErrNoRows) {
+		return eventContextRecord{}, ErrEventContextNotFound
+	}
+	return result, err
 }
 
 func (r *PostgreSQLRepository) DeleteEvent(ctx context.Context, id int64) (*DeleteResult, error) {

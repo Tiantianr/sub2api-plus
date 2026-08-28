@@ -73,7 +73,7 @@ func (s *OpenAIGatewayService) resolveOpenAIUpstreamSessionID(c *gin.Context, ac
 	if account == nil || !account.IsOpenAIOAuthSessionSharingEnabled() {
 		return isolateOpenAISessionID(getAPIKeyIDFromContext(c), raw), nil
 	}
-	if !account.IsOpenAIOAuthSessionGroupAllowed(getAPIKeyGroupIDFromContext(c)) {
+	if !openAIAccountAllowsEffectiveGroup(account, getAPIKeyGroupIDFromContext(c), false) {
 		return "", ErrOpenAIOAuthSessionAccessDenied
 	}
 	policy, _, valid := account.OpenAIOAuthSessionPolicy()
@@ -123,7 +123,7 @@ func (s *OpenAIGatewayService) bindOpenAIOAuthSharedSession(
 	if s == nil || s.cache == nil || account == nil || !account.IsOpenAIOAuthSessionSharingEnabled() {
 		return nil
 	}
-	if !account.IsOpenAIOAuthSessionGroupAllowed(groupID) {
+	if !openAIAccountAllowsEffectiveGroup(account, groupID, false) {
 		return ErrOpenAIOAuthSessionAccessDenied
 	}
 	userID := openAIRequestUserID(ctx)
@@ -280,7 +280,7 @@ func (s *OpenAIGatewayService) getOpenAIOAuthSharedResponseAccount(ctx context.C
 	if accountErr != nil || account == nil || !account.IsOpenAIOAuthSessionSharingEnabled() {
 		return 0, ErrOpenAIOAuthSessionAccessDenied
 	}
-	if !account.IsOpenAIOAuthSessionGroupAllowed(groupID) {
+	if !openAIAccountAllowsEffectiveGroup(account, groupID, false) {
 		return 0, ErrOpenAIOAuthSessionAccessDenied
 	}
 	scopeKey := openAIOAuthSharedResponseScopeCacheKey(account, userID, responseID)
@@ -334,7 +334,7 @@ func (s *OpenAIGatewayService) bindOpenAIResponseAccount(ctx context.Context, st
 		return nil
 	}
 	if account.IsOpenAIOAuthSessionSharingEnabled() {
-		if !account.IsOpenAIOAuthSessionGroupAllowed(&groupID) || openAIRequestUserID(ctx) <= 0 {
+		if !openAIAccountAllowsEffectiveGroup(account, &groupID, false) || openAIRequestUserID(ctx) <= 0 {
 			return ErrOpenAIOAuthSessionAccessDenied
 		}
 		if err := s.bindOpenAIOAuthSharedResponseAccount(ctx, account, responseID, ttl); err != nil {

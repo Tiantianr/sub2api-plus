@@ -2,6 +2,8 @@ package securityaudit
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"io"
@@ -13,16 +15,15 @@ import (
 )
 
 type PromptService struct {
-	config       ConfigStore
-	repo         *PostgreSQLRepository
-	payload      *RedisPayloadStore
-	conversation *RedisConversationStore
-	enqueuer     *Enqueuer
-	runner       *Runner
-	evaluator    *GuardEvaluator
-	scanner      *OpenAICompatibleScanner
-	metrics      *AtomicMetrics
-	clock        Clock
+	config    ConfigStore
+	repo      *PostgreSQLRepository
+	payload   *RedisPayloadStore
+	enqueuer  *Enqueuer
+	runner    *Runner
+	evaluator *GuardEvaluator
+	scanner   *OpenAICompatibleScanner
+	metrics   *AtomicMetrics
+	clock     Clock
 
 	lifecycleMu  sync.Mutex
 	cancel       context.CancelFunc
@@ -47,14 +48,9 @@ func NewPromptService(
 	enqueuer := NewEnqueuer(config, jobRepo, payload, metrics)
 	evaluator := NewGuardEvaluator(scanner, jobRepo, metrics)
 	runner := NewRunner(config, jobRepo, payload, scanner, metrics)
-	var conversation *RedisConversationStore
-	if payload != nil {
-		conversation = NewRedisConversationStore(payload.client)
-	}
 	return &PromptService{
 		config: config, repo: repo, payload: payload, scanner: scanner, metrics: metrics,
-		conversation: conversation,
-		enqueuer:     enqueuer, evaluator: evaluator, runner: runner, clock: realClock{},
+		enqueuer: enqueuer, evaluator: evaluator, runner: runner, clock: realClock{},
 		enqueueSlots: make(chan struct{}, 128), probes: map[string]ProbeResult{},
 	}
 }
@@ -196,14 +192,23 @@ func (s *PromptService) Evaluate(ctx context.Context, req Request) (*PromptDecis
 	if cfg.EffectiveMode() != ModeBlocking || !cfg.IncludesGroup(req.GroupID) {
 		return &PromptDecision{Kind: DecisionAllow, AllowNextStage: true}, nil
 	}
-	document, diagnostic, err := extractPromptDocument(req)
+	snapshot, diagnostic, err := extractPromptSnapshotWithDiagnostics(req, true)
 	if diagnostic.Failed {
 		if s.metrics != nil {
 			s.metrics.ObserveExtraction(ExtractionFailed)
 		}
 		logPromptExtractionFailure(req, diagnostic)
 	}
-	if err != nil || diagnostic.Failed {
+	if diagnostic.Failed {
+		return nil, &GuardError{Code: ErrorCodeExtractionFailed, Cause: err}
+	}
+	if errors.Is(err, ErrNoPromptText) {
+		if s.metrics != nil {
+			s.metrics.ObserveExtraction(ExtractionEmpty)
+		}
+		return &PromptDecision{Kind: DecisionAllow, AllowNextStage: true}, nil
+	}
+	if err != nil {
 		if !diagnostic.Failed {
 			diagnostic = promptExtractionDiagnostic{Failed: true, ErrorCode: "content_extraction_failed"}
 			if s.metrics != nil {
@@ -211,146 +216,19 @@ func (s *PromptService) Evaluate(ctx context.Context, req Request) (*PromptDecis
 			}
 			logPromptExtractionFailure(req, diagnostic)
 		}
-		s.markConversationFullRequired(req)
 		return nil, &GuardError{Code: ErrorCodeExtractionFailed, Cause: err}
 	}
-	fullSnapshot := buildPromptSnapshot(req, document, false)
-	emptyPrompt := strings.TrimSpace(fullSnapshot.ScanText) == ""
-	if emptyPrompt {
-		if s.metrics != nil {
-			s.metrics.ObserveExtraction(ExtractionEmpty)
-		}
-		if !document.ContentBearing && strings.TrimSpace(req.ParentID) == "" && !requestStartsConversationTurn(req.Body) {
-			return &PromptDecision{Kind: DecisionAllow, AllowNextStage: true}, nil
-		}
-	} else if s.metrics != nil {
+	ciphertext, err := encryptCompletePromptContext(s.config, snapshot.CompleteContext)
+	if err != nil {
+		logPromptRequestFailure(req, DecisionUnavailable, ErrorCodeEncryptionKeyRequired)
+		return nil, &GuardError{Code: ErrorCodeEncryptionKeyRequired, Cause: err}
+	}
+	snapshot.FullContextCiphertext = ciphertext
+	snapshot.CompleteContext = ""
+	if s.metrics != nil {
 		s.metrics.ObserveExtraction(ExtractionSucceeded)
 	}
-
-	conversationKey := req.ConversationKey
-	parentKnown := false
-	if strings.TrimSpace(req.ParentID) != "" && s.conversation != nil {
-		resolved, known, resolveErr := s.conversation.ResolveParent(ctx, req.APIKeyID, req.ParentID)
-		if resolveErr != nil {
-			logPromptRequestFailure(req, DecisionUnavailable, ErrorCodeUnavailable)
-			return nil, &GuardError{Code: ErrorCodeUnavailable, Cause: resolveErr}
-		}
-		if known {
-			conversationKey, parentKnown = resolved, true
-		}
-	}
-	if strings.TrimSpace(conversationKey) == "" {
-		decision, evalErr := s.evaluator.Evaluate(ctx, cfg, fullSnapshot)
-		if decision != nil {
-			decision.ConversationMode = "full"
-		}
-		return decision, evalErr
-	}
-	if s.conversation == nil {
-		logPromptRequestFailure(req, DecisionUnavailable, ErrorCodeUnavailable)
-		return nil, &GuardError{Code: ErrorCodeUnavailable, Cause: errConversationStoreDown}
-	}
-	lease, beginErr := s.conversation.Begin(ctx, req.APIKeyID, conversationKey)
-	if beginErr != nil {
-		code := ErrorCodeUnavailable
-		if errors.Is(beginErr, errConversationBusy) {
-			code = ErrorCodeConversationBusy
-		}
-		logPromptRequestFailure(req, DecisionUnavailable, code)
-		return nil, &GuardError{Code: code, Cause: beginErr}
-	}
-
-	contextHash, hasContext := conversationContextHash(req, document)
-	if !hasContext {
-		contextHash = lease.checkpoint.ContextHash
-	}
-	checkpoint := lease.checkpoint
-	inputDigest := conversationInputFingerprint(document)
-	incremental := checkpoint.Status == conversationStatusClean &&
-		checkpoint.OutputReady &&
-		checkpoint.ConfigVersion == cfg.ConfigVersion &&
-		(!hasContext || checkpoint.ContextHash == contextHash)
-	if strings.TrimSpace(req.ParentID) != "" {
-		incremental = incremental && parentKnown
-		if !strings.HasPrefix(strings.TrimSpace(req.ParentID), "live:") {
-			incremental = incremental && checkpoint.ResponseIDHash == conversationParentHash(req.APIKeyID, req.ParentID)
-		}
-		// A parent id proves server-side lineage, not the integrity of replayed
-		// body history. If the client also sends non-current text, require the
-		// same two-part continuity proof as an ordinary full replay.
-		if len(conversationDocumentTexts(document, true)) > 0 {
-			incremental = incremental && conversationHistoryMatches(checkpoint, document)
-		}
-	} else {
-		incremental = incremental && conversationHistoryMatches(checkpoint, document)
-	}
-	snapshot := fullSnapshot
-	mode := "full"
-	if incremental {
-		previousOutput, decryptErr := s.config.Decrypt(checkpoint.OutputCiphertext)
-		if decryptErr != nil {
-			s.failConversationLease(lease)
-			return nil, &GuardError{Code: ErrorCodeUnavailable, Cause: decryptErr}
-		}
-		snapshot = buildConversationIncrementalSnapshot(req, document, previousOutput)
-		mode = "incremental"
-	}
-	if strings.TrimSpace(snapshot.ScanText) == "" {
-		decision := &PromptDecision{Kind: DecisionAllow, AllowNextStage: true, ConversationMode: mode}
-		decision.Capture = newConversationCapture(s.conversation, lease, req.Protocol, cfg.ConfigVersion, contextHash, inputDigest, s.config.Encrypt)
-		return decision, nil
-	}
-	decision, evalErr := s.evaluator.Evaluate(ctx, cfg, snapshot)
-	if evalErr != nil || decision == nil {
-		s.failConversationLease(lease)
-		return decision, evalErr
-	}
-	decision.ConversationMode = mode
-	if decision.Kind != DecisionAllow {
-		s.failConversationLease(lease)
-		return decision, nil
-	}
-	decision.Capture = newConversationCapture(s.conversation, lease, req.Protocol, cfg.ConfigVersion, contextHash, inputDigest, s.config.Encrypt)
-	return decision, nil
-}
-
-func requestStartsConversationTurn(body []byte) bool {
-	if len(body) == 0 {
-		return false
-	}
-	var root map[string]any
-	if err := json.Unmarshal(body, &root); err != nil {
-		return false
-	}
-	typeName, _ := root["type"].(string)
-	return strings.EqualFold(strings.TrimSpace(typeName), "response.create")
-}
-
-func (s *PromptService) markConversationFullRequired(req Request) {
-	if s == nil || s.conversation == nil || strings.TrimSpace(req.ConversationKey) == "" {
-		return
-	}
-	ctx, cancel := conversationStoreContext()
-	defer cancel()
-	key := req.ConversationKey
-	if strings.TrimSpace(req.ParentID) != "" {
-		if resolved, known, err := s.conversation.ResolveParent(ctx, req.APIKeyID, req.ParentID); err == nil && known {
-			key = resolved
-		}
-	}
-	lease, err := s.conversation.Begin(ctx, req.APIKeyID, key)
-	if err == nil {
-		_ = s.conversation.Fail(ctx, lease)
-	}
-}
-
-func (s *PromptService) failConversationLease(lease *conversationLease) {
-	if s == nil || s.conversation == nil || lease == nil {
-		return
-	}
-	ctx, cancel := conversationStoreContext()
-	defer cancel()
-	_ = s.conversation.Fail(ctx, lease)
+	return s.evaluator.Evaluate(ctx, cfg, snapshot)
 }
 
 func (s *PromptService) GetConfig() (PublicConfig, error) { return s.config.Public() }
@@ -590,6 +468,22 @@ func (s *PromptService) ListEvents(ctx context.Context, filter EventFilter, page
 }
 func (s *PromptService) GetEvent(ctx context.Context, id int64) (*Event, error) {
 	return s.repo.GetEvent(ctx, id)
+}
+
+func (s *PromptService) DownloadEventContext(ctx context.Context, id int64) (*EventContextDownload, error) {
+	record, err := s.repo.GetEventContext(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	raw, err := decryptCompletePromptContext(s.config, record.Ciphertext)
+	if err != nil {
+		return nil, err
+	}
+	digest := sha256.Sum256(raw)
+	if hex.EncodeToString(digest[:]) != record.SHA256 || !json.Valid(raw) {
+		return nil, errors.New("prompt audit event context integrity check failed")
+	}
+	return &EventContextDownload{JSON: raw, SHA256: record.SHA256}, nil
 }
 
 func (s *PromptService) DeleteEvent(ctx context.Context, id int64) (*DeleteResult, error) {

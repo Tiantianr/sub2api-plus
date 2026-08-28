@@ -500,7 +500,9 @@ func (s *OpenAIGatewayService) RevalidateLiveCallUserAccess(ctx context.Context,
 	if err != nil {
 		return err
 	}
-	if account == nil || openAIOAuthUserAccessFailureReason(ctx, account) != "" {
+	groupID := liveOptionalID(record.GroupID)
+	if account == nil || !s.openAIAccountMatchesSchedulingGroup(account, groupID) ||
+		!isOpenAICompatibleAccountEligibleForRequestBeforeProfit(ctx, account, PlatformOpenAI, record.Model, false, OpenAIEndpointCapabilityLive) {
 		return ErrOpenAIOAuthUserAccessDenied
 	}
 	return nil

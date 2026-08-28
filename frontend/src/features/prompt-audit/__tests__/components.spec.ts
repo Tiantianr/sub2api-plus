@@ -10,6 +10,14 @@ import RuntimeOverview from '../components/RuntimeOverview.vue'
 import type { PromptAuditDraft, PromptAuditEndpointDraft, PromptAuditEvent, PromptAuditRuntime, PromptEventFilters } from '../types'
 import { emptyEventFilters, resolveDeleteRangeFilters, SCANNER_CATALOG } from '../viewModel'
 
+const { downloadEventContext, showError } = vi.hoisted(() => ({
+  downloadEventContext: vi.fn(),
+  showError: vi.fn(),
+}))
+
+vi.mock('../api', () => ({ downloadEventContext }))
+vi.mock('@/stores/app', () => ({ useAppStore: () => ({ showError }) }))
+
 vi.mock('vue-i18n', async () => {
   const actual = await vi.importActual<typeof import('vue-i18n')>('vue-i18n')
   return { ...actual, useI18n: () => ({ locale: { value: 'en' }, t: (key: string, params?: Record<string, unknown>) => key.replace(/\{(\w+)\}/g, (_, token) => String(params?.[token] ?? `{${token}}`)) }) }
@@ -116,7 +124,7 @@ describe('Prompt Audit components', () => {
 
   it('keeps identity fields separate, supports selection, and opens filter deletion from the toolbar', async () => {
     const event: PromptAuditEvent = {
-      id: 1, job_id: 1, execution_mode: 'async_audit', decision: 'critical', risk_level: 'critical', action: 'Block', categories: ['pii'], matched_scanners: ['pii'], scanner_scores: { pii: 1 }, scanner_evidence: { pii: 'redacted' }, scanner_backend: 'qwen3guard-openai', scanner_version: '1', guard_endpoint_id: 'guard-1', policy_id: 'priority', policy_version: 1, config_version: 1, chunk_total: 1, queue_delay_ms: 2500, input_limit: 500000, matched_chunk_index: 1, latency_ms: 10, issue_summaries: [], created_at: '2026-07-16T00:00:00Z',
+      id: 1, job_id: 1, execution_mode: 'async_audit', decision: 'critical', risk_level: 'critical', action: 'Block', categories: ['pii'], matched_scanners: ['pii'], scanner_scores: { pii: 1 }, scanner_evidence: { pii: 'redacted' }, scanner_backend: 'qwen3guard-openai', scanner_version: '1', guard_endpoint_id: 'guard-1', policy_id: 'priority', policy_version: 1, config_version: 1, chunk_total: 1, queue_delay_ms: 2500, input_limit: 500000, matched_chunk_index: 1, latency_ms: 10, issue_summaries: [], created_at: '2026-07-16T00:00:00Z', full_context_available: false,
       snapshot: { request_id: 'req-1', client_ip: '203.0.113.42', user_id: 1, username: 'alice', user_email: 'alice@example.test', api_key_id: 2, api_key_name: 'alice-key', group_id: 3, group_name: 'Alpha', provider: 'openai', endpoint: '/v1/chat/completions', protocol: 'openai_chat', model: 'gpt-test', prompt_hash: 'a'.repeat(64), redacted_preview: 'redacted preview', full_prompt: 'full prompt text', full_prompt_truncated: false, prompt_length: 10, message_count: 1, stage: 'http' },
     }
     const wrapper = mount(EventWorkspace, {
@@ -251,6 +259,7 @@ describe('Prompt Audit components', () => {
         evidence: 'Sexual Content or Sexual Acts', evidence_hash: 'abc',
       }],
       created_at: '2026-07-16T00:00:00Z',
+      full_context_available: true,
       snapshot: {
         request_id: 'req-1', client_ip: '203.0.113.42', user_id: 1, username: 'alice', user_email: 'alice@example.test',
         api_key_id: 2, api_key_name: 'alice-key', group_id: 3, group_name: 'Alpha', provider: 'openai',
@@ -286,11 +295,13 @@ describe('Prompt Audit components', () => {
     window.URL.revokeObjectURL = revokeObjectURL
     const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => undefined)
     try {
-      await wrapper.get('[data-test="download-prompt"]').trigger('click')
+      const contextBlob = new Blob(['{"segments":[]}'], { type: 'application/json' })
+      downloadEventContext.mockResolvedValue(contextBlob)
+      await wrapper.get('[data-test="download-context"]').trigger('click')
+      await Promise.resolve()
       expect(createObjectURL).toHaveBeenCalledOnce()
-      const downloaded = createObjectURL.mock.calls[0][0] as Blob
-      expect(downloaded.type).toBe('text/plain;charset=utf-8')
-      expect(downloaded.size).toBe(new Blob(['complete unmasked prompt body']).size)
+      expect(downloadEventContext).toHaveBeenCalledWith(1)
+      expect(createObjectURL).toHaveBeenCalledWith(contextBlob)
       expect(click).toHaveBeenCalledOnce()
       expect(revokeObjectURL).toHaveBeenCalledWith('blob:prompt-audit')
     } finally {
@@ -306,6 +317,7 @@ describe('Prompt Audit components', () => {
       scanner_backend: 'qwen3guard-openai', scanner_version: '1', guard_endpoint_id: 'guard-1',
       policy_id: 'priority', policy_version: 1, config_version: 1, chunk_total: 1, latency_ms: 5,
       issue_summaries: [], created_at: '2026-07-16T00:00:00Z',
+      full_context_available: false,
       snapshot: {
         request_id: 'req-2', client_ip: '', user_id: 1, username: 'bob', user_email: '', api_key_id: 2,
         api_key_name: 'bob-key', group_id: 3, group_name: 'Alpha', provider: 'openai',
@@ -322,6 +334,6 @@ describe('Prompt Audit components', () => {
     await riskTab!.trigger('click')
     expect(wrapper.get('[data-test="risk-prompt-full"]').text()).toContain('legacy redacted preview')
     expect(wrapper.get('[data-test="prompt-truncated-warning"]').text()).toContain('admin.promptAudit.events.promptTruncatedWarning')
-    expect(wrapper.get('[data-test="download-prompt"]').attributes()).toHaveProperty('disabled')
+    expect(wrapper.get('[data-test="download-context"]').attributes()).toHaveProperty('disabled')
   })
 })

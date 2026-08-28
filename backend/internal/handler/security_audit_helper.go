@@ -9,14 +9,12 @@ import (
 	middleware2 "github.com/LuckyKuang/sub2api-plus/internal/server/middleware"
 	"github.com/LuckyKuang/sub2api-plus/internal/service"
 	"github.com/gin-gonic/gin"
-	"github.com/tidwall/gjson"
 	"go.uber.org/zap"
 )
 
 const securityAuditCompletedContextKey = "sub2api.security_audit.completed"
 const securityAuditWSTurnContextKey = "sub2api.security_audit.ws_turn"
 const securityAuditWSDedupeContextKey = "sub2api.security_audit.ws_dedupe"
-const securityAuditConversationContextKey = "sub2api.security_audit.conversation_key"
 
 type securityAuditWSDedupeEntry struct {
 	stage    string
@@ -105,7 +103,6 @@ func runSecurityAudit(c *gin.Context, reqLog *zap.Logger, coordinator *securitya
 				if entry, ok := cached.(securityAuditWSDedupeEntry); ok &&
 					entry.stage == request.Stage && entry.turn == turnNo && entry.bodyHash == bodyHash {
 					decision := entry.decision
-					attachSecurityAuditConversationCapture(c, &decision)
 					logSecurityAuditDone(reqLog, request, decision, true)
 					return &decision
 				}
@@ -117,7 +114,6 @@ func runSecurityAudit(c *gin.Context, reqLog *zap.Logger, coordinator *securitya
 					stage: request.Stage, turn: turnNo, bodyHash: bodyHash, decision: decision,
 				})
 			}
-			attachSecurityAuditConversationCapture(c, &decision)
 			logSecurityAuditDone(reqLog, request, decision, false)
 			return &decision
 		}
@@ -127,7 +123,6 @@ func runSecurityAudit(c *gin.Context, reqLog *zap.Logger, coordinator *securitya
 	if decision.AllowNextStage && cacheCompletion {
 		c.Set(securityAuditCompletedContextKey, true)
 	}
-	attachSecurityAuditConversationCapture(c, &decision)
 	logSecurityAuditDone(reqLog, request, decision, false)
 	return &decision
 }
@@ -180,62 +175,7 @@ func buildSecurityAuditRequest(c *gin.Context, apiKey *service.APIKey, subject m
 	if request.Stage == "" {
 		request.Stage = "http"
 	}
-	if apiKey != nil && isConversationSecurityAuditProtocol(protocol) {
-		request.ConversationKey = securityAuditConversationKey(c, apiKey.ID, protocol, body)
-		request.ParentID = securityAuditParentID(c, protocol, body, request.Stage)
-	}
 	return request
-}
-
-func isConversationSecurityAuditProtocol(protocol string) bool {
-	switch strings.ToLower(strings.TrimSpace(protocol)) {
-	case service.ContentModerationProtocolOpenAIChat,
-		service.ContentModerationProtocolOpenAIResponses,
-		service.ContentModerationProtocolAnthropicMessages,
-		service.ContentModerationProtocolOpenAILive,
-		service.ContentModerationProtocolGemini:
-		return true
-	default:
-		return false
-	}
-}
-
-func securityAuditConversationKey(c *gin.Context, apiKeyID int64, protocol string, body []byte) string {
-	if c != nil {
-		if value, exists := c.Get(securityAuditConversationContextKey); exists {
-			if key, ok := value.(string); ok && strings.TrimSpace(key) != "" {
-				return key
-			}
-		}
-	}
-	rawIdentity := service.ExtractSecurityAuditSessionID(c, body)
-	if rawIdentity != "" {
-		rawIdentity = strings.ToLower(strings.TrimSpace(protocol)) + ":" + rawIdentity
-	}
-	key := securityaudit.ConversationKey(apiKeyID, rawIdentity)
-	if key == "" {
-		key = securityaudit.NewConversationKey(apiKeyID)
-	}
-	if c != nil && key != "" {
-		c.Set(securityAuditConversationContextKey, key)
-	}
-	return key
-}
-
-func securityAuditParentID(c *gin.Context, protocol string, body []byte, stage string) string {
-	if strings.EqualFold(strings.TrimSpace(protocol), service.ContentModerationProtocolOpenAILive) &&
-		strings.TrimSpace(stage) == "live_sideband" && c != nil {
-		if callID := strings.TrimSpace(c.Param("call_id")); callID != "" {
-			return "live:" + callID
-		}
-	}
-	for _, path := range []string{"previous_response_id", "response.previous_response_id"} {
-		value := gjson.GetBytes(body, path)
-		if value.Type == gjson.String && strings.TrimSpace(value.String()) != "" {
-			return strings.TrimSpace(value.String())
-		}
-	}
-	return ""
 }
 
 func securityAuditStatus(decision *securityaudit.Decision) int {

@@ -1,10 +1,8 @@
 package securityaudit
 
 import (
-	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"net"
 	"regexp"
@@ -32,6 +30,13 @@ var (
 	phonePattern  = regexp.MustCompile(`(?:\+?\d[\d\s().-]{8,}\d)`)
 )
 
+var promptAuditClientWrapperTags = []string{
+	"environment_context",
+	"permission_profile",
+	"system-reminder",
+	"filesystem",
+}
+
 const promptAuditPrioritySeparator = "\x00SUB2API_PROMPT_AUDIT_PRIORITY_END\x00"
 
 type promptSegment struct {
@@ -40,20 +45,19 @@ type promptSegment struct {
 	role string
 }
 
-type conversationFingerprint struct {
-	Hash  string
-	Count int
-}
-
 func ExtractPromptSnapshot(req Request) (PromptSnapshot, error) {
 	snapshot, _, err := extractPromptSnapshotWithDiagnostics(req, false)
 	return snapshot, err
 }
 
-// ExtractBlockingPromptSnapshot builds the synchronous guard input. The caller
-// chooses between the latest user turn and all canonical conversation text.
+// ExtractBlockingPromptSnapshot builds the synchronous guard input. Blocking
+// always scans only the latest user text; the latestTurnOnly argument is kept
+// for call-site compatibility and is ignored. Asynchronous auditing always
+// uses ExtractPromptSnapshot and retains every user turn in this request,
+// excluding harness instructions, tool schema, and assistant output.
 func ExtractBlockingPromptSnapshot(req Request, latestTurnOnly bool) (PromptSnapshot, error) {
-	snapshot, _, err := extractPromptSnapshotWithDiagnostics(req, latestTurnOnly)
+	_ = latestTurnOnly
+	snapshot, _, err := extractPromptSnapshotWithDiagnostics(req, true)
 	return snapshot, err
 }
 
@@ -63,6 +67,14 @@ func extractPromptSnapshotWithDiagnostics(req Request, latestTurnOnly bool) (Pro
 		return PromptSnapshot{}, diagnostic, err
 	}
 	snapshot := buildPromptSnapshot(req, document, latestTurnOnly)
+	completeContext, contextHash, contextBytes, segmentCount, contextErr := buildCompletePromptContext(req, document, diagnostic, snapshot, latestTurnOnly)
+	if contextErr != nil {
+		return PromptSnapshot{}, diagnostic, contextErr
+	}
+	snapshot.CompleteContext = completeContext
+	snapshot.FullContextHash = contextHash
+	snapshot.FullContextBytes = contextBytes
+	snapshot.FullContextSegmentCount = segmentCount
 	if strings.TrimSpace(snapshot.ScanText) == "" {
 		return PromptSnapshot{}, diagnostic, ErrNoPromptText
 	}
@@ -85,20 +97,12 @@ func extractPromptDocument(req Request) (auditcontent.Document, promptExtraction
 }
 
 func buildPromptSnapshot(req Request, document auditcontent.Document, latestTurnOnly bool) PromptSnapshot {
-	extracted := promptSegmentsFromAuditContent(document, latestTurnOnly)
+	extracted := promptSegmentsFromAuditContent(document, req.Protocol, latestTurnOnly)
 	var segments []string
 	if latestTurnOnly {
 		segments = blockingSegmentsLatestUser(extracted)
 	} else {
 		segments = normalizeSegmentsLatestUserFirst(extracted)
-	}
-	return promptSnapshotFromSegments(req, segments)
-}
-
-func buildConversationIncrementalSnapshot(req Request, document auditcontent.Document, previousOutput string) PromptSnapshot {
-	segments := normalizeSegmentsLatestUserFirst(currentPromptSegmentsFromAuditContent(document))
-	if previousOutput = strings.TrimSpace(previousOutput); previousOutput != "" {
-		segments = append(segments, previousOutput)
 	}
 	return promptSnapshotFromSegments(req, segments)
 }
@@ -126,23 +130,31 @@ func promptSnapshotFromSegments(req Request, segments []string) PromptSnapshot {
 	}
 }
 
-func promptSegmentsFromAuditContent(document auditcontent.Document, latestTurnOnly bool) []promptSegment {
+func promptSegmentsFromAuditContent(document auditcontent.Document, protocol string, latestTurnOnly bool) []promptSegment {
+	allowRolelessMessage := promptAuditAllowsRolelessMessage(protocol)
 	segments := make([]promptSegment, 0, len(document.Segments))
 	for _, segment := range document.Segments {
-		if !isPromptAuditConversationSegment(segment, latestTurnOnly) {
+		if !isPromptAuditConversationSegment(segment, allowRolelessMessage, latestTurnOnly) {
 			continue
 		}
 		role := segment.Role
 		user := role == "user"
-		if role == "" && (segment.Source == auditcontent.SourceMessage ||
+		if role == "" && ((segment.Source == auditcontent.SourceMessage && allowRolelessMessage) ||
 			segment.Source == auditcontent.SourceSearchQuery ||
 			segment.Source == auditcontent.SourceEmbeddingInput ||
 			segment.Source == auditcontent.SourceMediaPrompt) {
 			user = true
 			role = "user"
 		}
+		segText := segment.Text
+		if user {
+			segText = stripPromptAuditClientWrapperBlocks(segText)
+			if segText == "" {
+				continue
+			}
+		}
 		segments = append(segments, promptSegment{
-			text: segment.Text,
+			text: segText,
 			user: user,
 			role: role,
 		})
@@ -150,112 +162,36 @@ func promptSegmentsFromAuditContent(document auditcontent.Document, latestTurnOn
 	return segments
 }
 
-func currentPromptSegmentsFromAuditContent(document auditcontent.Document) []promptSegment {
-	segments := make([]promptSegment, 0, len(document.Segments))
-	for _, segment := range document.Segments {
-		if !segment.Current || !segment.ClientControlled {
-			continue
-		}
-		switch segment.Source {
-		case auditcontent.SourceInstruction, auditcontent.SourceToolDefinition:
-			continue
-		}
-		role := strings.ToLower(strings.TrimSpace(segment.Role))
-		segments = append(segments, promptSegment{
-			text: segment.Text,
-			user: role == "user" || role == "",
-			role: role,
-		})
-	}
-	return segments
-}
-
-func conversationContextHash(req Request, document auditcontent.Document) (string, bool) {
-	var value bytes.Buffer
-	// A request without a continuation alias is a complete client replay, so
-	// absence of system/tool context is itself meaningful. Server-side
-	// continuations may omit unchanged context and inherit the prior hash.
-	hasContext := strings.TrimSpace(req.ParentID) == ""
-	_, _ = value.WriteString("protocol=")
-	_, _ = value.WriteString(strings.ToLower(strings.TrimSpace(req.Protocol)))
-	for _, segment := range document.Segments {
-		if segment.Source != auditcontent.SourceInstruction && segment.Source != auditcontent.SourceToolDefinition {
-			continue
-		}
-		hasContext = true
-		_, _ = value.WriteString("\nsource=")
-		_, _ = value.WriteString(string(segment.Source))
-		_, _ = value.WriteString("\nrole=")
-		_, _ = value.WriteString(strings.ToLower(strings.TrimSpace(segment.Role)))
-		_, _ = value.WriteString("\ntext=")
-		_, _ = value.WriteString(segment.Text)
-	}
-	digest := sha256.Sum256(value.Bytes())
-	return hex.EncodeToString(digest[:]), hasContext
-}
-
-func conversationInputFingerprint(document auditcontent.Document) conversationFingerprint {
-	return fingerprintConversationTexts(conversationDocumentTexts(document, false))
-}
-
-func conversationHistoryMatches(checkpoint conversationCheckpoint, document auditcontent.Document) bool {
-	if checkpoint.Input.Hash == "" || checkpoint.Input.Count < 0 || checkpoint.OutputDigest.Hash == "" || checkpoint.OutputDigest.Count < 0 {
-		return false
-	}
-	history := conversationDocumentTexts(document, true)
-	if checkpoint.Input.Count > len(history) || checkpoint.OutputDigest.Count > len(history)-checkpoint.Input.Count ||
-		len(history) != checkpoint.Input.Count+checkpoint.OutputDigest.Count {
-		return false
-	}
-	input := fingerprintConversationTexts(history[:checkpoint.Input.Count])
-	output := fingerprintConversationTexts(history[checkpoint.Input.Count:])
-	return input == checkpoint.Input && output == checkpoint.OutputDigest
-}
-
-func conversationDocumentTexts(document auditcontent.Document, historicalOnly bool) []string {
-	texts := make([]string, 0, len(document.Segments))
-	for _, segment := range document.Segments {
-		if historicalOnly && segment.Current {
-			continue
-		}
-		if segment.Source == auditcontent.SourceInstruction || segment.Source == auditcontent.SourceToolDefinition {
-			continue
-		}
-		if !isPromptAuditConversationSegment(segment, false) {
-			continue
-		}
-		if text := strings.TrimSpace(segment.Text); text != "" {
-			texts = append(texts, text)
-		}
-	}
-	return texts
-}
-
-func fingerprintConversationTexts(texts []string) conversationFingerprint {
-	raw, _ := json.Marshal(texts)
-	digest := sha256.Sum256(raw)
-	return conversationFingerprint{Hash: hex.EncodeToString(digest[:]), Count: len(texts)}
-}
-
-func isPromptAuditConversationSegment(segment auditcontent.Segment, latestTurnOnly bool) bool {
-	if latestTurnOnly {
-		switch segment.Source {
-		case auditcontent.SourceMessage:
+func isPromptAuditConversationSegment(segment auditcontent.Segment, allowRolelessMessage bool, latestTurnOnly bool) bool {
+	switch segment.Source {
+	case auditcontent.SourceSearchQuery, auditcontent.SourceEmbeddingInput, auditcontent.SourceMediaPrompt:
+		return true
+	case auditcontent.SourceMessage:
+		if latestTurnOnly {
 			// Keep assistant/model messages as turn separators so older user
 			// text is not joined with the latest user turn. They are not emitted.
 			return true
-		case auditcontent.SourceSearchQuery, auditcontent.SourceEmbeddingInput, auditcontent.SourceMediaPrompt:
-			return true
-		default:
-			return false
 		}
+		return isPromptAuditUserRole(segment.Role, allowRolelessMessage)
+	default:
+		return false
 	}
-	switch segment.Source {
-	case auditcontent.SourceMessage, auditcontent.SourceInstruction,
-		auditcontent.SourceSearchQuery, auditcontent.SourceEmbeddingInput,
-		auditcontent.SourceMediaPrompt, auditcontent.SourcePromptVariable,
-		auditcontent.SourceReasoning, auditcontent.SourceToolDefinition,
-		auditcontent.SourceToolCall, auditcontent.SourceToolOutput:
+}
+
+func isPromptAuditUserRole(role string, allowRoleless bool) bool {
+	switch strings.ToLower(strings.TrimSpace(role)) {
+	case "user":
+		return true
+	case "":
+		return allowRoleless
+	default:
+		return false
+	}
+}
+
+func promptAuditAllowsRolelessMessage(protocol string) bool {
+	switch strings.ToLower(strings.TrimSpace(protocol)) {
+	case "openai_responses", "openai_live", "gemini":
 		return true
 	default:
 		return false
@@ -335,6 +271,87 @@ func latestUserSegmentStart(values []promptSegment) int {
 
 func isUserSegment(segment promptSegment) bool {
 	return segment.user || segment.role == "user"
+}
+
+// stripPromptAuditClientWrapperBlocks removes client harness XML from user
+// text while keeping the surrounding user-authored sentences. Whole blocks
+// are dropped; leftover wrapper-only segments become empty and are omitted.
+func stripPromptAuditClientWrapperBlocks(text string) string {
+	text = strings.TrimSpace(text)
+	if text == "" || !strings.Contains(text, "<") {
+		return text
+	}
+	stripped := text
+	for {
+		next := stripOnePromptAuditClientWrapperBlock(stripped)
+		if next == stripped {
+			break
+		}
+		stripped = next
+	}
+	stripped = strings.ReplaceAll(stripped, "\r\n", "\n")
+	for strings.Contains(stripped, "\n\n\n") {
+		stripped = strings.ReplaceAll(stripped, "\n\n\n", "\n\n")
+	}
+	return strings.TrimSpace(stripped)
+}
+
+func stripOnePromptAuditClientWrapperBlock(text string) string {
+	lower := strings.ToLower(text)
+	bestStart, bestEnd := -1, -1
+	for _, name := range promptAuditClientWrapperTags {
+		openToken := "<" + name
+		searchFrom := 0
+		for {
+			openRel := strings.Index(lower[searchFrom:], openToken)
+			if openRel < 0 {
+				break
+			}
+			openAt := searchFrom + openRel
+			afterName := openAt + len(openToken)
+			if afterName < len(lower) {
+				next := lower[afterName]
+				if next != '>' && next != '/' && next != ' ' && next != '\t' && next != '\n' && next != '\r' {
+					searchFrom = afterName
+					continue
+				}
+			}
+			gt := strings.Index(text[openAt:], ">")
+			if gt < 0 {
+				break
+			}
+			tagEnd := openAt + gt + 1
+			rawTag := text[openAt:tagEnd]
+			if strings.HasSuffix(strings.TrimSpace(rawTag), "/>") {
+				if bestStart < 0 || openAt < bestStart {
+					bestStart, bestEnd = openAt, tagEnd
+				}
+				break
+			}
+			closeToken := "</" + name
+			closeRel := strings.Index(lower[tagEnd:], closeToken)
+			if closeRel < 0 {
+				if bestStart < 0 || openAt < bestStart {
+					bestStart, bestEnd = openAt, len(text)
+				}
+				break
+			}
+			closeAt := tagEnd + closeRel
+			closeGt := strings.Index(text[closeAt:], ">")
+			if closeGt < 0 {
+				break
+			}
+			end := closeAt + closeGt + 1
+			if bestStart < 0 || openAt < bestStart {
+				bestStart, bestEnd = openAt, end
+			}
+			break
+		}
+	}
+	if bestStart < 0 {
+		return text
+	}
+	return strings.TrimSpace(text[:bestStart]) + "\n\n" + strings.TrimSpace(text[bestEnd:])
 }
 
 func buildPrioritizedScanText(segments []string) (scanText string, metadataText string) {

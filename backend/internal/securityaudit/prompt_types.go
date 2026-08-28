@@ -16,7 +16,6 @@ const (
 	ErrorCodeUnavailable           = "prompt_guard_unavailable"
 	ErrorCodeInvalidResponse       = "prompt_guard_invalid_response"
 	ErrorCodeExtractionFailed      = "prompt_guard_content_extraction_failed"
-	ErrorCodeConversationBusy      = "prompt_guard_conversation_busy"
 	ErrorCodeConfigConflict        = "prompt_audit_config_conflict"
 	ErrorCodeConfigUnavailable     = "prompt_audit_config_unavailable"
 	ErrorCodeEncryptionKeyRequired = "prompt_audit_encryption_key_required"
@@ -85,10 +84,6 @@ type Request struct {
 	Body       []byte
 	Stage      string
 
-	// ConversationKey is an opaque tenant-isolated digest. ParentID is a
-	// response/call continuation alias and is never persisted without hashing.
-	ConversationKey     string
-	ParentID            string
 	PromptTextAuthority bool
 }
 
@@ -125,10 +120,17 @@ type PromptSnapshot struct {
 
 	ScanText  string `json:"-"`
 	BodyBytes int    `json:"-"`
+
+	CompleteContext         string `json:"-"`
+	FullContextCiphertext   string `json:"-"`
+	FullContextHash         string `json:"-"`
+	FullContextBytes        int    `json:"-"`
+	FullContextSegmentCount int    `json:"-"`
 }
 
 func (s PromptSnapshot) Redacted() PromptSnapshot {
 	s.ScanText = ""
+	s.CompleteContext = ""
 	return s
 }
 
@@ -154,12 +156,10 @@ type NormalizedResult struct {
 }
 
 type PromptDecision struct {
-	Kind             DecisionKind         `json:"kind"`
-	ErrorCode        string               `json:"error_code,omitempty"`
-	Result           *NormalizedResult    `json:"result,omitempty"`
-	AllowNextStage   bool                 `json:"allow_next_stage"`
-	ConversationMode string               `json:"conversation_mode,omitempty"`
-	Capture          *ConversationCapture `json:"-"`
+	Kind           DecisionKind      `json:"kind"`
+	ErrorCode      string            `json:"error_code,omitempty"`
+	Result         *NormalizedResult `json:"result,omitempty"`
+	AllowNextStage bool              `json:"allow_next_stage"`
 }
 
 type LegacyDecision struct {

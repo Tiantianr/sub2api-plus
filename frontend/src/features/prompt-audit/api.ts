@@ -64,6 +64,11 @@ export async function getEvent(id: number): Promise<PromptAuditEvent> {
   return data
 }
 
+export async function downloadEventContext(id: number): Promise<Blob> {
+  const { data } = await apiClient.get<Blob>(`${basePath}/events/${id}/context`, { responseType: 'blob' })
+  return data
+}
+
 export async function deleteEvent(id: number): Promise<PromptDeleteResult> {
   const { data } = await apiClient.delete<PromptDeleteResult>(`${basePath}/events/${id}`)
   return data
@@ -110,6 +115,7 @@ export const promptAuditAPI = {
   getRuntime,
   listEvents,
   getEvent,
+  downloadEventContext,
   deleteEvent,
   batchDeleteEvents,
   previewDelete,

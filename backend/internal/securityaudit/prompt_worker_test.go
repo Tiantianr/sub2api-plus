@@ -254,7 +254,7 @@ func TestEnqueuerStagingPayloadPublishProtocolAndFailureCleanup(t *testing.T) {
 		require.NoError(t, enqueuer.Enqueue(context.Background(), asyncRequest()))
 		require.Equal(t, []string{"create_staging", "payload_set", "publish_queued"}, trace)
 		require.Empty(t, repo.createdSnapshot.ScanText)
-		require.Equal(t, "payload canary text", payload.values[41])
+		require.Equal(t, "payload canary text", decodeTransientPromptPayload(payload.values[41]).ScanText)
 		require.Equal(t, DefaultPayloadTTL, payload.setTTL)
 	})
 

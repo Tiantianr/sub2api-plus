@@ -23,6 +23,7 @@ type fakePromptAdminService struct {
 	runtime      RuntimeSnapshot
 	list         func(context.Context, EventFilter, int, int) (*EventPage, error)
 	get          func(context.Context, int64) (*Event, error)
+	download     func(context.Context, int64) (*EventContextDownload, error)
 	deleteOne    func(context.Context, int64) (*DeleteResult, error)
 	deleteIDs    func(context.Context, []int64) (*DeleteResult, error)
 	preview      func(context.Context, EventFilter, int64) (*DeletePreview, error)
@@ -56,6 +57,12 @@ func (s *fakePromptAdminService) GetEvent(ctx context.Context, id int64) (*Event
 		return nil, ErrEventNotFound
 	}
 	return s.get(ctx, id)
+}
+func (s *fakePromptAdminService) DownloadEventContext(ctx context.Context, id int64) (*EventContextDownload, error) {
+	if s.download == nil {
+		return nil, ErrEventContextNotFound
+	}
+	return s.download(ctx, id)
 }
 func (s *fakePromptAdminService) DeleteEvent(ctx context.Context, id int64) (*DeleteResult, error) {
 	if s.deleteOne == nil {
@@ -98,11 +105,25 @@ func promptAdminRouter(service PromptAdminService) *gin.Engine {
 	group.GET("/runtime", handler.GetRuntime)
 	group.GET("/events", handler.ListEvents)
 	group.GET("/events/:id", handler.GetEvent)
+	group.GET("/events/:id/context", handler.DownloadEventContext)
 	group.DELETE("/events/:id", handler.DeleteEvent)
 	group.POST("/events/batch-delete", handler.BatchDelete)
 	group.POST("/events/delete-preview", handler.DeletePreview)
 	group.POST("/events/delete-by-filter", handler.DeleteByFilter)
 	return router
+}
+
+func TestPromptAdminDownloadsCompleteContextWithoutCaching(t *testing.T) {
+	service := &fakePromptAdminService{download: func(_ context.Context, id int64) (*EventContextDownload, error) {
+		require.Equal(t, int64(7), id)
+		return &EventContextDownload{JSON: []byte(`{"segments":[{"text":"complete context"}]}`), SHA256: "abc123"}, nil
+	}}
+	response := promptAdminRequest(t, promptAdminRouter(service), http.MethodGet, "/admin/prompt-audit/events/7/context", nil)
+	require.Equal(t, http.StatusOK, response.Code)
+	require.Equal(t, "no-store", response.Header().Get("Cache-Control"))
+	require.Equal(t, "nosniff", response.Header().Get("X-Content-Type-Options"))
+	require.Contains(t, response.Header().Get("Content-Disposition"), "prompt-audit-context-7.json")
+	require.JSONEq(t, `{"segments":[{"text":"complete context"}]}`, response.Body.String())
 }
 
 func promptAdminRequest(t *testing.T, router http.Handler, method, path string, body any) *httptest.ResponseRecorder {

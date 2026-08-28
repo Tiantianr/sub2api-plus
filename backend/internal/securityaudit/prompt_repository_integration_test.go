@@ -43,7 +43,7 @@ func openPromptAuditIntegrationDB(t *testing.T) *sql.DB {
 		);
 	`)
 	require.NoError(t, err)
-	for _, name := range []string{"181_prompt_audit.sql", "182_prompt_audit_full_prompt.sql", "234_prompt_audit_observability.sql", "235_prompt_audit_client_ip_index_notx.sql"} {
+	for _, name := range []string{"181_prompt_audit.sql", "182_prompt_audit_full_prompt.sql", "234_prompt_audit_observability.sql", "235_prompt_audit_client_ip_index_notx.sql", "238_prompt_audit_event_contexts.sql"} {
 		migration, err := os.ReadFile(filepath.Join("..", "..", "migrations", name))
 		require.NoError(t, err)
 		// The migration runner can retry an interrupted deployment; the migration
@@ -221,6 +221,10 @@ func TestPromptAuditDatabasePersistsFullPromptOnEventsOnly(t *testing.T) {
 	}
 	snapshot, err := ExtractPromptSnapshot(request)
 	require.NoError(t, err)
+	snapshot.FullContextCiphertext = "encrypted-complete-context"
+	snapshot.FullContextHash = strings.Repeat("a", 64)
+	snapshot.FullContextBytes = 1234
+	snapshot.FullContextSegmentCount = 2
 	require.NotContains(t, snapshot.RedactedPreview, promptCanary)
 	require.Contains(t, snapshot.FullPrompt, promptCanary)
 	event, err := repo.RecordBlocking(ctx, snapshot.Redacted(), 1, integrationResult(EventCritical), true)
@@ -241,6 +245,7 @@ func TestPromptAuditDatabasePersistsFullPromptOnEventsOnly(t *testing.T) {
 	require.NotNil(t, event.MatchedChunkIndex)
 	require.Equal(t, 1, *event.MatchedChunkIndex)
 	require.False(t, event.Snapshot.FullPromptTruncated)
+	require.True(t, event.FullContextAvailable)
 
 	var storedFullPrompt string
 	require.NoError(t, db.QueryRow(`SELECT full_prompt FROM prompt_audit_events WHERE id=$1`, event.ID).Scan(&storedFullPrompt))
@@ -249,6 +254,11 @@ func TestPromptAuditDatabasePersistsFullPromptOnEventsOnly(t *testing.T) {
 	detail, err := repo.GetEvent(ctx, event.ID)
 	require.NoError(t, err)
 	require.Contains(t, detail.Snapshot.FullPrompt, promptCanary)
+	require.True(t, detail.FullContextAvailable)
+	contextRecord, err := repo.GetEventContext(ctx, event.ID)
+	require.NoError(t, err)
+	require.Equal(t, "encrypted-complete-context", contextRecord.Ciphertext)
+	require.Equal(t, strings.Repeat("a", 64), contextRecord.SHA256)
 
 	var jobJSON string
 	require.NoError(t, db.QueryRow(`SELECT row_to_json(j)::text FROM prompt_audit_jobs j WHERE id=$1`, event.JobID).Scan(&jobJSON))
@@ -264,6 +274,11 @@ func TestPromptAuditDatabasePersistsFullPromptOnEventsOnly(t *testing.T) {
 	require.Equal(t, stableErrorMessage(code), message)
 	require.NotContains(t, message, errorCanary)
 	require.LessOrEqual(t, len([]rune(message)), 160)
+
+	_, err = repo.DeleteEvent(ctx, event.ID)
+	require.NoError(t, err)
+	_, err = repo.GetEventContext(ctx, event.ID)
+	require.ErrorIs(t, err, ErrEventContextNotFound)
 }
 
 func TestPromptAuditRepositoryAdmissionClaimFencingAndEventTransaction(t *testing.T) {

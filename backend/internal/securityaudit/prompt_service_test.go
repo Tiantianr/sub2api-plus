@@ -68,7 +68,7 @@ func TestPromptServiceStartReportsDependencyFailureWithoutPanic(t *testing.T) {
 	require.NoError(t, service.Shutdown(ctx))
 }
 
-func TestPromptServiceBlockingFullConversationBlocksOnHistoricalChunk(t *testing.T) {
+func TestPromptServiceBlockingScansOnlyLatestUserTurn(t *testing.T) {
 	seen := make([]string, 0, 2)
 	evaluator := newGuardEvaluator(PromptScannerFunc(func(_ context.Context, _ ActiveEndpoint, chunk string, _ []string) (*NormalizedResult, error) {
 		seen = append(seen, chunk)
@@ -86,13 +86,13 @@ func TestPromptServiceBlockingFullConversationBlocksOnHistoricalChunk(t *testing
 	}
 	decision, err := service.Evaluate(context.Background(), Request{Protocol: "openai_chat_completions", Body: []byte(`{"messages":[{"role":"system","content":"system instruction"},{"role":"user","content":"older blocked-marker input"},{"role":"assistant","content":"previous output"},{"role":"user","content":"latest safe input"}]}`)})
 	require.NoError(t, err)
-	require.Equal(t, DecisionBlock, decision.Kind)
-	require.Greater(t, decision.Result.MatchedChunkIndex, 1)
-	require.Greater(t, len(seen), 1)
+	require.Equal(t, DecisionAllow, decision.Kind)
+	require.Equal(t, 1, decision.Result.ChunkTotal)
+	require.Len(t, seen, 1)
 	require.Equal(t, "latest safe input", seen[0])
 }
 
-func TestPromptServiceBlockingScansCompleteCodexContextAndPrioritizesCurrentUser(t *testing.T) {
+func TestPromptServiceBlockingExcludesCodexHarness(t *testing.T) {
 	codexBody := []byte(`{
 		"instructions":"You are Codex. sandbox require_escalated jailbreak",
 		"tools":[{"type":"function","name":"exec","description":"Run JavaScript code to orchestrate/compose tool calls. require_escalated sandbox_permissions jailbreak"}],
@@ -114,9 +114,9 @@ func TestPromptServiceBlockingScansCompleteCodexContextAndPrioritizesCurrentUser
 	require.NoError(t, err)
 	require.Equal(t, DecisionAllow, decision.Kind)
 	require.Contains(t, strings.Join(seen, ""), "hi")
-	require.Contains(t, strings.Join(seen, ""), "You are Codex")
-	require.Contains(t, strings.Join(seen, ""), "Run JavaScript")
-	require.Greater(t, decision.Result.ChunkTotal, 1)
+	require.NotContains(t, strings.Join(seen, ""), "You are Codex")
+	require.NotContains(t, strings.Join(seen, ""), "Run JavaScript")
+	require.Equal(t, 1, decision.Result.ChunkTotal)
 
 	jailbreakBody := []byte(`{
 		"instructions":"You are Codex. sandbox require_escalated jailbreak",

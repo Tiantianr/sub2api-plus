@@ -3,6 +3,7 @@ package repository
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"sort"
@@ -37,6 +38,7 @@ func (r *openAIOAuthUserAccessRepository) ListAccounts(ctx context.Context) ([]s
 			a.id,
 			a.name,
 			a.status,
+			COALESCE(a.extra, '{}'::jsonb),
 			COALESCE(groups.group_ids, '{}'::bigint[]),
 			COALESCE(p.mode, 'public'),
 			COALESCE(p.default_for_new_users, FALSE),
@@ -81,10 +83,12 @@ func (r *openAIOAuthUserAccessRepository) ListAccounts(ctx context.Context) ([]s
 	for rows.Next() {
 		var account service.OpenAIOAuthAccessAccount
 		var groupIDs, userIDs pq.Int64Array
+		var extraJSON []byte
 		if err := rows.Scan(
 			&account.ID,
 			&account.Name,
 			&account.Status,
+			&extraJSON,
 			&groupIDs,
 			&account.Mode,
 			&account.DefaultForNewUsers,
@@ -93,7 +97,14 @@ func (r *openAIOAuthUserAccessRepository) ListAccounts(ctx context.Context) ([]s
 		); err != nil {
 			return nil, err
 		}
-		account.GroupIDs = []int64(groupIDs)
+		var extra map[string]any
+		if err := json.Unmarshal(extraJSON, &extra); err != nil {
+			return nil, fmt.Errorf("decode OpenAI OAuth account %d extra: %w", account.ID, err)
+		}
+		account.GroupIDs = service.EffectiveOpenAIAccountGroupIDs(&service.Account{
+			ID: account.ID, Platform: service.PlatformOpenAI, Type: service.AccountTypeOAuth,
+			Extra: extra, GroupIDs: []int64(groupIDs),
+		})
 		account.GrantedUserIDs = []int64(userIDs)
 		accounts = append(accounts, account)
 	}
