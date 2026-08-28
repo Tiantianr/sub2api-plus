@@ -90,48 +90,39 @@ Both engines consume the same canonical document:
 
 | Engine/mode | Segment selection |
 | --- | --- |
-| Content Moderation | Selects only current direct-user text and images. Local keyword/hash rules run first. External text uses `auto`/`blocking`/`observe`/`off`; `auto` shadows text only when blocking Prompt Guard covers that exact group, otherwise it preserves blocking text moderation. Shadow findings record no hash/notification/ban effects. Images continue to follow the global mode. Instructions, assistant/model content, tool content, and tool-produced images are excluded from direct-user attribution. |
-| Prompt Audit full/async | Scans all canonical text that can affect model behavior: messages, instructions/system context, reusable prompt variables, reasoning, tool definitions/calls/results, and search/embedding/media prompts. |
-| Prompt Audit blocking FULL_REQUIRED | Scans the complete canonical text present in the request. This applies to new, expired, changed, unknown-parent, branched, or replay-mismatched conversations. Any blocked chunk blocks the whole request. |
-| Prompt Audit blocking CLEAN | Scans the bounded sanitized AI output captured after the previous downstream transforms plus every current client-controlled non-static segment. Static context and old history are reused only after config, context, parent, and replay-continuity checks pass. |
+| Content Moderation | Scans only current direct-user text and images. Chat and Anthropic require an explicit `user` role; Responses, Live, and Gemini also accept their protocol-defined roleless user forms. Direct Alpha Search queries, embedding strings, and media prompts remain eligible. Instructions, system/developer context, reusable prompt variables, assistant/model messages, reasoning, tool definitions/calls/results, approval responses, and tool-produced images are excluded so platform or external content is not attributed to the user. |
+| Prompt Audit full/async | Scans every user-authored prompt in this request: `SourceMessage` with `role=user` (or a role-less Responses/Gemini/embeddings/media form treated as user), plus search queries, embedding strings, and media prompts. It excludes instructions/system/developer context, reusable prompt variables, reasoning, assistant/model text, and tool/function definitions, arguments, and outputs. Client harness XML blocks inside user text (`environment_context`, `permission_profile`, `system-reminder`, `filesystem`) are stripped; surrounding user sentences remain. |
+| Prompt Audit blocking latest-turn-only | Scans only the latest user text after the same client-harness XML strip. Instructions, tool definitions, older user turns, assistant/model output, and structured tool calls are omitted from the blocking input. `blocking_latest_turn_only` is stored for compatibility and does not change this selection. |
 
-Sharing a canonical document does not mean that the engines attribute content
-identically. Content Moderation attributes only direct current user text and
-images. Prompt Audit evaluates complete model-visible text on a full scan,
-including client tool schemas and tool results. A recognized media-only turn
-is a valid empty text selection and remains eligible for image moderation; an
-unknown content-bearing turn is not empty and fails closed in blocking mode.
+Sharing a canonical document does not mean that the engines select identical
+segments. Content Moderation preserves the `v0.1.177+custom.003` attribution
+rule: only a direct user submission may produce a user content-policy
+violation. Prompt Audit Guard scans only user-authored prompt text: ordinary
+`hi` plus Codex/Claude instructions or a client tool schema must not become a
+jailbreak hit, while jailbreak text written in the latest user message still
+blocks. Client wrapper XML such as `<environment_context>` inside a user
+message is stripped so sentences like `你能做什么？` are scanned without the
+harness block. A turn containing only instructions, a tool result, or tool schema is
+a valid empty Prompt Audit selection. Incomplete canonical extraction is
+observable. Blocking Prompt Audit fails closed; async mode evaluates selected
+sibling user content and records the extraction defect.
 
-## Conversation Checkpoints
+## Prompt Audit Event Evidence
 
-Blocking Prompt Audit stores temporary Redis `CLEAN` / `FULL_REQUIRED` state.
-`Begin` atomically consumes the prior checkpoint, acquires one turn lease, and
-sets `FULL_REQUIRED` before Guard or upstream work. Only Guard `Allow` followed
-by a complete successful downstream response can atomically restore `CLEAN`.
-Flag, Block, timeout, cancellation, invalid Guard output, Redis failure,
-extraction failure, downstream error, missing terminal, parse ambiguity, or
-capture overflow cannot advance the checkpoint.
+Guard selection and review evidence are separate. The event `full_prompt`
+contains the exact unredacted Guard input. For each newly stored event, the
+complete canonical document is serialized with segment source, role, current,
+and client-controlled attributes, plus the exact Guard input and extraction
+diagnostics. This complete context includes instructions, assistant/model text,
+reasoning, prompt variables, tool definitions/calls/results, and harness blocks
+that were excluded from Guard selection.
 
-For full-replay clients, incremental eligibility additionally requires the
-non-current canonical history to equal the prior request input fingerprint
-followed by the captured AI-output fingerprint. A safe latest message cannot
-hide inserted or rewritten history. For server-side continuation,
-`previous_response_id` is only a hashed index to a checkpoint; it is not a
-transcript and cannot prove or recover content absent from both the request and
-temporary output state.
-
-Known parent identity does not waive replay validation: when a parent request
-also includes non-current canonical history, that history must still match the
-prior input and output fingerprints. Active turn leases are token-bound and
-fixed at 2 hours, above the current 1-hour Live and 15-minute WS limits.
-
-HTTP/JSON/SSE output is observed through the final gateway response writer.
-Responses WebSocket and Live Sideband observe frames only after final model,
-tool-name, image-status, and error transformations succeed. Output is bounded
-at 500000 Unicode characters; media, base64, and encrypted opaque values are
-sanitized, then the retained output is application-encrypted before Redis
-storage. Empty or non-canonical output, decryption failure, or overflow
-invalidates the checkpoint instead of treating partial content as complete.
+Complete context is gzip-compressed, application-encrypted, and stored in
+`prompt_audit_event_contexts`, separate from event list/detail rows. Only the
+authenticated admin download endpoint decrypts it; responses use `no-store`
+and downloads never enter application logs. Event deletion cascades to the
+context artifact. Events created before this migration have no recoverable
+complete-context artifact.
 
 ## Failure Semantics
 
@@ -162,7 +153,7 @@ shutdown, and runtime health failures.
 A confirmed policy match continues to use `content_policy_violation` or the
 Prompt Audit block decision. Extraction failure uses a distinct dependency
 error code rather than a content category. Content Moderation external API
-availability remains separate from Prompt Guard checkpoint semantics.
+availability remains separate from Prompt Guard selection semantics.
 
 Deterministic structured serialization is part of extraction. Sanitization or
 JSON serialization failure sets `Incomplete`; async audit may retain extracted

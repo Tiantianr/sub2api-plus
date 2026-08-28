@@ -161,6 +161,50 @@ func TestOpenAIOAuthUserAccessRepositoryAppliesRevisionCheckedPolicies(t *testin
 	require.Zero(t, grants)
 }
 
+func TestOpenAIOAuthUserAccessRepositoryExcludesGhostGroupBindings(t *testing.T) {
+	ctx := context.Background()
+	suffix := time.Now().UnixNano()
+	rootID := insertOpenAIOAuthAccessTestAccount(t, fmt.Sprintf("oauth-ghost-%d", suffix), nil)
+	var boundGroupID int64
+	require.NoError(t, integrationDB.QueryRowContext(ctx, `INSERT INTO groups (name) VALUES ($1) RETURNING id`, fmt.Sprintf("oauth-ghost-group-%d", suffix)).Scan(&boundGroupID))
+	_, err := integrationDB.ExecContext(ctx, `INSERT INTO account_groups (account_id, group_id) VALUES ($1,$2)`, rootID, boundGroupID)
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		_, _ = integrationDB.ExecContext(ctx, "DELETE FROM accounts WHERE id=$1", rootID)
+		_, _ = integrationDB.ExecContext(ctx, "DELETE FROM groups WHERE id=$1", boundGroupID)
+	})
+
+	setAllowedGroup := func(groupID int64) {
+		_, updateErr := integrationDB.ExecContext(ctx, `
+			UPDATE accounts SET extra=jsonb_build_object(
+				'openai_oauth_session_policy',jsonb_build_object(
+					'enabled',true,'allowed_group_ids',jsonb_build_array($2::bigint),'scope_version','scope-a'
+				)
+			) WHERE id=$1`, rootID, groupID)
+		require.NoError(t, updateErr)
+	}
+	findAccount := func(accounts []service.OpenAIOAuthAccessAccount) *service.OpenAIOAuthAccessAccount {
+		for i := range accounts {
+			if accounts[i].ID == rootID {
+				return &accounts[i]
+			}
+		}
+		return nil
+	}
+
+	repo := &openAIOAuthUserAccessRepository{db: integrationDB}
+	setAllowedGroup(boundGroupID + 1000000)
+	accounts, err := repo.ListAccounts(ctx)
+	require.NoError(t, err)
+	require.NotNil(t, findAccount(accounts))
+	require.NotContains(t, findAccount(accounts).GroupIDs, boundGroupID)
+
+	setAllowedGroup(boundGroupID)
+	accounts, err = repo.ListAccounts(ctx)
+	require.NoError(t, err)
+	require.Contains(t, findAccount(accounts).GroupIDs, boundGroupID)
+}
+
 func TestOpenAIOAuthDefaultGrantTriggerLocksAccountBeforePolicy(t *testing.T) {
 	ctx := context.Background()
 	suffix := time.Now().UnixNano()

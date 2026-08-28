@@ -217,6 +217,72 @@ func TestOpenAIOAuthUserAccessRevalidatesWebSocketAndLiveTurns(t *testing.T) {
 	require.Same(t, account, latest)
 }
 
+func TestOpenAIOAuthEffectiveAccessRequiresBindingAllowlistAndGrant(t *testing.T) {
+	groupID := int64(14)
+	account := &Account{
+		ID: 40, Platform: PlatformOpenAI, Type: AccountTypeOAuth, Status: StatusActive, Schedulable: true,
+		Extra: map[string]any{OpenAIOAuthSessionPolicyExtraKey: map[string]any{
+			"enabled": true, "allowed_group_ids": []int64{groupID}, "scope_version": "scope-a",
+		}},
+		OpenAIOAuthUserAccess: &OpenAIOAuthUserAccessSnapshot{
+			Mode: OpenAIOAuthUserAccessModeRestricted, GrantedUserIDs: []int64{7},
+		},
+	}
+	allowedCtx := context.WithValue(context.Background(), ctxkey.UserID, int64(7))
+	svc := &OpenAIGatewayService{accountRepo: &openAIOAuthAccessAccountRepoFake{account: account}}
+
+	revalidated, err := svc.RevalidateOpenAIAccountForWebSocketTurn(allowedCtx, account, &groupID, PlatformOpenAI, "", "", "")
+	require.NoError(t, err)
+	require.Nil(t, revalidated, "allowlist-only ghost binding must be ineffective")
+	require.ErrorIs(t, svc.RevalidateLiveCallUserAccess(allowedCtx, &LiveCallRecord{AccountID: account.ID, UserID: 7, GroupID: groupID}), ErrOpenAIOAuthUserAccessDenied)
+
+	account.GroupIDs = []int64{groupID}
+	revalidated, err = svc.RevalidateOpenAIAccountForWebSocketTurn(allowedCtx, account, &groupID, PlatformOpenAI, "", "", "")
+	require.NoError(t, err)
+	require.NotNil(t, revalidated)
+	require.NoError(t, svc.RevalidateLiveCallUserAccess(allowedCtx, &LiveCallRecord{AccountID: account.ID, UserID: 7, GroupID: groupID}))
+	require.Equal(t, []int64{groupID}, EffectiveOpenAIAccountGroupIDs(account))
+
+	account.Groups = []*Group{{ID: groupID, Status: "disabled"}}
+	revalidated, err = svc.RevalidateOpenAIAccountForWebSocketTurn(allowedCtx, account, &groupID, PlatformOpenAI, "", "", "")
+	require.NoError(t, err)
+	require.Nil(t, revalidated)
+	require.ErrorIs(t, svc.RevalidateLiveCallUserAccess(allowedCtx, &LiveCallRecord{AccountID: account.ID, UserID: 7, GroupID: groupID}), ErrOpenAIOAuthUserAccessDenied)
+	account.Groups = nil
+
+	account.OpenAIOAuthUserAccess.GrantedUserIDs = nil
+	revalidated, err = svc.RevalidateOpenAIAccountForWebSocketTurn(allowedCtx, account, &groupID, PlatformOpenAI, "", "", "")
+	require.NoError(t, err)
+	require.Nil(t, revalidated)
+}
+
+type groupCopyAccessAccountRepo struct {
+	AccountRepository
+	accounts []*Account
+}
+
+func (r *groupCopyAccessAccountRepo) GetByIDs(context.Context, []int64) ([]*Account, error) {
+	return r.accounts, nil
+}
+
+func TestGroupCopySkipsOAuthAccountsOutsideDestinationAllowlist(t *testing.T) {
+	destinationGroupID := int64(14)
+	repo := &groupCopyAccessAccountRepo{accounts: []*Account{
+		{ID: 1, Platform: PlatformOpenAI, Type: AccountTypeAPIKey},
+		{ID: 2, Platform: PlatformOpenAI, Type: AccountTypeOAuth},
+		{ID: 3, Platform: PlatformOpenAI, Type: AccountTypeOAuth, Extra: map[string]any{
+			OpenAIOAuthSessionPolicyExtraKey: map[string]any{"enabled": true, "allowed_group_ids": []int64{5}, "scope_version": "scope-a"},
+		}},
+		{ID: 4, Platform: PlatformOpenAI, Type: AccountTypeOAuth, Extra: map[string]any{
+			OpenAIOAuthSessionPolicyExtraKey: map[string]any{"enabled": true, "allowed_group_ids": []int64{destinationGroupID}, "scope_version": "scope-b"},
+		}},
+	}}
+	svc := &adminServiceImpl{accountRepo: repo}
+	filtered, err := svc.filterGroupCopyAccountIDs(context.Background(), []int64{1, 2, 3, 4}, destinationGroupID)
+	require.NoError(t, err)
+	require.Equal(t, []int64{1, 2, 4}, filtered)
+}
+
 type openAIOAuthAccessRefreshFailureRepo struct{ AccountRepository }
 
 func (*openAIOAuthAccessRefreshFailureRepo) GetByID(context.Context, int64) (*Account, error) {

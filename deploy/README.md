@@ -9,8 +9,8 @@ derives the OCI image tag by preserving the leading `v` and replacing only
 `+` with `-`.
 
 ```text
-Git/GitHub: v0.1.183+custom.908
-GHCR:       ghcr.io/tiantianr/sub2api-plus:v0.1.183-custom.908
+Git/GitHub: v0.1.183+custom.909
+GHCR:       ghcr.io/tiantianr/sub2api-plus:v0.1.183-custom.909
 ```
 
 Pin the GHCR version tag for reproducible deployments. See
@@ -508,13 +508,13 @@ Replace the immutable tag with another value reported by `list-versions` when
 needed:
 
 ```bash
-curl -sSL https://raw.githubusercontent.com/Tiantianr/sub2api-plus/main/deploy/install.sh | sudo bash -s -- install --version 'v0.1.183+custom.908'
+curl -sSL https://raw.githubusercontent.com/Tiantianr/sub2api-plus/main/deploy/install.sh | sudo bash -s -- install --version 'v0.1.183+custom.909'
 ```
 
 Roll back an existing binary installation to an earlier published version:
 
 ```bash
-curl -sSL https://raw.githubusercontent.com/Tiantianr/sub2api-plus/main/deploy/install.sh | sudo bash -s -- rollback 'v0.1.183+custom.907'
+curl -sSL https://raw.githubusercontent.com/Tiantianr/sub2api-plus/main/deploy/install.sh | sudo bash -s -- rollback 'v0.1.183+custom.908'
 ```
 
 Upgrade to the latest release:
@@ -538,13 +538,13 @@ curl -sSL https://raw.githubusercontent.com/Tiantianr/sub2api-plus/main/deploy/i
 For a downloaded `install.sh`, invoke one operation at a time. For example:
 
 ```bash
-sudo ./install.sh install --version 'v0.1.183+custom.908'
+sudo ./install.sh install --version 'v0.1.183+custom.909'
 ```
 
 Roll back a downloaded-script installation one operation at a time:
 
 ```bash
-sudo ./install.sh rollback 'v0.1.183+custom.907'
+sudo ./install.sh rollback 'v0.1.183+custom.908'
 ```
 
 Or uninstall while preserving `/etc/sub2api`:

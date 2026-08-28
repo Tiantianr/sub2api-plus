@@ -55,3 +55,37 @@ func openAIOAuthUserAccessFailureReason(ctx context.Context, account *Account) s
 	}
 	return openAIOAuthUserAccessDeniedReason
 }
+
+// EffectiveOpenAIAccountGroupIDs returns the persisted group bindings that are
+// also authorized by an enabled OpenAI OAuth session-sharing policy.
+func EffectiveOpenAIAccountGroupIDs(account *Account) []int64 {
+	bound := accountBoundGroupIDs(account)
+	if account == nil || !account.IsOpenAIOAuthSessionSharingEnabled() {
+		return bound
+	}
+	policy, _, valid := account.OpenAIOAuthSessionPolicy()
+	if !valid || !policy.Enabled {
+		return nil
+	}
+	allowed := int64Set(policy.AllowedGroupIDs)
+	effective := make([]int64, 0, len(bound))
+	for _, groupID := range bound {
+		if _, ok := allowed[groupID]; ok {
+			effective = append(effective, groupID)
+		}
+	}
+	return effective
+}
+
+func openAIAccountAllowsEffectiveGroup(account *Account, groupID *int64, simpleMode bool) bool {
+	if account == nil {
+		return false
+	}
+	if account.IsOpenAIOAuthSessionSharingEnabled() && !account.IsOpenAIOAuthSessionGroupAllowed(groupID) {
+		return false
+	}
+	if simpleMode {
+		return true
+	}
+	return openAIStickyAccountMatchesGroup(account, groupID)
+}

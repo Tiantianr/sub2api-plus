@@ -191,6 +191,16 @@ func (r *groupRepository) CreateFromSource(ctx context.Context, groupIn *service
 		 WHERE ag.group_id = $1
 		   AND a.deleted_at IS NULL
 		   AND (NOT $3 OR a.type <> $4)
+		   AND (
+		     a.platform <> 'openai' OR a.type <> 'oauth'
+		     OR NOT (COALESCE(a.extra, '{}'::jsonb) ? 'openai_oauth_session_policy')
+		     OR COALESCE(a.extra #>> '{openai_oauth_session_policy,enabled}', '') = 'false'
+		     OR (
+		       a.extra #>> '{openai_oauth_session_policy,enabled}' = 'true'
+		       AND COALESCE(a.extra #> '{openai_oauth_session_policy,allowed_group_ids}', '[]'::jsonb)
+		         @> to_jsonb(ARRAY[$2]::bigint[])
+		     )
+		   )
 		 ON CONFLICT (account_id, group_id) DO NOTHING`,
 		sourceGroupID,
 		groupIn.ID,
@@ -1019,11 +1029,25 @@ func (r *groupRepository) BindAccountsToGroup(ctx context.Context, groupID int64
 		return nil
 	}
 
-	// 使用 INSERT ... ON CONFLICT DO NOTHING 忽略已存在的绑定
+	// OAuth session-sharing accounts require explicit destination authorization;
+	// copying a group never expands the account-owned allowlist.
 	_, err := r.sql.ExecContext(
 		ctx,
 		`INSERT INTO account_groups (account_id, group_id, priority, created_at)
-		 SELECT unnest($1::bigint[]), $2, 50, NOW()
+		 SELECT requested.account_id, $2, 50, NOW()
+		 FROM unnest($1::bigint[]) AS requested(account_id)
+		 JOIN accounts a ON a.id = requested.account_id
+		 WHERE a.deleted_at IS NULL
+		   AND (
+		     a.platform <> 'openai' OR a.type <> 'oauth'
+		     OR NOT (COALESCE(a.extra, '{}'::jsonb) ? 'openai_oauth_session_policy')
+		     OR COALESCE(a.extra #>> '{openai_oauth_session_policy,enabled}', '') = 'false'
+		     OR (
+		       a.extra #>> '{openai_oauth_session_policy,enabled}' = 'true'
+		       AND COALESCE(a.extra #> '{openai_oauth_session_policy,allowed_group_ids}', '[]'::jsonb)
+		         @> to_jsonb(ARRAY[$2]::bigint[])
+		     )
+		   )
 		 ON CONFLICT (account_id, group_id) DO NOTHING`,
 		pq.Array(accountIDs),
 		groupID,

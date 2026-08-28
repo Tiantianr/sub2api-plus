@@ -93,9 +93,6 @@ func (c *Coordinator) checkBlocking(ctx context.Context, req Request) Decision {
 	}()
 	wg.Wait()
 	decision := prioritize(legacy, prompt)
-	if !decision.AllowNextStage && prompt != nil && prompt.Capture != nil {
-		prompt.Capture.Abort()
-	}
 	return decision
 }
 

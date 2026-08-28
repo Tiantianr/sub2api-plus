@@ -59,8 +59,9 @@ families have that field removed. Deprecated `prompt_cache_retention` is
 removed on every path.
 
 Usage ingestion treats ordinary input, cache-read input, and cache-write input
-as mutually exclusive stored buckets. The UI reports prompt-cache hit rate as
-`cache_read / (input + cache_read + cache_write)`; output tokens are excluded.
+as mutually exclusive stored buckets. Usage pages may report each bucket's
+share of total tokens, but do not derive a prompt-cache hit rate from these
+counters.
 Canonical nested usage details take priority by field presence, including an
 explicit zero, before known top-level compatibility aliases are considered.
 
@@ -152,29 +153,31 @@ current direct-user message text and images. It excludes `instructions`, tool
 definitions, reusable prompt variables, assistant/model messages, reasoning,
 tool calls/results, approval responses, and tool-produced screenshots. This
 prevents platform context or external tool content from being reported as a
-user policy violation. Prompt Audit also consumes that canonical result, but
-its selection follows `v0.1.177+custom.003`: conversation text such as
-`instructions`, message text, and reusable prompt variables is scanned, while
-static `tools` schemas and structured tool-call arguments/results are not
-treated as prompt text. Latest-turn blocking scans the latest user text plus
-the nearest preceding assistant/model output.
+user policy violation. Prompt Audit consumes the same canonical result but
+selects user-authored text: asynchronous audit scans all user turns and
+synchronous blocking scans only the latest user turn. Instructions,
+assistant/model output, reasoning, reusable prompt variables, tool definitions,
+arguments, and results do not enter Guard input. Supported client harness XML
+is stripped from selected user text. Newly stored audit events retain a
+separately encrypted complete canonical context artifact for authorized admin
+download, including text excluded from Guard selection.
 A supported WebSocket control frame may produce no audit input. Unknown sibling
-keys, unsupported event/item types, and valid-JSON unrecognized structures pass
-through without an audit-derived block. When the canonical extractor recognizes
+keys, unsupported event/item types, and valid-JSON unrecognized structures are
+observable extraction failures. When the canonical extractor recognizes
 `input`, `instructions`, or nested `response.input`, an envelope `type` value
 does not suppress those extracted segments. An unsupported envelope type is
 still counted and safely logged as an extraction failure while those extracted
 segments remain auditable.
 Non-empty root, nested `response`, and session objects with no recognized field
-are counted and safely logged as extraction failures before they pass through;
+are counted and safely logged as extraction failures;
 unknown sibling keys on an otherwise recognized object remain ordinary success.
 Direct passthrough runs the audit hook for every client text or binary frame,
 including `conversation.item.create` and `session.update`, before any
 non-`response.create` frame is forwarded. Unsupported binary/JSON content and
-recognized items that cannot be normalized are logged and pass through unless
-independent transport/basic validation rejects them. Successfully extracted
-sibling content remains auditable. Extraction failure alone never becomes a
-policy block, unavailable decision, HTTP 503, or WebSocket close. Compact
+recognized items that cannot be normalized are logged. Successfully extracted
+sibling content remains auditable. Blocking Prompt Audit fails closed on a
+content-bearing extraction failure before upstream writes; async audit records
+the defect without affecting forwarding. Compact
 keepalive output and channel mapping start only after this gate. The audit uses
 an immutable copy of the inbound body so compact normalization and reasoning
 policy rewrites cannot remove content from the audited view.

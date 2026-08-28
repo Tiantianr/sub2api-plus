@@ -1,48 +1,39 @@
-Sub2API Plus v0.1.183+custom.908
+Sub2API Plus v0.1.183+custom.909
 
 ## Highlights
 
-- Close security-audit extraction gaps across Responses, Chat, Alpha Search,
-  tools, reasoning, compaction, WebSocket, SSE, and Live traffic.
-- Replace static latest-turn Prompt Guard blocking with fail-closed
-  conversation checkpoints that audit complete context first and trusted
-  incremental context afterward.
-- Separate Prompt Guard text authority from Content Moderation while retaining
-  independent local keyword/hash and image controls.
+- Synchronize the published Plus `v0.1.183+custom.003` release and retire its
+  upstream billing probe and public billing endpoint.
+- Use Plus user-authored Prompt Audit selection while preserving the complete
+  canonical request context for authorized audit-event download.
+- Unify OpenAI OAuth group, session-sharing, and per-user access scope across
+  scheduling, administration, group duplication, Responses WS, and Live.
 
 ## Changed
 
-- Audit full canonical context for new, expired, changed, branched, or
-  continuity-invalid conversations. Stable continuations audit the captured
-  previous AI output together with current client-controlled content.
-- Commit a clean conversation checkpoint only after a complete successful
-  HTTP, SSE, Responses WebSocket, or Live downstream write.
-- Add Content Moderation text API policies for automatic authority selection,
-  explicit blocking, shadow observation, and off. Shadow findings have no hash,
-  notification, ban, or violation-count effects.
-- Keep blocking image moderation independent from text policy and sampling.
+- Synchronous Prompt Audit always scans only the latest user input; asynchronous
+  Prompt Audit scans all user-authored turns.
+- Guard excludes system/developer instructions, assistant/model output,
+  reasoning, prompt variables, tool definitions/calls/results, and Live session
+  configuration.
+- Supported client harness XML is stripped from Guard input but retained in the
+  separately encrypted complete-context artifact.
 
 ## Fixed
 
-- Recognize Responses legacy `messages` and string `prompt` aliases, visible
-  `reasoning_content`/`reasoning_text`, compaction summaries and triggers, and
-  Alpha Search fallback fields without persisting opaque or media payloads.
-- Prevent safe latest turns, known parent IDs, replay insertion, stale branches,
-  extraction failures, or incomplete output from establishing incremental
-  eligibility.
-- Prevent blocking moderation dependency failures from silently allowing
-  requests, and distinguish external API blocks, local keyword/hash blocks,
-  shadow findings, and business-upstream `cyber_policy` records.
+- Prevent duplicated groups from creating effective OAuth session-sharing
+  access outside the account allowlist.
+- Revalidate current group eligibility as well as per-user grants on long-lived
+  Responses WebSocket and Live paths.
+- Keep Codex auto-review billing accurate when an unmapped request observes a
+  Luna response.
 
 ## Compatibility and migration
 
-- No database migration is required.
-- Blocking Prompt Audit requires Redis and the existing application secret
-  encryptor for temporary conversation checkpoints.
-- The legacy latest-turn JSON field remains accepted for rolling-upgrade
-  compatibility but no longer controls blocking behavior.
-- Existing Content Moderation configuration defaults missing text API policy to
-  `auto`; images and local keyword/hash behavior remain independently scoped.
+- Removes obsolete upstream billing-probe database state and adds encrypted
+  complete-context storage tied to Prompt Audit event retention.
+- The legacy latest-turn configuration field remains accepted but no longer
+  changes synchronous Prompt Audit selection.
 - No Compose, port, certificate, proxy, or persistent-volume change is required.
 - Personal images and binary archives remain Linux arm64 only.
 
@@ -56,7 +47,7 @@ Sub2API Plus v0.1.183+custom.908
 
 ## Upstream baseline
 
-Plus release: v0.1.183+custom.002
-Plus commit: 2b5bd31478415617831d49eea9988be90111d3b7
+Plus release: v0.1.183+custom.003
+Plus commit: e94f300b586d8ceb91ba526b13313407b99ffbff
 Official release: v0.1.183
 Official commit: e8cb019fabf8b55199436229044cbf9aa7a82564

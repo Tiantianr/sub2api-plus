@@ -1,7 +1,7 @@
 export default {
   promptAudit: {
     title: '提示词审计',
-    description: '通过 OpenAI 兼容 Qwen3Guard 节点异步复核，或使用会话检查点同步阻止风险输入；事件的完整送检内容会入库保存，仅供管理员复核。',
+    description: '通过 OpenAI 兼容 Qwen3Guard 节点异步审计全部用户输入，或同步阻止最新用户输入；已保存事件提供加密的完整上下文下载，供管理员复核。',
     configVersion: '配置版本 v{version}',
     tabs: { config: '配置', events: '事件' },
     actions: { refresh: '刷新运行态', retry: '重试', Allow: '放行', Warn: '警告', Block: '阻止' },
@@ -48,7 +48,7 @@ export default {
       probeProgress: '配置校验 ✓ · 请求已发送 · 等待服务响应…', probeResult: '配置校验 ✓ · 请求 ✓ · HTTP {http} · {status} · {latency} ms',
       name: '节点名称', id: '稳定节点 ID', baseUrl: 'Base URL', apiKey: 'API Key', keepSecret: '留空以保留已保存的 API Key', reenterSecret: '已保存的 API Key 无法解密（加密密钥已变更），请重新输入',
       secretHint: '明文只在本次编辑内存中存在；保存成功后会立即清除。', clearSecret: '显式清除已保存的 API Key', timeout: '总超时（毫秒）', inputLimit: '单片 Unicode 字符上限',
-      timeoutRange: '支持范围：{min}–{max} 毫秒。', inputLimitRange: '支持范围：{min}–{max} 个 Unicode 字符。', inputLimitBehavior: '单个优先片段超过该值时会继续分片。新会话或失效检查点会全量送检；稳定会话只送检上一轮输出和本轮输入。多个启用节点同时存在时，以其中最小值为准。',
+      timeoutRange: '支持范围：{min}–{max} 毫秒。', inputLimitRange: '支持范围：{min}–{max} 个 Unicode 字符。', inputLimitBehavior: '同步阻止只审最新用户输入，异步审计全部用户轮次；选中内容超过该值时继续分片。多个启用节点同时存在时，以其中最小值为准。',
       toggleNode: '切换节点 {name}', deleteConfirm: '从草稿中删除节点“{name}”？保存配置后生效。',
     },
     policy: {
@@ -56,7 +56,7 @@ export default {
       searchGroups: '搜索分组', noGroups: '没有匹配分组', missingGroups: '配置中包含已删除的分组 ID', selectedCount: '已选择 {count} 个分组',
       scanners: 'Qwen3Guard 输入风险分类', workerCount: 'Worker 数量', queueCapacity: '持久队列容量', strategy: '节点策略', strategyHint: '按配置顺序优先尝试，必要时故障切换。',
     },
-    saveBar: { enabled: '启用提示词审计', blocking: '同步阻止', blockingLatestTurnOnly: '旧版仅最新输入策略', storePass: '保存安全事件', dirty: '有未保存的更改', synced: '配置已同步' },
+    saveBar: { enabled: '启用提示词审计', blocking: '同步阻止', blockingLatestTurnOnly: '同步阻止仅审最新用户输入', storePass: '保存安全事件', dirty: '有未保存的更改', synced: '配置已同步' },
     blockingConfirm: {
       title: '开启同步阻止？',
       message: '适用请求会在账号选择、计费和访问上游之前等待 Guard。命中 Block、Guard 不可用或响应非法时，请求都不会访问上游。',
@@ -75,8 +75,8 @@ export default {
       selectAll: '选择当前页全部事件', selectEvent: '选择事件 {id}', time: '时间', identity: '用户 / 邮箱 / API Key', user: '用户名', email: '用户邮箱', apiKey: 'API Key 名称', group: '分组', route: '入口 / 模型', result: '判定 / 风险', durations: '排队 / 审计', queueDelay: '排队耗时', auditLatency: '审计耗时', preview: '脱敏预览', empty: '没有符合条件的事件。',
       passEventsDisabled: '当前未开启“保存安全事件”：安全请求仍会完成审计，但不会出现在事件列表中；Flag 和 Critical 风险事件仍会保存。', openConfiguration: '前往配置',
       detailTitle: '提示词审计事件详情', tabs: { summary: '审计摘要', risks: '具体风险', technical: '技术信息' },
-      promptFull: '完整送检内容（未脱敏）', downloadPrompt: '下载送检内容',
-      promptFullHint: '完整提示词已随事件入库，仅供管理员复核触发内容；请按敏感数据妥善处理，切勿外泄。',
+      promptFull: '完整送检内容（未脱敏）', downloadPrompt: '下载送检内容', downloadContext: '下载完整上下文',
+      promptFullHint: '当前展示 Guard 实际送检内容；完整上下文下载还包含被 Guard 选段排除的 canonical 内容，请按敏感数据妥善处理。',
       promptTruncatedWarning: '这是一条历史或不完整事件，入库内容已被截断且无法恢复；页面和下载只能提供当前保留部分。',
       guardReturn: '模型审计返回',
       guardReturnHint: '展示 Guard 归一化后的结构化结果（判定、分类、分数与脱敏证据），不含原始响应体。',
@@ -93,7 +93,7 @@ export default {
     },
     messages: { saved: '提示词审计配置已保存，明文 API Key 状态已清除。', probeSucceeded: '审计节点连接正常。', deleted: '已删除 {count} 条审计事件。' },
     errors: {
-      loadConfig: '无法加载提示词审计配置。', loadRuntime: '无法加载提示词审计运行态。', loadGroups: '无法加载分组列表。', loadEvents: '无法加载审计事件。', loadDetail: '无法加载事件详情。', saveConfig: '配置保存失败。', probe: '节点探测失败。', delete: '事件删除失败。', previewDelete: '无法生成删除预览，请检查时间范围。', deleteConfirmation: '删除确认无效或已过期，请重新预览。',
+      loadConfig: '无法加载提示词审计配置。', loadRuntime: '无法加载提示词审计运行态。', loadGroups: '无法加载分组列表。', loadEvents: '无法加载审计事件。', loadDetail: '无法加载事件详情。', downloadContext: '无法下载完整上下文。', saveConfig: '配置保存失败。', probe: '节点探测失败。', delete: '事件删除失败。', previewDelete: '无法生成删除预览，请检查时间范围。', deleteConfirmation: '删除确认无效或已过期，请重新预览。',
       prompt_audit_config_conflict: '配置已被其他管理员更新。请重新加载服务端配置，再决定如何合并本地草稿。',
       prompt_audit_encryption_key_required: '未配置固定加密密钥，审计节点 API Key 将在服务重启后失效。请先设置 TOTP_ENCRYPTION_KEY 环境变量并重启服务。',
       prompt_guard_requires_audit_enabled: '开启同步阻止前必须先启用提示词审计。', prompt_audit_invalid_endpoint: '审计节点配置无效。', prompt_audit_endpoint_required: '启用审计前至少需要一个启用节点。', prompt_audit_groups_required: '指定分组模式至少需要选择一个分组。', prompt_audit_scanners_required: '至少需要启用一个风险分类。',

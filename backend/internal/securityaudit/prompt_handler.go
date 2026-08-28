@@ -19,6 +19,7 @@ type PromptAdminService interface {
 	Runtime(context.Context) RuntimeSnapshot
 	ListEvents(context.Context, EventFilter, int, int) (*EventPage, error)
 	GetEvent(context.Context, int64) (*Event, error)
+	DownloadEventContext(context.Context, int64) (*EventContextDownload, error)
 	DeleteEvent(context.Context, int64) (*DeleteResult, error)
 	DeleteEventsByIDs(context.Context, []int64) (*DeleteResult, error)
 	PreviewDelete(context.Context, EventFilter, int64) (*DeletePreview, error)
@@ -120,6 +121,28 @@ func (h *PromptAdminHandler) GetEvent(c *gin.Context) {
 		return
 	}
 	response.Success(c, event)
+}
+
+func (h *PromptAdminHandler) DownloadEventContext(c *gin.Context) {
+	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil || id <= 0 {
+		response.ErrorFrom(c, infraerrors.BadRequest("prompt_audit_invalid_event_id", "事件 ID 无效"))
+		return
+	}
+	artifact, err := h.service.DownloadEventContext(c.Request.Context(), id)
+	if errors.Is(err, ErrEventContextNotFound) {
+		response.ErrorFrom(c, infraerrors.NotFound("prompt_audit_event_context_not_found", "该事件没有完整上下文"))
+		return
+	}
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	setPromptAdminAudit(c, "success", "", map[string]any{"event_id": id, "context_sha256": artifact.SHA256})
+	c.Header("Cache-Control", "no-store")
+	c.Header("Content-Disposition", "attachment; filename=prompt-audit-context-"+strconv.FormatInt(id, 10)+".json")
+	c.Header("X-Content-Type-Options", "nosniff")
+	c.Data(200, "application/json; charset=utf-8", artifact.JSON)
 }
 
 func (h *PromptAdminHandler) DeleteEvent(c *gin.Context) {

@@ -143,10 +143,16 @@ func (r *Runner) processSafely(ctx context.Context, workerID int, cfg ActiveConf
 func (r *Runner) processJob(ctx context.Context, workerID int, cfg ActiveConfig, job *Job) error {
 	baseFields := jobLogFields(job)
 	LogInfo(EventAuditStarted, mergeLogFields(baseFields, map[string]any{"worker_id": workerID, "attempts": job.Attempts, "status": "processing"}))
-	scanText, err := r.payload.Get(ctx, job.ID)
+	storedPayload, err := r.payload.Get(ctx, job.ID)
 	if err != nil {
 		return r.finishFailure(ctx, job, &GuardError{Code: "payload_missing", Retryable: false, Cause: err})
 	}
+	payload := decodeTransientPromptPayload(storedPayload)
+	scanText := payload.ScanText
+	job.Snapshot.FullContextCiphertext = payload.ContextCiphertext
+	job.Snapshot.FullContextHash = payload.ContextHash
+	job.Snapshot.FullContextBytes = payload.ContextBytes
+	job.Snapshot.FullContextSegmentCount = payload.ContextSegmentCount
 	// The job row only carries redacted metadata; the full prompt for the audit
 	// event is reconstructed here from the transient scan payload.
 	job.Snapshot.FullPrompt = FullPromptFromScanText(scanText)

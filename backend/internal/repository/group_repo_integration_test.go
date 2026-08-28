@@ -95,12 +95,22 @@ func (s *GroupRepoSuite) TestCreateFromSourcePreservesPriorityAndFiltersIneligib
 		return id
 	}
 	oauthID := insertAccount("duplicate-oauth", service.AccountTypeOAuth, false)
+	sharedOAuthID := insertAccount("duplicate-shared-oauth", service.AccountTypeOAuth, false)
 	apiKeyID := insertAccount("duplicate-apikey", service.AccountTypeAPIKey, false)
 	deletedID := insertAccount("duplicate-deleted", service.AccountTypeOAuth, true)
+	_, err := s.tx.ExecContext(s.ctx, `
+		UPDATE accounts SET extra = jsonb_build_object(
+			'openai_oauth_session_policy', jsonb_build_object(
+				'enabled', true,
+				'allowed_group_ids', jsonb_build_array($2::bigint),
+				'scope_version', 'scope-source'
+			)
+		) WHERE id = $1`, sharedOAuthID, source.ID)
+	s.Require().NoError(err)
 	for _, binding := range []struct {
 		accountID int64
 		priority  int
-	}{{oauthID, 37}, {apiKeyID, 8}, {deletedID, 3}} {
+	}{{oauthID, 37}, {sharedOAuthID, 29}, {apiKeyID, 8}, {deletedID, 3}} {
 		_, err := s.tx.ExecContext(
 			s.ctx,
 			"INSERT INTO account_groups (account_id, group_id, priority, created_at) VALUES ($1, $2, $3, NOW())",
@@ -122,6 +132,7 @@ func (s *GroupRepoSuite) TestCreateFromSourcePreservesPriorityAndFiltersIneligib
 	}
 	s.Require().NoError(s.repo.CreateFromSource(s.ctx, duplicate, source.ID))
 	s.Require().EqualValues(1, duplicate.AccountCount)
+	s.Require().NoError(s.repo.BindAccountsToGroup(s.ctx, duplicate.ID, []int64{sharedOAuthID}), "direct bulk binding must use the same destination allowlist gate")
 
 	rows, err := s.tx.QueryContext(
 		s.ctx,
@@ -136,7 +147,7 @@ func (s *GroupRepoSuite) TestCreateFromSourcePreservesPriorityAndFiltersIneligib
 	s.Require().NoError(rows.Scan(&copiedAccountID, &copiedPriority))
 	s.Require().Equal(oauthID, copiedAccountID)
 	s.Require().Equal(37, copiedPriority)
-	s.Require().False(rows.Next(), "API-key and soft-deleted accounts must not be copied")
+	s.Require().False(rows.Next(), "API-key, soft-deleted, and destination-unauthorized shared OAuth accounts must not be copied")
 
 	recovered, err := s.repo.FindByDuplicateOperationID(s.ctx, duplicate.DuplicateOperationID)
 	s.Require().NoError(err)
@@ -150,7 +161,7 @@ func (s *GroupRepoSuite) TestCreateFromSourcePreservesPriorityAndFiltersIneligib
 		[]any{duplicate.ID},
 		&outboxCount,
 	))
-	s.Require().Equal(1, outboxCount)
+	s.Require().Equal(1, outboxCount, "duplicate scheduler events are deduplicated")
 }
 
 func (s *GroupRepoSuite) TestGetByID_NotFound() {

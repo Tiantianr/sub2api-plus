@@ -204,6 +204,7 @@ export interface PromptAuditEvent {
   latency_ms: number
   issue_summaries: PromptIssueSummary[]
   created_at: string
+  full_context_available: boolean
 }
 
 export interface PromptEventFilters {

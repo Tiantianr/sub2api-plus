@@ -295,6 +295,35 @@ func groupSupportsOAuthOnlyFilter(platform string) bool {
 		platform == PlatformComposite
 }
 
+func (s *adminServiceImpl) filterGroupCopyAccountIDs(ctx context.Context, accountIDs []int64, destinationGroupID int64) ([]int64, error) {
+	if len(accountIDs) == 0 || destinationGroupID <= 0 || s == nil || s.accountRepo == nil {
+		return accountIDs, nil
+	}
+	accounts, err := s.accountRepo.GetByIDs(ctx, accountIDs)
+	if err != nil {
+		return nil, err
+	}
+	allowed := make(map[int64]struct{}, len(accounts))
+	for _, account := range accounts {
+		if account == nil {
+			continue
+		}
+		if account.Platform == PlatformOpenAI && account.Type == AccountTypeOAuth &&
+			account.IsOpenAIOAuthSessionSharingEnabled() &&
+			!account.IsOpenAIOAuthSessionGroupAllowed(&destinationGroupID) {
+			continue
+		}
+		allowed[account.ID] = struct{}{}
+	}
+	filtered := make([]int64, 0, len(accountIDs))
+	for _, accountID := range accountIDs {
+		if _, ok := allowed[accountID]; ok {
+			filtered = append(filtered, accountID)
+		}
+	}
+	return filtered, nil
+}
+
 func (s *adminServiceImpl) CreateGroup(ctx context.Context, input *CreateGroupInput) (*Group, error) {
 	if input.RateMultiplier <= 0 {
 		return nil, errors.New("rate_multiplier must be > 0")
@@ -546,6 +575,10 @@ func (s *adminServiceImpl) CreateGroup(ctx context.Context, input *CreateGroupIn
 			}
 		}
 		accountIDsToCopy = filtered
+	}
+	accountIDsToCopy, err = s.filterGroupCopyAccountIDs(ctx, accountIDsToCopy, group.ID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to validate copied account access: %w", err)
 	}
 
 	// 如果有需要复制的账号，绑定到新分组
@@ -954,11 +987,6 @@ func (s *adminServiceImpl) UpdateGroup(ctx context.Context, id int64, input *Upd
 			return nil, fmt.Errorf("failed to get accounts from source groups: %w", err)
 		}
 
-		// 先清空当前分组的所有账号绑定
-		if _, err := s.groupRepo.DeleteAccountGroupsByGroupID(ctx, id); err != nil {
-			return nil, fmt.Errorf("failed to clear existing account bindings: %w", err)
-		}
-
 		// require_oauth_only: 过滤掉 apikey 类型账号
 		if group.RequireOAuthOnly && groupSupportsOAuthOnlyFilter(group.Platform) && len(accountIDsToCopy) > 0 {
 			accounts, err := s.accountRepo.GetByIDs(ctx, accountIDsToCopy)
@@ -978,6 +1006,14 @@ func (s *adminServiceImpl) UpdateGroup(ctx context.Context, id int64, input *Upd
 				}
 			}
 			accountIDsToCopy = filtered
+		}
+		accountIDsToCopy, err = s.filterGroupCopyAccountIDs(ctx, accountIDsToCopy, id)
+		if err != nil {
+			return nil, fmt.Errorf("failed to validate copied account access: %w", err)
+		}
+
+		if _, err := s.groupRepo.DeleteAccountGroupsByGroupID(ctx, id); err != nil {
+			return nil, fmt.Errorf("failed to clear existing account bindings: %w", err)
 		}
 
 		// 再绑定源分组的账号

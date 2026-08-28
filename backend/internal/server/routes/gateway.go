@@ -35,7 +35,6 @@ func RegisterGatewayRoutes(
 ) {
 	// Installed before gateway route groups so every HTTP/JSON/SSE response can
 	// finalize a Prompt Audit conversation checkpoint after handler completion.
-	r.Use(handler.SecurityAuditResponseCaptureMiddleware())
 	bodyLimit := middleware.RequestBodyLimit(cfg.Gateway.MaxBodySize)
 	textBodyLimit := middleware.RequestBodyLimit(cfg.Gateway.TextMaxBodySize)
 	clientRequestID := middleware.ClientRequestID()
@@ -191,7 +190,6 @@ func RegisterGatewayRoutes(
 	gateway.Use(opsErrorLogger)
 	gateway.Use(endpointNorm)
 	gateway.Use(gin.HandlerFunc(apiKeyAuth))
-	gateway.GET("/sub2api/billing", h.Gateway.KeyBillingInfo)
 	gateway.Use(compositeTarget)
 	gateway.Use(requireGroupAnthropic)
 	{

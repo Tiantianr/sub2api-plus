@@ -339,6 +339,7 @@ func TestOpenAIOAuthSessionPolicySharesUpstreamSessionOnlyWithinAllowedGroups(t 
 		ID:       77,
 		Platform: PlatformOpenAI,
 		Type:     AccountTypeOAuth,
+		GroupIDs: []int64{11, 12},
 		Extra: map[string]any{
 			OpenAIOAuthSessionPolicyExtraKey: map[string]any{
 				"enabled":           true,
@@ -506,6 +507,7 @@ func TestOpenAIOAuthSessionPolicyInvalidConfigurationFailsClosed(t *testing.T) {
 		ID:       77,
 		Platform: PlatformOpenAI,
 		Type:     AccountTypeOAuth,
+		GroupIDs: []int64{11, 12},
 		Extra: map[string]any{
 			OpenAIOAuthSessionPolicyExtraKey: map[string]any{
 				"enabled":           true,
@@ -527,6 +529,7 @@ func TestOpenAIOAuthSessionPolicySharedStickyBinding(t *testing.T) {
 		ID:       77,
 		Platform: PlatformOpenAI,
 		Type:     AccountTypeOAuth,
+		GroupIDs: []int64{11, 12},
 		Extra: map[string]any{
 			OpenAIOAuthSessionPolicyExtraKey: map[string]any{
 				"enabled":           true,
@@ -685,6 +688,7 @@ func TestOpenAIOAuthSharedPreviousResponseRequiresCurrentPolicyScope(t *testing.
 		ID:       77,
 		Platform: PlatformOpenAI,
 		Type:     AccountTypeOAuth,
+		GroupIDs: []int64{11, 12},
 		Extra: map[string]any{
 			OpenAIOAuthSessionPolicyExtraKey: map[string]any{
 				"enabled":           true,
@@ -793,6 +797,7 @@ func TestOpenAIOAuthSessionPolicyUnauthorizedGroupCannotEvictSharedStickyBinding
 		Type:        AccountTypeOAuth,
 		Status:      StatusActive,
 		Schedulable: true,
+		GroupIDs:    []int64{allowedGroupID},
 		Extra: map[string]any{
 			OpenAIOAuthSessionPolicyExtraKey: map[string]any{
 				"enabled":           true,

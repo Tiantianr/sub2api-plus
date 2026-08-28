@@ -8,9 +8,9 @@
             {{ t(`admin.promptAudit.events.tabs.${tab}`) }}
           </button>
         </div>
-        <button type="button" class="btn btn-secondary btn-sm" data-test="download-prompt" :disabled="!event.snapshot.full_prompt" @click="downloadPrompt(event)">
+        <button type="button" class="btn btn-secondary btn-sm" data-test="download-context" :disabled="!event.full_context_available || downloading" @click="downloadContext(event)">
           <Icon name="download" size="sm" class="mr-1.5" />
-          {{ t('admin.promptAudit.events.downloadPrompt') }}
+          {{ t('admin.promptAudit.events.downloadContext') }}
         </button>
       </div>
 
@@ -100,14 +100,18 @@ import { ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import BaseDialog from '@/components/common/BaseDialog.vue'
 import Icon from '@/components/icons/Icon.vue'
+import { useAppStore } from '@/stores/app'
 import type { PromptAuditEvent, PromptIssueSummary } from '../types'
+import { downloadEventContext } from '../api'
 import { SCANNER_CATALOG } from '../viewModel'
 
 const props = defineProps<{ show: boolean; event: PromptAuditEvent | null; loading: boolean }>()
 defineEmits<{ (event: 'close'): void }>()
 const { t } = useI18n()
+const appStore = useAppStore()
 const tabs = ['summary', 'risks', 'technical'] as const
 const activeTab = ref<(typeof tabs)[number]>('summary')
+const downloading = ref(false)
 watch(() => props.event?.id, () => { activeTab.value = 'summary' })
 
 function tabId(tab: (typeof tabs)[number]): string {
@@ -130,17 +134,24 @@ function displayPrompt(event: PromptAuditEvent): string {
   return event.snapshot.full_prompt || event.snapshot.redacted_preview || '—'
 }
 
-function downloadPrompt(event: PromptAuditEvent) {
-  if (!event.snapshot.full_prompt) return
-  const blob = new Blob([event.snapshot.full_prompt], { type: 'text/plain;charset=utf-8' })
-  const url = window.URL.createObjectURL(blob)
-  const link = document.createElement('a')
-  link.href = url
-  link.download = `prompt-audit-event-${event.id}${event.snapshot.full_prompt_truncated ? '-retained' : ''}.txt`
-  document.body.appendChild(link)
-  link.click()
-  link.remove()
-  window.URL.revokeObjectURL(url)
+async function downloadContext(event: PromptAuditEvent) {
+  if (!event.full_context_available || downloading.value) return
+  downloading.value = true
+  try {
+    const blob = await downloadEventContext(event.id)
+    const url = window.URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = `prompt-audit-context-${event.id}.json`
+    document.body.appendChild(link)
+    link.click()
+    link.remove()
+    window.URL.revokeObjectURL(url)
+  } catch {
+    appStore.showError(t('admin.promptAudit.errors.downloadContext'))
+  } finally {
+    downloading.value = false
+  }
 }
 
 function formatDecisionAction(decision: string, action: string): string {

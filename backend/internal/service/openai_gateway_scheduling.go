@@ -88,16 +88,6 @@ func explicitOpenAISessionID(c *gin.Context, body []byte) string {
 	return sessionID
 }
 
-// ExtractSecurityAuditSessionID returns a stable client conversation identity
-// for immediate hashing at the security-audit boundary. Callers must not log
-// or persist the raw value.
-func ExtractSecurityAuditSessionID(c *gin.Context, body []byte) string {
-	if sessionID := ExtractClientSessionID(c); sessionID != "" {
-		return sessionID
-	}
-	return explicitOpenAISessionID(c, body)
-}
-
 // openAIRequestPayloadView unwraps Responses WebSocket event envelopes while
 // leaving ordinary HTTP objects untouched even when they contain a response
 // field for another purpose.
@@ -1758,20 +1748,8 @@ func (s *OpenAIGatewayService) recheckSelectedOpenAIAccountFromDBBeforeProfit(ct
 }
 
 func (s *OpenAIGatewayService) openAIAccountMatchesSchedulingGroup(account *Account, groupID *int64) bool {
-	if account == nil {
-		return false
-	}
-	// Once enabled, the validated policy is the authoritative routing domain and
-	// exactly mirrors the account's persisted group bindings. Do not make Codex
-	// availability depend on whether a lightweight scheduler row hydrated those
-	// bindings again.
-	if account.IsOpenAIOAuthSessionSharingEnabled() {
-		return account.IsOpenAIOAuthSessionGroupAllowed(groupID)
-	}
-	if s != nil && s.cfg != nil && s.cfg.RunMode == config.RunModeSimple {
-		return true
-	}
-	return openAIStickyAccountMatchesGroup(account, groupID)
+	simpleMode := s != nil && s.cfg != nil && s.cfg.RunMode == config.RunModeSimple
+	return openAIAccountAllowsEffectiveGroup(account, groupID, simpleMode)
 }
 
 // RevalidateOpenAIAccountForWebSocketTurn reloads an account from the durable

@@ -51,4 +51,11 @@ describe('Prompt Audit API', () => {
       params: expect.objectContaining({ page: 1, page_size: 20, client_ip: '203.0.113.42' }),
     })
   })
+
+  it('downloads complete event context as a blob', async () => {
+    const blob = new Blob(['{}'], { type: 'application/json' })
+    client.get.mockResolvedValue({ data: blob })
+    await expect(promptAuditAPI.downloadEventContext(7)).resolves.toBe(blob)
+    expect(client.get).toHaveBeenCalledWith('/admin/prompt-audit/events/7/context', { responseType: 'blob' })
+  })
 })
