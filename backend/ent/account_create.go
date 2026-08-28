@@ -13,6 +13,8 @@ import (
 	"entgo.io/ent/schema/field"
 	"github.com/LuckyKuang/sub2api-plus/ent/account"
 	"github.com/LuckyKuang/sub2api-plus/ent/group"
+	"github.com/LuckyKuang/sub2api-plus/ent/openaioauthaccountaccesspolicy"
+	"github.com/LuckyKuang/sub2api-plus/ent/openaioauthaccountusergrant"
 	"github.com/LuckyKuang/sub2api-plus/ent/proxy"
 	"github.com/LuckyKuang/sub2api-plus/ent/usagelog"
 )
@@ -488,6 +490,40 @@ func (_c *AccountCreate) AddUsageLogs(v ...*UsageLog) *AccountCreate {
 	return _c.AddUsageLogIDs(ids...)
 }
 
+// SetOpenaiOauthAccessPolicyID sets the "openai_oauth_access_policy" edge to the OpenAIOAuthAccountAccessPolicy entity by ID.
+func (_c *AccountCreate) SetOpenaiOauthAccessPolicyID(id int64) *AccountCreate {
+	_c.mutation.SetOpenaiOauthAccessPolicyID(id)
+	return _c
+}
+
+// SetNillableOpenaiOauthAccessPolicyID sets the "openai_oauth_access_policy" edge to the OpenAIOAuthAccountAccessPolicy entity by ID if the given value is not nil.
+func (_c *AccountCreate) SetNillableOpenaiOauthAccessPolicyID(id *int64) *AccountCreate {
+	if id != nil {
+		_c = _c.SetOpenaiOauthAccessPolicyID(*id)
+	}
+	return _c
+}
+
+// SetOpenaiOauthAccessPolicy sets the "openai_oauth_access_policy" edge to the OpenAIOAuthAccountAccessPolicy entity.
+func (_c *AccountCreate) SetOpenaiOauthAccessPolicy(v *OpenAIOAuthAccountAccessPolicy) *AccountCreate {
+	return _c.SetOpenaiOauthAccessPolicyID(v.ID)
+}
+
+// AddOpenaiOauthUserGrantIDs adds the "openai_oauth_user_grants" edge to the OpenAIOAuthAccountUserGrant entity by IDs.
+func (_c *AccountCreate) AddOpenaiOauthUserGrantIDs(ids ...int64) *AccountCreate {
+	_c.mutation.AddOpenaiOauthUserGrantIDs(ids...)
+	return _c
+}
+
+// AddOpenaiOauthUserGrants adds the "openai_oauth_user_grants" edges to the OpenAIOAuthAccountUserGrant entity.
+func (_c *AccountCreate) AddOpenaiOauthUserGrants(v ...*OpenAIOAuthAccountUserGrant) *AccountCreate {
+	ids := make([]int64, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _c.AddOpenaiOauthUserGrantIDs(ids...)
+}
+
 // Mutation returns the AccountMutation object of the builder.
 func (_c *AccountCreate) Mutation() *AccountMutation {
 	return _c.mutation
@@ -880,6 +916,38 @@ func (_c *AccountCreate) createSpec() (*Account, *sqlgraph.CreateSpec) {
 			Bidi:    false,
 			Target: &sqlgraph.EdgeTarget{
 				IDSpec: sqlgraph.NewFieldSpec(usagelog.FieldID, field.TypeInt64),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges = append(_spec.Edges, edge)
+	}
+	if nodes := _c.mutation.OpenaiOauthAccessPolicyIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2O,
+			Inverse: false,
+			Table:   account.OpenaiOauthAccessPolicyTable,
+			Columns: []string{account.OpenaiOauthAccessPolicyColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(openaioauthaccountaccesspolicy.FieldID, field.TypeInt64),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges = append(_spec.Edges, edge)
+	}
+	if nodes := _c.mutation.OpenaiOauthUserGrantsIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   account.OpenaiOauthUserGrantsTable,
+			Columns: []string{account.OpenaiOauthUserGrantsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(openaioauthaccountusergrant.FieldID, field.TypeInt64),
 			},
 		}
 		for _, k := range nodes {

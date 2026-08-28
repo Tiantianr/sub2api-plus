@@ -1820,6 +1820,9 @@ func (s *defaultOpenAIAccountScheduler) isAccountRequestCompatibleReason(ctx con
 	if !openAIOAuthSessionPolicyAllowsSchedulingGroup(account, req.GroupID) {
 		return false, "oauth_session_group_denied"
 	}
+	if reason := openAIOAuthUserAccessFailureReason(ctx, account); reason != "" {
+		return false, reason
+	}
 	if req.RequirePrivacySet && !account.IsPrivacySet() {
 		return false, "privacy_not_set"
 	}

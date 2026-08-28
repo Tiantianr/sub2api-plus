@@ -61,6 +61,8 @@ var auditExtraAllowedKeys = map[string]struct{}{
 	"account_count": {}, "proxy_count": {}, "include_proxies": {},
 	"failure_count": {}, "auto_block_rule_id": {}, "auto_block_expires": {}, "ip_source": {}, "ip_access_result": {},
 	"block_rule_id": {}, "already_blocked": {},
+	"grant_added_count": {}, "grant_removed_count": {},
+	"account_ids": {}, "revision_changes": {}, "mode_changes": {},
 }
 
 // SetAuditExtra adds allowlisted, scalar details to the current audit entry.
@@ -82,7 +84,11 @@ func SetAuditExtra(c *gin.Context, fields map[string]any) {
 			continue
 		}
 		if text, ok := value.(string); ok {
-			value = truncateAuditExtraString(text, 128)
+			limit := 128
+			if key == "account_ids" || key == "revision_changes" || key == "mode_changes" {
+				limit = 512
+			}
+			value = truncateAuditExtraString(text, limit)
 		}
 		current[key] = value
 	}
@@ -134,6 +140,8 @@ var auditSensitiveReads = map[string]string{
 	"GET /api/v1/admin/data-management/s3/config":                    "admin.data_management.s3_config.read",
 	"GET /api/v1/admin/ip-access-control/failure-states":             "security.ip_login_failure.read",
 	"GET /api/v1/admin/prompt-audit/events/:id":                      "admin.prompt_audit.event.read",
+	"GET /api/v1/admin/openai-oauth-access/accounts":                 "admin.openai_oauth_access.accounts.read",
+	"GET /api/v1/admin/openai-oauth-access/users":                    "admin.openai_oauth_access.users.read",
 }
 
 // auditActionOverrides 变更类请求的动作名精确映射（未命中时自动推导）。
@@ -164,6 +172,8 @@ var auditActionOverrides = map[string]string{
 	"POST /api/v1/admin/prompt-audit/events/batch-delete":          "admin.prompt_audit.events.batch_delete",
 	"POST /api/v1/admin/prompt-audit/events/delete-preview":        "admin.prompt_audit.events.delete_preview",
 	"POST /api/v1/admin/prompt-audit/events/delete-by-filter":      "admin.prompt_audit.events.filter_delete",
+	"POST /api/v1/admin/openai-oauth-access/preview":               "admin.openai_oauth_access.preview",
+	"PUT /api/v1/admin/openai-oauth-access/policies":               "admin.openai_oauth_access.policies.update",
 }
 
 // auditBodyOmittedRoutes 请求体几乎整体由凭证构成的路由（如整块粘贴 auth JSON 的导入接口）。
@@ -180,6 +190,8 @@ var auditBodyOmittedRoutes = map[string]struct{}{
 	"POST /api/v1/admin/prompt-audit/events/batch-delete":       {},
 	"POST /api/v1/admin/prompt-audit/events/delete-preview":     {},
 	"POST /api/v1/admin/prompt-audit/events/delete-by-filter":   {},
+	"POST /api/v1/admin/openai-oauth-access/preview":            {},
+	"PUT /api/v1/admin/openai-oauth-access/policies":            {},
 }
 
 // NewAuditLogMiddleware 创建审计中间件。

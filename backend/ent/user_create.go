@@ -15,6 +15,7 @@ import (
 	"github.com/LuckyKuang/sub2api-plus/ent/apikey"
 	"github.com/LuckyKuang/sub2api-plus/ent/authidentity"
 	"github.com/LuckyKuang/sub2api-plus/ent/group"
+	"github.com/LuckyKuang/sub2api-plus/ent/openaioauthaccountusergrant"
 	"github.com/LuckyKuang/sub2api-plus/ent/paymentorder"
 	"github.com/LuckyKuang/sub2api-plus/ent/pendingauthsession"
 	"github.com/LuckyKuang/sub2api-plus/ent/promocodeusage"
@@ -549,6 +550,21 @@ func (_c *UserCreate) AddPlatformQuotas(v ...*UserPlatformQuota) *UserCreate {
 	return _c.AddPlatformQuotaIDs(ids...)
 }
 
+// AddOpenaiOauthAccountGrantIDs adds the "openai_oauth_account_grants" edge to the OpenAIOAuthAccountUserGrant entity by IDs.
+func (_c *UserCreate) AddOpenaiOauthAccountGrantIDs(ids ...int64) *UserCreate {
+	_c.mutation.AddOpenaiOauthAccountGrantIDs(ids...)
+	return _c
+}
+
+// AddOpenaiOauthAccountGrants adds the "openai_oauth_account_grants" edges to the OpenAIOAuthAccountUserGrant entity.
+func (_c *UserCreate) AddOpenaiOauthAccountGrants(v ...*OpenAIOAuthAccountUserGrant) *UserCreate {
+	ids := make([]int64, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _c.AddOpenaiOauthAccountGrantIDs(ids...)
+}
+
 // Mutation returns the UserMutation object of the builder.
 func (_c *UserCreate) Mutation() *UserMutation {
 	return _c.mutation
@@ -1073,6 +1089,22 @@ func (_c *UserCreate) createSpec() (*User, *sqlgraph.CreateSpec) {
 			Bidi:    false,
 			Target: &sqlgraph.EdgeTarget{
 				IDSpec: sqlgraph.NewFieldSpec(userplatformquota.FieldID, field.TypeInt64),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges = append(_spec.Edges, edge)
+	}
+	if nodes := _c.mutation.OpenaiOauthAccountGrantsIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   user.OpenaiOauthAccountGrantsTable,
+			Columns: []string{user.OpenaiOauthAccountGrantsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(openaioauthaccountusergrant.FieldID, field.TypeInt64),
 			},
 		}
 		for _, k := range nodes {

@@ -24,6 +24,8 @@ import (
 	"github.com/LuckyKuang/sub2api-plus/ent/group"
 	"github.com/LuckyKuang/sub2api-plus/ent/idempotencyrecord"
 	"github.com/LuckyKuang/sub2api-plus/ent/identityadoptiondecision"
+	"github.com/LuckyKuang/sub2api-plus/ent/openaioauthaccountaccesspolicy"
+	"github.com/LuckyKuang/sub2api-plus/ent/openaioauthaccountusergrant"
 	"github.com/LuckyKuang/sub2api-plus/ent/paymentauditlog"
 	"github.com/LuckyKuang/sub2api-plus/ent/paymentorder"
 	"github.com/LuckyKuang/sub2api-plus/ent/paymentproviderinstance"
@@ -1267,6 +1269,34 @@ func init() {
 	identityadoptiondecisionDescDecidedAt := identityadoptiondecisionFields[4].Descriptor()
 	// identityadoptiondecision.DefaultDecidedAt holds the default value on creation for the decided_at field.
 	identityadoptiondecision.DefaultDecidedAt = identityadoptiondecisionDescDecidedAt.Default.(func() time.Time)
+	openaioauthaccountaccesspolicyFields := schema.OpenAIOAuthAccountAccessPolicy{}.Fields()
+	_ = openaioauthaccountaccesspolicyFields
+	// openaioauthaccountaccesspolicyDescDefaultForNewUsers is the schema descriptor for default_for_new_users field.
+	openaioauthaccountaccesspolicyDescDefaultForNewUsers := openaioauthaccountaccesspolicyFields[2].Descriptor()
+	// openaioauthaccountaccesspolicy.DefaultDefaultForNewUsers holds the default value on creation for the default_for_new_users field.
+	openaioauthaccountaccesspolicy.DefaultDefaultForNewUsers = openaioauthaccountaccesspolicyDescDefaultForNewUsers.Default.(bool)
+	// openaioauthaccountaccesspolicyDescRevision is the schema descriptor for revision field.
+	openaioauthaccountaccesspolicyDescRevision := openaioauthaccountaccesspolicyFields[3].Descriptor()
+	// openaioauthaccountaccesspolicy.DefaultRevision holds the default value on creation for the revision field.
+	openaioauthaccountaccesspolicy.DefaultRevision = openaioauthaccountaccesspolicyDescRevision.Default.(int64)
+	// openaioauthaccountaccesspolicy.RevisionValidator is a validator for the "revision" field. It is called by the builders before save.
+	openaioauthaccountaccesspolicy.RevisionValidator = openaioauthaccountaccesspolicyDescRevision.Validators[0].(func(int64) error)
+	// openaioauthaccountaccesspolicyDescCreatedAt is the schema descriptor for created_at field.
+	openaioauthaccountaccesspolicyDescCreatedAt := openaioauthaccountaccesspolicyFields[4].Descriptor()
+	// openaioauthaccountaccesspolicy.DefaultCreatedAt holds the default value on creation for the created_at field.
+	openaioauthaccountaccesspolicy.DefaultCreatedAt = openaioauthaccountaccesspolicyDescCreatedAt.Default.(func() time.Time)
+	// openaioauthaccountaccesspolicyDescUpdatedAt is the schema descriptor for updated_at field.
+	openaioauthaccountaccesspolicyDescUpdatedAt := openaioauthaccountaccesspolicyFields[5].Descriptor()
+	// openaioauthaccountaccesspolicy.DefaultUpdatedAt holds the default value on creation for the updated_at field.
+	openaioauthaccountaccesspolicy.DefaultUpdatedAt = openaioauthaccountaccesspolicyDescUpdatedAt.Default.(func() time.Time)
+	// openaioauthaccountaccesspolicy.UpdateDefaultUpdatedAt holds the default value on update for the updated_at field.
+	openaioauthaccountaccesspolicy.UpdateDefaultUpdatedAt = openaioauthaccountaccesspolicyDescUpdatedAt.UpdateDefault.(func() time.Time)
+	openaioauthaccountusergrantFields := schema.OpenAIOAuthAccountUserGrant{}.Fields()
+	_ = openaioauthaccountusergrantFields
+	// openaioauthaccountusergrantDescCreatedAt is the schema descriptor for created_at field.
+	openaioauthaccountusergrantDescCreatedAt := openaioauthaccountusergrantFields[2].Descriptor()
+	// openaioauthaccountusergrant.DefaultCreatedAt holds the default value on creation for the created_at field.
+	openaioauthaccountusergrant.DefaultCreatedAt = openaioauthaccountusergrantDescCreatedAt.Default.(func() time.Time)
 	paymentauditlogFields := schema.PaymentAuditLog{}.Fields()
 	_ = paymentauditlogFields
 	// paymentauditlogDescOrderID is the schema descriptor for order_id field.

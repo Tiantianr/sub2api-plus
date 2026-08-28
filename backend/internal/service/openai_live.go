@@ -489,6 +489,23 @@ func (s *OpenAIGatewayService) GetLiveCallForIdentity(
 	return record, nil
 }
 
+func (s *OpenAIGatewayService) RevalidateLiveCallUserAccess(ctx context.Context, record *LiveCallRecord) error {
+	if s == nil || s.accountRepo == nil || record == nil || record.UserID <= 0 {
+		return ErrOpenAIOAuthUserAccessDenied
+	}
+	if openAIRequestUserID(ctx) != record.UserID {
+		return ErrOpenAIOAuthUserAccessDenied
+	}
+	account, err := s.accountRepo.GetByID(ctx, record.AccountID)
+	if err != nil {
+		return err
+	}
+	if account == nil || openAIOAuthUserAccessFailureReason(ctx, account) != "" {
+		return ErrOpenAIOAuthUserAccessDenied
+	}
+	return nil
+}
+
 // ProxyLiveSideband 让认证后的客户端接管控制连接；媒体始终不经过这里。
 func (s *OpenAIGatewayService) ProxyLiveSideband(
 	ctx context.Context,

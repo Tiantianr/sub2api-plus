@@ -334,7 +334,21 @@ func (s *OpenAIGatewayService) ProfitControlVetoLatest(ctx context.Context, sele
 	if s == nil {
 		return selected, false, ""
 	}
-	return profitControlVetoLatest(ctx, selected, s.schedulerSnapshot)
+	latest := selected
+	if selected != nil && selected.Platform == PlatformOpenAI && selected.Type == AccountTypeOAuth {
+		if s.accountRepo == nil {
+			return selected, true, openAIOAuthUserAccessRecheckReason
+		}
+		refreshed, err := s.accountRepo.GetByID(ctx, selected.ID)
+		if err != nil || refreshed == nil {
+			return selected, true, openAIOAuthUserAccessRecheckReason
+		}
+		latest = refreshed
+		if reason := openAIOAuthUserAccessFailureReason(ctx, latest); reason != "" {
+			return latest, true, reason
+		}
+	}
+	return profitControlVetoLatest(ctx, latest, s.schedulerSnapshot)
 }
 
 // bindOpenAIStickySessionDuringSelection preserves the official eager binding

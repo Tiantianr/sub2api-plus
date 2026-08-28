@@ -658,6 +658,10 @@ func (s *OpenAIGatewayService) resolveAccountByPreviousResponseIDForCapability(
 		_ = store.DeleteResponseAccount(ctx, derefGroupID(groupID), responseID)
 		return 0, nil, "", nil, nil
 	}
+	if openAIOAuthUserAccessFailureReason(ctx, account) != "" {
+		_ = store.DeleteResponseAccount(ctx, derefGroupID(groupID), responseID)
+		return 0, nil, "", nil, nil
+	}
 	if !openAIOAuthSessionPolicyAllowsSchedulingGroup(account, groupID) {
 		return 0, nil, "", nil, ErrOpenAIOAuthSessionAccessDenied
 	}

@@ -227,6 +227,11 @@ func (Account) Edges() []ent.Edge {
 			Unique(),
 		// usage_logs: 该账户的使用日志
 		edge.To("usage_logs", UsageLog.Type),
+		edge.To("openai_oauth_access_policy", OpenAIOAuthAccountAccessPolicy.Type).
+			Unique().
+			Annotations(entsql.OnDelete(entsql.Cascade)),
+		edge.To("openai_oauth_user_grants", OpenAIOAuthAccountUserGrant.Type).
+			Annotations(entsql.OnDelete(entsql.Cascade)),
 	}
 }
 

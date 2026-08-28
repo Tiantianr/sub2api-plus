@@ -70,6 +70,24 @@ func TestSchedulerCacheSetAccountClearsUnencodablePayload(t *testing.T) {
 	require.Nil(t, cached)
 }
 
+func TestSchedulerMetadataKeepsOpenAIOAuthUserAccess(t *testing.T) {
+	account := service.Account{
+		ID:       115,
+		Platform: service.PlatformOpenAI,
+		Type:     service.AccountTypeOAuth,
+		OpenAIOAuthUserAccess: &service.OpenAIOAuthUserAccessSnapshot{
+			Mode:               service.OpenAIOAuthUserAccessModeRestricted,
+			DefaultForNewUsers: true,
+			Revision:           4,
+			GrantedUserIDs:     []int64{7, 9},
+		},
+	}
+	metadata := buildSchedulerMetadataAccount(account)
+	require.Equal(t, account.OpenAIOAuthUserAccess, metadata.OpenAIOAuthUserAccess)
+	metadata.OpenAIOAuthUserAccess.GrantedUserIDs[0] = 99
+	require.Equal(t, []int64{7, 9}, account.OpenAIOAuthUserAccess.GrantedUserIDs)
+}
+
 func TestSchedulerCacheUpdateLastUsedClearsUnencodablePayload(t *testing.T) {
 	ctx := context.Background()
 	cache := newSchedulerCacheUnit(t)

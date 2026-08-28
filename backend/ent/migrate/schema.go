@@ -1094,6 +1094,69 @@ var (
 			},
 		},
 	}
+	// OpenaiOauthAccountAccessPoliciesColumns holds the columns for the "openai_oauth_account_access_policies" table.
+	OpenaiOauthAccountAccessPoliciesColumns = []*schema.Column{
+		{Name: "id", Type: field.TypeInt64, Increment: true},
+		{Name: "mode", Type: field.TypeEnum, Enums: []string{"public", "restricted"}, Default: "public"},
+		{Name: "default_for_new_users", Type: field.TypeBool, Default: false},
+		{Name: "revision", Type: field.TypeInt64, Default: 1},
+		{Name: "created_at", Type: field.TypeTime, SchemaType: map[string]string{"postgres": "timestamptz"}},
+		{Name: "updated_at", Type: field.TypeTime, SchemaType: map[string]string{"postgres": "timestamptz"}},
+		{Name: "account_id", Type: field.TypeInt64, Unique: true},
+	}
+	// OpenaiOauthAccountAccessPoliciesTable holds the schema information for the "openai_oauth_account_access_policies" table.
+	OpenaiOauthAccountAccessPoliciesTable = &schema.Table{
+		Name:       "openai_oauth_account_access_policies",
+		Columns:    OpenaiOauthAccountAccessPoliciesColumns,
+		PrimaryKey: []*schema.Column{OpenaiOauthAccountAccessPoliciesColumns[0]},
+		ForeignKeys: []*schema.ForeignKey{
+			{
+				Symbol:     "openai_oauth_account_access_policies_accounts_openai_oauth_access_policy",
+				Columns:    []*schema.Column{OpenaiOauthAccountAccessPoliciesColumns[6]},
+				RefColumns: []*schema.Column{AccountsColumns[0]},
+				OnDelete:   schema.Cascade,
+			},
+		},
+	}
+	// OpenaiOauthAccountUserGrantsColumns holds the columns for the "openai_oauth_account_user_grants" table.
+	OpenaiOauthAccountUserGrantsColumns = []*schema.Column{
+		{Name: "id", Type: field.TypeInt64, Increment: true},
+		{Name: "created_at", Type: field.TypeTime, SchemaType: map[string]string{"postgres": "timestamptz"}},
+		{Name: "account_id", Type: field.TypeInt64},
+		{Name: "user_id", Type: field.TypeInt64},
+	}
+	// OpenaiOauthAccountUserGrantsTable holds the schema information for the "openai_oauth_account_user_grants" table.
+	OpenaiOauthAccountUserGrantsTable = &schema.Table{
+		Name:       "openai_oauth_account_user_grants",
+		Columns:    OpenaiOauthAccountUserGrantsColumns,
+		PrimaryKey: []*schema.Column{OpenaiOauthAccountUserGrantsColumns[0]},
+		ForeignKeys: []*schema.ForeignKey{
+			{
+				Symbol:     "openai_oauth_account_user_grants_accounts_openai_oauth_user_grants",
+				Columns:    []*schema.Column{OpenaiOauthAccountUserGrantsColumns[2]},
+				RefColumns: []*schema.Column{AccountsColumns[0]},
+				OnDelete:   schema.Cascade,
+			},
+			{
+				Symbol:     "openai_oauth_account_user_grants_users_openai_oauth_account_grants",
+				Columns:    []*schema.Column{OpenaiOauthAccountUserGrantsColumns[3]},
+				RefColumns: []*schema.Column{UsersColumns[0]},
+				OnDelete:   schema.Cascade,
+			},
+		},
+		Indexes: []*schema.Index{
+			{
+				Name:    "openaioauthaccountusergrant_account_id_user_id",
+				Unique:  true,
+				Columns: []*schema.Column{OpenaiOauthAccountUserGrantsColumns[2], OpenaiOauthAccountUserGrantsColumns[3]},
+			},
+			{
+				Name:    "openaioauthaccountusergrant_user_id_account_id",
+				Unique:  false,
+				Columns: []*schema.Column{OpenaiOauthAccountUserGrantsColumns[3], OpenaiOauthAccountUserGrantsColumns[2]},
+			},
+		},
+	}
 	// PaymentAuditLogsColumns holds the columns for the "payment_audit_logs" table.
 	PaymentAuditLogsColumns = []*schema.Column{
 		{Name: "id", Type: field.TypeInt64, Increment: true},
@@ -2110,6 +2173,8 @@ var (
 		GroupsTable,
 		IdempotencyRecordsTable,
 		IdentityAdoptionDecisionsTable,
+		OpenaiOauthAccountAccessPoliciesTable,
+		OpenaiOauthAccountUserGrantsTable,
 		PaymentAuditLogsTable,
 		PaymentOrdersTable,
 		PaymentProviderInstancesTable,
@@ -2206,6 +2271,15 @@ func init() {
 	IdentityAdoptionDecisionsTable.ForeignKeys[1].RefTable = PendingAuthSessionsTable
 	IdentityAdoptionDecisionsTable.Annotation = &entsql.Annotation{
 		Table: "identity_adoption_decisions",
+	}
+	OpenaiOauthAccountAccessPoliciesTable.ForeignKeys[0].RefTable = AccountsTable
+	OpenaiOauthAccountAccessPoliciesTable.Annotation = &entsql.Annotation{
+		Table: "openai_oauth_account_access_policies",
+	}
+	OpenaiOauthAccountUserGrantsTable.ForeignKeys[0].RefTable = AccountsTable
+	OpenaiOauthAccountUserGrantsTable.ForeignKeys[1].RefTable = UsersTable
+	OpenaiOauthAccountUserGrantsTable.Annotation = &entsql.Annotation{
+		Table: "openai_oauth_account_user_grants",
 	}
 	PaymentAuditLogsTable.Annotation = &entsql.Annotation{
 		Table: "payment_audit_logs",

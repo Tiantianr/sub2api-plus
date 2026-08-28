@@ -586,6 +586,18 @@ const routes: RouteRecordRaw[] = [
     }
   },
   {
+    path: '/admin/openai-oauth-access',
+    name: 'AdminOpenAIOAuthAccess',
+    component: () => import('@/features/openai-oauth-access/OpenAIOAuthAccessView.vue'),
+    meta: {
+      requiresAuth: true,
+      requiresAdmin: true,
+      title: 'OAuth Account Access',
+      titleKey: 'admin.oauthAccess.title',
+      descriptionKey: 'admin.oauthAccess.description'
+    }
+  },
+  {
     path: '/admin/groups',
     name: 'AdminGroups',
     component: () => import('@/views/admin/GroupsView.vue'),
@@ -1109,6 +1121,7 @@ router.beforeEach(async (to, _from, next) => {
   if (authStore.isSimpleMode) {
     const restrictedPaths = [
       '/admin/groups',
+      '/admin/openai-oauth-access',
       '/admin/subscriptions',
       '/admin/redeem',
       '/subscriptions',

@@ -237,6 +237,30 @@ func (f IdentityAdoptionDecisionFunc) Mutate(ctx context.Context, m ent.Mutation
 	return nil, fmt.Errorf("unexpected mutation type %T. expect *ent.IdentityAdoptionDecisionMutation", m)
 }
 
+// The OpenAIOAuthAccountAccessPolicyFunc type is an adapter to allow the use of ordinary
+// function as OpenAIOAuthAccountAccessPolicy mutator.
+type OpenAIOAuthAccountAccessPolicyFunc func(context.Context, *ent.OpenAIOAuthAccountAccessPolicyMutation) (ent.Value, error)
+
+// Mutate calls f(ctx, m).
+func (f OpenAIOAuthAccountAccessPolicyFunc) Mutate(ctx context.Context, m ent.Mutation) (ent.Value, error) {
+	if mv, ok := m.(*ent.OpenAIOAuthAccountAccessPolicyMutation); ok {
+		return f(ctx, mv)
+	}
+	return nil, fmt.Errorf("unexpected mutation type %T. expect *ent.OpenAIOAuthAccountAccessPolicyMutation", m)
+}
+
+// The OpenAIOAuthAccountUserGrantFunc type is an adapter to allow the use of ordinary
+// function as OpenAIOAuthAccountUserGrant mutator.
+type OpenAIOAuthAccountUserGrantFunc func(context.Context, *ent.OpenAIOAuthAccountUserGrantMutation) (ent.Value, error)
+
+// Mutate calls f(ctx, m).
+func (f OpenAIOAuthAccountUserGrantFunc) Mutate(ctx context.Context, m ent.Mutation) (ent.Value, error) {
+	if mv, ok := m.(*ent.OpenAIOAuthAccountUserGrantMutation); ok {
+		return f(ctx, mv)
+	}
+	return nil, fmt.Errorf("unexpected mutation type %T. expect *ent.OpenAIOAuthAccountUserGrantMutation", m)
+}
+
 // The PaymentAuditLogFunc type is an adapter to allow the use of ordinary
 // function as PaymentAuditLog mutator.
 type PaymentAuditLogFunc func(context.Context, *ent.PaymentAuditLogMutation) (ent.Value, error)

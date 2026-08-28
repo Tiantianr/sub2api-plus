@@ -354,6 +354,10 @@ func (r *accountRepository) GetByIDs(ctx context.Context, ids []int64) ([]*servi
 	if err != nil {
 		return nil, err
 	}
+	openAIOAuthAccessByAccount, err := r.loadOpenAIOAuthUserAccess(ctx, entAccounts)
+	if err != nil {
+		return nil, err
+	}
 
 	outByID := make(map[int64]*service.Account, len(entAccounts))
 	for _, entAcc := range entAccounts {
@@ -376,6 +380,11 @@ func (r *accountRepository) GetByIDs(ctx context.Context, ids []int64) ([]*servi
 		if ags, ok := accountGroupsByAccount[entAcc.ID]; ok {
 			out.AccountGroups = ags
 		}
+		accessAccountID := entAcc.ID
+		if entAcc.ParentAccountID != nil {
+			accessAccountID = *entAcc.ParentAccountID
+		}
+		out.OpenAIOAuthUserAccess = openAIOAuthAccessByAccount[accessAccountID].Clone()
 		outByID[entAcc.ID] = out
 	}
 
@@ -3192,6 +3201,10 @@ func (r *accountRepository) accountsToService(ctx context.Context, accounts []*d
 	if err != nil {
 		return nil, err
 	}
+	openAIOAuthAccessByAccount, err := r.loadOpenAIOAuthUserAccess(ctx, accounts)
+	if err != nil {
+		return nil, err
+	}
 
 	outAccounts := make([]service.Account, 0, len(accounts))
 	for _, acc := range accounts {
@@ -3220,10 +3233,83 @@ func (r *accountRepository) accountsToService(ctx context.Context, accounts []*d
 		if ags, ok := accountGroupsByAccount[acc.ID]; ok {
 			out.AccountGroups = ags
 		}
+		accessAccountID := acc.ID
+		if acc.ParentAccountID != nil {
+			accessAccountID = *acc.ParentAccountID
+		}
+		out.OpenAIOAuthUserAccess = openAIOAuthAccessByAccount[accessAccountID].Clone()
 		outAccounts = append(outAccounts, *out)
 	}
 
 	return outAccounts, nil
+}
+
+func (r *accountRepository) loadOpenAIOAuthUserAccess(
+	ctx context.Context,
+	accounts []*dbent.Account,
+) (map[int64]*service.OpenAIOAuthUserAccessSnapshot, error) {
+	accountIDs := make([]int64, 0, len(accounts))
+	for _, account := range accounts {
+		if account == nil {
+			continue
+		}
+		if account.ParentAccountID != nil {
+			accountIDs = append(accountIDs, *account.ParentAccountID)
+			continue
+		}
+		accountIDs = append(accountIDs, account.ID)
+	}
+	accountIDs = uniquePositiveInt64s(accountIDs)
+	accessByAccount := make(map[int64]*service.OpenAIOAuthUserAccessSnapshot, len(accountIDs))
+	if len(accountIDs) > 0 && r.sql == nil {
+		return nil, errors.New("OpenAI OAuth user access requires SQL executor")
+	}
+	for start := 0; start < len(accountIDs); start += postgresParameterBatchSize {
+		end := start + postgresParameterBatchSize
+		if end > len(accountIDs) {
+			end = len(accountIDs)
+		}
+		rows, err := r.sql.QueryContext(ctx, `
+			SELECT
+				p.account_id,
+				p.mode,
+				p.default_for_new_users,
+				p.revision,
+				COALESCE(
+					array_agg(g.user_id ORDER BY g.user_id)
+						FILTER (WHERE g.user_id IS NOT NULL AND u.deleted_at IS NULL),
+					'{}'::bigint[]
+				)
+			FROM openai_oauth_account_access_policies AS p
+			LEFT JOIN openai_oauth_account_user_grants AS g ON g.account_id = p.account_id
+			LEFT JOIN users AS u ON u.id = g.user_id
+			WHERE p.account_id = ANY($1)
+			GROUP BY p.account_id, p.mode, p.default_for_new_users, p.revision
+		`, pq.Array(accountIDs[start:end]))
+		if err != nil {
+			return nil, err
+		}
+		for rows.Next() {
+			var accountID, revision int64
+			var mode string
+			var defaultForNewUsers bool
+			var grantedUserIDs pq.Int64Array
+			if err := rows.Scan(&accountID, &mode, &defaultForNewUsers, &revision, &grantedUserIDs); err != nil {
+				_ = rows.Close()
+				return nil, err
+			}
+			accessByAccount[accountID] = &service.OpenAIOAuthUserAccessSnapshot{
+				Mode:               mode,
+				DefaultForNewUsers: defaultForNewUsers,
+				Revision:           revision,
+				GrantedUserIDs:     []int64(grantedUserIDs),
+			}
+		}
+		if err := rows.Close(); err != nil {
+			return nil, err
+		}
+	}
+	return accessByAccount, nil
 }
 
 func tempUnschedulablePredicate() dbpredicate.Account {

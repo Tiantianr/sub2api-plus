@@ -63,6 +63,12 @@ type IdempotencyRecord func(*sql.Selector)
 // IdentityAdoptionDecision is the predicate function for identityadoptiondecision builders.
 type IdentityAdoptionDecision func(*sql.Selector)
 
+// OpenAIOAuthAccountAccessPolicy is the predicate function for openaioauthaccountaccesspolicy builders.
+type OpenAIOAuthAccountAccessPolicy func(*sql.Selector)
+
+// OpenAIOAuthAccountUserGrant is the predicate function for openaioauthaccountusergrant builders.
+type OpenAIOAuthAccountUserGrant func(*sql.Selector)
+
 // PaymentAuditLog is the predicate function for paymentauditlog builders.
 type PaymentAuditLog func(*sql.Selector)
 

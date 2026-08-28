@@ -27,6 +27,8 @@ import (
 	"github.com/LuckyKuang/sub2api-plus/ent/group"
 	"github.com/LuckyKuang/sub2api-plus/ent/idempotencyrecord"
 	"github.com/LuckyKuang/sub2api-plus/ent/identityadoptiondecision"
+	"github.com/LuckyKuang/sub2api-plus/ent/openaioauthaccountaccesspolicy"
+	"github.com/LuckyKuang/sub2api-plus/ent/openaioauthaccountusergrant"
 	"github.com/LuckyKuang/sub2api-plus/ent/paymentauditlog"
 	"github.com/LuckyKuang/sub2api-plus/ent/paymentorder"
 	"github.com/LuckyKuang/sub2api-plus/ent/paymentproviderinstance"
@@ -619,6 +621,60 @@ func (f TraverseIdentityAdoptionDecision) Traverse(ctx context.Context, q ent.Qu
 	return fmt.Errorf("unexpected query type %T. expect *ent.IdentityAdoptionDecisionQuery", q)
 }
 
+// The OpenAIOAuthAccountAccessPolicyFunc type is an adapter to allow the use of ordinary function as a Querier.
+type OpenAIOAuthAccountAccessPolicyFunc func(context.Context, *ent.OpenAIOAuthAccountAccessPolicyQuery) (ent.Value, error)
+
+// Query calls f(ctx, q).
+func (f OpenAIOAuthAccountAccessPolicyFunc) Query(ctx context.Context, q ent.Query) (ent.Value, error) {
+	if q, ok := q.(*ent.OpenAIOAuthAccountAccessPolicyQuery); ok {
+		return f(ctx, q)
+	}
+	return nil, fmt.Errorf("unexpected query type %T. expect *ent.OpenAIOAuthAccountAccessPolicyQuery", q)
+}
+
+// The TraverseOpenAIOAuthAccountAccessPolicy type is an adapter to allow the use of ordinary function as Traverser.
+type TraverseOpenAIOAuthAccountAccessPolicy func(context.Context, *ent.OpenAIOAuthAccountAccessPolicyQuery) error
+
+// Intercept is a dummy implementation of Intercept that returns the next Querier in the pipeline.
+func (f TraverseOpenAIOAuthAccountAccessPolicy) Intercept(next ent.Querier) ent.Querier {
+	return next
+}
+
+// Traverse calls f(ctx, q).
+func (f TraverseOpenAIOAuthAccountAccessPolicy) Traverse(ctx context.Context, q ent.Query) error {
+	if q, ok := q.(*ent.OpenAIOAuthAccountAccessPolicyQuery); ok {
+		return f(ctx, q)
+	}
+	return fmt.Errorf("unexpected query type %T. expect *ent.OpenAIOAuthAccountAccessPolicyQuery", q)
+}
+
+// The OpenAIOAuthAccountUserGrantFunc type is an adapter to allow the use of ordinary function as a Querier.
+type OpenAIOAuthAccountUserGrantFunc func(context.Context, *ent.OpenAIOAuthAccountUserGrantQuery) (ent.Value, error)
+
+// Query calls f(ctx, q).
+func (f OpenAIOAuthAccountUserGrantFunc) Query(ctx context.Context, q ent.Query) (ent.Value, error) {
+	if q, ok := q.(*ent.OpenAIOAuthAccountUserGrantQuery); ok {
+		return f(ctx, q)
+	}
+	return nil, fmt.Errorf("unexpected query type %T. expect *ent.OpenAIOAuthAccountUserGrantQuery", q)
+}
+
+// The TraverseOpenAIOAuthAccountUserGrant type is an adapter to allow the use of ordinary function as Traverser.
+type TraverseOpenAIOAuthAccountUserGrant func(context.Context, *ent.OpenAIOAuthAccountUserGrantQuery) error
+
+// Intercept is a dummy implementation of Intercept that returns the next Querier in the pipeline.
+func (f TraverseOpenAIOAuthAccountUserGrant) Intercept(next ent.Querier) ent.Querier {
+	return next
+}
+
+// Traverse calls f(ctx, q).
+func (f TraverseOpenAIOAuthAccountUserGrant) Traverse(ctx context.Context, q ent.Query) error {
+	if q, ok := q.(*ent.OpenAIOAuthAccountUserGrantQuery); ok {
+		return f(ctx, q)
+	}
+	return fmt.Errorf("unexpected query type %T. expect *ent.OpenAIOAuthAccountUserGrantQuery", q)
+}
+
 // The PaymentAuditLogFunc type is an adapter to allow the use of ordinary function as a Querier.
 type PaymentAuditLogFunc func(context.Context, *ent.PaymentAuditLogQuery) (ent.Value, error)
 
@@ -1200,6 +1256,10 @@ func NewQuery(q ent.Query) (Query, error) {
 		return &query[*ent.IdempotencyRecordQuery, predicate.IdempotencyRecord, idempotencyrecord.OrderOption]{typ: ent.TypeIdempotencyRecord, tq: q}, nil
 	case *ent.IdentityAdoptionDecisionQuery:
 		return &query[*ent.IdentityAdoptionDecisionQuery, predicate.IdentityAdoptionDecision, identityadoptiondecision.OrderOption]{typ: ent.TypeIdentityAdoptionDecision, tq: q}, nil
+	case *ent.OpenAIOAuthAccountAccessPolicyQuery:
+		return &query[*ent.OpenAIOAuthAccountAccessPolicyQuery, predicate.OpenAIOAuthAccountAccessPolicy, openaioauthaccountaccesspolicy.OrderOption]{typ: ent.TypeOpenAIOAuthAccountAccessPolicy, tq: q}, nil
+	case *ent.OpenAIOAuthAccountUserGrantQuery:
+		return &query[*ent.OpenAIOAuthAccountUserGrantQuery, predicate.OpenAIOAuthAccountUserGrant, openaioauthaccountusergrant.OrderOption]{typ: ent.TypeOpenAIOAuthAccountUserGrant, tq: q}, nil
 	case *ent.PaymentAuditLogQuery:
 		return &query[*ent.PaymentAuditLogQuery, predicate.PaymentAuditLog, paymentauditlog.OrderOption]{typ: ent.TypePaymentAuditLog, tq: q}, nil
 	case *ent.PaymentOrderQuery:

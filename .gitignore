@@ -155,6 +155,7 @@ docs/*
 !docs/COMPOSITE_GROUPS.md
 !docs/PLUGIN_DEVELOPMENT.md
 !docs/channel-monitor-v2-safe-defaults.md
+!docs/PROJECT_HANDOFF.md
 !docs/providers/
 !docs/providers/*.md
 !docs/protocols/
