@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/LuckyKuang/sub2api-plus/internal/auditcontent"
 	"github.com/LuckyKuang/sub2api-plus/internal/config"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
@@ -219,6 +220,30 @@ func TestForwardAlphaSearchPATUsesResponsesWebSearchFallback(t *testing.T) {
 	require.False(t, gjson.GetBytes(upstream.lastBody, "store").Bool())
 	require.Equal(t, "web_search", gjson.GetBytes(upstream.lastBody, "tools.0.type").String())
 	require.Contains(t, gjson.GetBytes(upstream.lastBody, "input.0.content.0.text").String(), `"search_query"`)
+}
+
+func TestOpenAIAlphaSearchPATFallbackUsesExactAuditedStructuredJSON(t *testing.T) {
+	body := []byte(`{
+		"commands":{"search_query":[{"q":"security news"}],"preview":{"type":"input_image","image_url":"https://example.test/private.png"}},
+		"settings":{"region":"global","encoded":"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"},
+		"input":[
+			{"type":"compaction","encrypted_content":"opaque-secret","future_visible":"visible compaction field"},
+			{"type":"message","role":"user","content":"recent context"}
+		]
+	}`)
+	document, err := auditcontent.Extract("openai_alpha_search", body)
+	require.NoError(t, err)
+	require.False(t, document.Incomplete)
+	prompt := openAIAlphaSearchResponsesWebSearchPrompt(body)
+	require.NotEmpty(t, prompt)
+	for _, segment := range document.Segments {
+		require.Contains(t, prompt, segment.Text)
+	}
+	require.Contains(t, prompt, "visible compaction field")
+	require.Contains(t, prompt, "recent context")
+	require.NotContains(t, prompt, "private.png")
+	require.NotContains(t, prompt, "opaque-secret")
+	require.NotContains(t, prompt, strings.Repeat("A", 200))
 }
 
 func TestForwardAlphaSearchPATBackfillsMissingChatGPTAccountMetadata(t *testing.T) {

@@ -118,7 +118,14 @@ func (h *OpenAIGatewayHandler) Live(c *gin.Context) {
 		return
 	}
 	c.Header("Location", liveSidebandLocation(c.FullPath(), created.CallID))
-	c.Data(http.StatusOK, "application/sdp", created.SDP)
+	c.Header("Content-Type", "application/sdp")
+	c.Status(http.StatusOK)
+	written, writeErr := c.Writer.Write(created.SDP)
+	if writeErr != nil || written != len(created.SDP) {
+		abortSecurityAuditConversationCapture(c)
+		return
+	}
+	completeSecurityAuditConversationWithoutOutput(c, "live:"+created.CallID)
 }
 
 func parseLiveCallRequest(c *gin.Context) (*service.LiveCallRequest, error) {
@@ -252,6 +259,7 @@ func (h *OpenAIGatewayHandler) LiveSideband(c *gin.Context) {
 		return
 	}
 	defer func() { _ = downstream.CloseNow() }()
+	defer abortSecurityAuditConversationCapture(c)
 	if err := h.gatewayService.ProxyLiveSidebandWithHooks(c.Request.Context(), record, downstream, &service.LiveSidebandHooks{
 		BeforeFrame: func(ctx context.Context) error {
 			if err := h.enforceOpenAIWSIPAccess(ctx, trustedClientIdentity); err != nil {
@@ -274,6 +282,25 @@ func (h *OpenAIGatewayHandler) LiveSideband(c *gin.Context) {
 			return service.NewOpenAIWSClientCloseError(
 				securityAuditWSCloseStatus(decision), securityAuditWSCloseReason(decision), nil,
 			)
+		},
+		AfterClientFrame: func(_ context.Context, _ coderws.MessageType, payload []byte, writeErr error) {
+			if writeErr != nil {
+				abortSecurityAuditConversationCapture(c)
+				return
+			}
+			switch strings.ToLower(strings.TrimSpace(gjson.GetBytes(payload, "type").String())) {
+			case "session.update", "transcription_session.update":
+				// Configuration frames change audited context but do not create an
+				// assistant response. Commit only after the frame reached upstream.
+				completeSecurityAuditConversationWithoutOutput(c, "")
+			}
+		},
+		AfterServerFrame: func(_ context.Context, _ coderws.MessageType, payload []byte, writeErr error) {
+			if writeErr != nil {
+				abortSecurityAuditConversationCapture(c)
+				return
+			}
+			observeSecurityAuditConversationFrame(c, payload)
 		},
 		RecheckEvery: 5 * time.Second,
 	}); err != nil {

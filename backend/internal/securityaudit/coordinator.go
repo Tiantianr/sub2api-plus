@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"strings"
 	"sync"
 
 	"github.com/LuckyKuang/sub2api-plus/internal/service"
@@ -17,6 +18,10 @@ type PromptEngine interface {
 	EffectiveMode() Mode
 	Enqueue(ctx context.Context, req Request) error
 	Evaluate(ctx context.Context, req Request) (*PromptDecision, error)
+}
+
+type blockingScopePromptEngine interface {
+	BlockingApplies(req Request) bool
 }
 
 type Coordinator struct {
@@ -52,13 +57,17 @@ func (c *Coordinator) Check(ctx context.Context, req Request) Decision {
 }
 
 func (c *Coordinator) checkBlocking(ctx context.Context, req Request) Decision {
+	legacyReq := req.Clone()
+	if scoped, ok := c.prompt.(blockingScopePromptEngine); ok {
+		legacyReq.PromptTextAuthority = scoped.BlockingApplies(req)
+	}
 	var wg sync.WaitGroup
 	wg.Add(2)
 	var legacy *LegacyDecision
 	var prompt *PromptDecision
 	go func() {
 		defer wg.Done()
-		legacy, _ = c.checkLegacy(ctx, req)
+		legacy, _ = c.checkLegacy(ctx, legacyReq)
 	}()
 	go func() {
 		defer wg.Done()
@@ -69,8 +78,8 @@ func (c *Coordinator) checkBlocking(ctx context.Context, req Request) Decision {
 		result, err := c.prompt.Evaluate(ctx, req.Clone())
 		if err != nil {
 			var guardErr *GuardError
-			if errors.As(err, &guardErr) && guardErr.Code == ErrorCodeInvalidResponse {
-				prompt = unavailablePromptDecision(ErrorCodeInvalidResponse)
+			if errors.As(err, &guardErr) && strings.TrimSpace(guardErr.Code) != "" {
+				prompt = unavailablePromptDecision(guardErr.Code)
 				return
 			}
 			prompt = unavailablePromptDecision(ErrorCodeUnavailable)
@@ -83,7 +92,11 @@ func (c *Coordinator) checkBlocking(ctx context.Context, req Request) Decision {
 		prompt = result
 	}()
 	wg.Wait()
-	return prioritize(legacy, prompt)
+	decision := prioritize(legacy, prompt)
+	if !decision.AllowNextStage && prompt != nil && prompt.Capture != nil {
+		prompt.Capture.Abort()
+	}
+	return decision
 }
 
 func (c *Coordinator) checkLegacy(ctx context.Context, req Request) (*LegacyDecision, error) {
@@ -131,10 +144,18 @@ func prioritize(legacy *LegacyDecision, prompt *PromptDecision) Decision {
 	}
 	switch prompt.Kind {
 	case DecisionInvalid:
-		return Decision{Kind: DecisionInvalid, HTTPStatus: http.StatusServiceUnavailable, ErrorCode: ErrorCodeInvalidResponse,
+		code := prompt.ErrorCode
+		if code == "" {
+			code = ErrorCodeInvalidResponse
+		}
+		return Decision{Kind: DecisionInvalid, HTTPStatus: http.StatusServiceUnavailable, ErrorCode: code,
 			ClientMessage: "提示词安全审计暂时不可用，请稍后重试", Legacy: legacy, Prompt: prompt}
 	case DecisionUnavailable:
-		return Decision{Kind: DecisionUnavailable, HTTPStatus: http.StatusServiceUnavailable, ErrorCode: ErrorCodeUnavailable,
+		code := prompt.ErrorCode
+		if code == "" {
+			code = ErrorCodeUnavailable
+		}
+		return Decision{Kind: DecisionUnavailable, HTTPStatus: http.StatusServiceUnavailable, ErrorCode: code,
 			ClientMessage: "提示词安全审计暂时不可用，请稍后重试", Legacy: legacy, Prompt: prompt}
 	case DecisionFlag:
 		return Decision{Kind: DecisionFlag, HTTPStatus: http.StatusOK, Legacy: legacy, Prompt: prompt, AllowNextStage: true}

@@ -188,10 +188,16 @@ func TestOpenAIGatewayService_ProxyResponsesWebSocketFromClient_ReusesAndRotates
 
 	serverErrCh := make(chan error, 1)
 	turnTerminalCh := make(chan string, 3)
+	finalFrames := make(chan []byte, 4)
 	hooks := &OpenAIWSIngressHooks{
 		AfterTurn: func(_ int, result *OpenAIForwardResult, turnErr error) {
 			if turnErr == nil && result != nil {
 				turnTerminalCh <- result.UpstreamTerminalEvent
+			}
+		},
+		AfterClientWrite: func(_ coderws.MessageType, payload []byte, writeErr error) {
+			if writeErr == nil {
+				finalFrames <- append([]byte(nil), payload...)
 			}
 		},
 	}
@@ -254,20 +260,24 @@ func TestOpenAIGatewayService_ProxyResponsesWebSocketFromClient_ReusesAndRotates
 
 	writeMessage(`{"type":"response.create","model":"gpt-5.1","stream":false,"prompt_cache_key":"cache-session-a"}`)
 	firstTurnImageEvent := readMessage()
+	require.Equal(t, firstTurnImageEvent, <-finalFrames)
 	require.Equal(t, "response.output_item.done", gjson.GetBytes(firstTurnImageEvent, "type").String())
 	require.Equal(t, "completed", gjson.GetBytes(firstTurnImageEvent, "item.status").String())
 	require.Equal(t, "iVBORw0KGgoAAAANSUhEUg/+==", gjson.GetBytes(firstTurnImageEvent, "item.result").String())
 	firstTurnEvent := readMessage()
+	require.Equal(t, firstTurnEvent, <-finalFrames)
 	require.Equal(t, "response.completed", gjson.GetBytes(firstTurnEvent, "type").String())
 	require.Equal(t, "resp_ingress_turn_1", gjson.GetBytes(firstTurnEvent, "response.id").String())
 
 	writeMessage(`{"type":"response.create","model":"gpt-5.1","stream":false,"previous_response_id":"resp_ingress_turn_1"}`)
 	secondTurnEvent := readMessage()
+	require.Equal(t, secondTurnEvent, <-finalFrames)
 	require.Equal(t, "response.completed", gjson.GetBytes(secondTurnEvent, "type").String())
 	require.Equal(t, "resp_ingress_turn_2", gjson.GetBytes(secondTurnEvent, "response.id").String())
 
 	writeMessage(`{"type":"response.create","model":"gpt-5.1","stream":false,"prompt_cache_key":"cache-session-b","previous_response_id":"resp_ingress_turn_2"}`)
 	thirdTurnEvent := readMessage()
+	require.Equal(t, thirdTurnEvent, <-finalFrames)
 	require.Equal(t, "response.completed", gjson.GetBytes(thirdTurnEvent, "type").String())
 	require.Equal(t, "resp_ingress_turn_3", gjson.GetBytes(thirdTurnEvent, "response.id").String())
 	require.Equal(t, "response.completed", <-turnTerminalCh, "首轮 turn 应保留成功终态")
@@ -1417,10 +1427,16 @@ func TestOpenAIGatewayService_ProxyResponsesWebSocketFromClient_HTTPBridgeModeRe
 
 	serverErrCh := make(chan error, 1)
 	resultCh := make(chan *OpenAIForwardResult, 1)
+	finalFrames := make(chan []byte, 3)
 	hooks := &OpenAIWSIngressHooks{
 		AfterTurn: func(_ int, result *OpenAIForwardResult, turnErr error) {
 			if turnErr == nil && result != nil {
 				resultCh <- result
+			}
+		},
+		AfterClientWrite: func(_ coderws.MessageType, payload []byte, writeErr error) {
+			if writeErr == nil {
+				finalFrames <- append([]byte(nil), payload...)
 			}
 		},
 	}
@@ -1481,6 +1497,7 @@ func TestOpenAIGatewayService_ProxyResponsesWebSocketFromClient_HTTPBridgeModeRe
 	_, event1, readErr1 := clientConn.Read(readCtx)
 	cancelRead()
 	require.NoError(t, readErr1)
+	require.Equal(t, event1, <-finalFrames)
 	require.Equal(t, "response.image_generation_call.partial_image", gjson.GetBytes(event1, "type").String())
 	require.Equal(t, "cGFydGlhbA==", gjson.GetBytes(event1, "partial_image_b64").String())
 
@@ -1488,6 +1505,7 @@ func TestOpenAIGatewayService_ProxyResponsesWebSocketFromClient_HTTPBridgeModeRe
 	_, event2, readErr2 := clientConn.Read(readCtx2)
 	cancelRead2()
 	require.NoError(t, readErr2)
+	require.Equal(t, event2, <-finalFrames)
 	require.Equal(t, "response.output_text.delta", gjson.GetBytes(event2, "type").String())
 	require.Equal(t, "hello", gjson.GetBytes(event2, "delta").String())
 
@@ -1495,6 +1513,7 @@ func TestOpenAIGatewayService_ProxyResponsesWebSocketFromClient_HTTPBridgeModeRe
 	_, event3, readErr3 := clientConn.Read(readCtx3)
 	cancelRead3()
 	require.NoError(t, readErr3)
+	require.Equal(t, event3, <-finalFrames)
 	require.Equal(t, "response.done", gjson.GetBytes(event3, "type").String())
 	require.Equal(t, "resp_http_bridge_1", gjson.GetBytes(event3, "response.id").String())
 	require.Equal(t, "completed", gjson.GetBytes(event3, "response.output.0.status").String())

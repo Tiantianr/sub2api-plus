@@ -88,6 +88,16 @@ func explicitOpenAISessionID(c *gin.Context, body []byte) string {
 	return sessionID
 }
 
+// ExtractSecurityAuditSessionID returns a stable client conversation identity
+// for immediate hashing at the security-audit boundary. Callers must not log
+// or persist the raw value.
+func ExtractSecurityAuditSessionID(c *gin.Context, body []byte) string {
+	if sessionID := ExtractClientSessionID(c); sessionID != "" {
+		return sessionID
+	}
+	return explicitOpenAISessionID(c, body)
+}
+
 // openAIRequestPayloadView unwraps Responses WebSocket event envelopes while
 // leaving ordinary HTTP objects untouched even when they contain a response
 // field for another purpose.

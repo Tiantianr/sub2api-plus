@@ -96,6 +96,7 @@ const baseConfig = (): ContentModerationConfig => ({
   email_on_hit: true,
   auto_ban_enabled: true,
   cyber_policy_auto_ban_enabled: false,
+  cyber_policy_exclude_from_ban_count: false,
   ban_threshold: 10,
   violation_window_hours: 720,
   retry_count: 2,
@@ -104,6 +105,7 @@ const baseConfig = (): ContentModerationConfig => ({
   pre_hash_check_enabled: false,
   blocked_keywords: [],
   keyword_blocking_mode: 'keyword_and_api',
+  text_api_mode: 'auto',
   thresholds: {
     harassment: 0.98,
     sexual: 0.65,
@@ -118,6 +120,7 @@ const runtimeStatus = () => ({
   enabled: true,
   risk_control_enabled: true,
   mode: 'pre_block',
+  text_api_mode: 'auto',
   worker_count: 4,
   max_workers: 32,
   active_workers: 0,
@@ -248,6 +251,7 @@ describe('admin RiskControlView', () => {
     await flushPromises()
 
     expect(updateConfig).toHaveBeenCalledWith(expect.objectContaining({
+      text_api_mode: 'auto',
       model_filter: {
         type: 'include',
         models: ['gpt-5.5', 'gpt-5.4'],

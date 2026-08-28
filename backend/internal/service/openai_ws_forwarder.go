@@ -264,6 +264,9 @@ type OpenAIWSIngressHooks struct {
 	// that must be written into the upstream response.create frame.
 	MapRequestModel func(turn int, originalModel string) (string, error)
 	AfterTurn       func(turn int, result *OpenAIForwardResult, turnErr error)
+	// AfterClientWrite observes the final frame after every downstream model,
+	// tool-name, image-status, and error rewrite has completed.
+	AfterClientWrite func(msgType coderws.MessageType, payload []byte, writeErr error)
 }
 
 func (s *OpenAIGatewayService) getOpenAIWSConnPool() *openAIWSConnPool {

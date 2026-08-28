@@ -33,6 +33,9 @@ func RegisterGatewayRoutes(
 	compositeResolver *service.CompositeRouteResolver,
 	cfg *config.Config,
 ) {
+	// Installed before gateway route groups so every HTTP/JSON/SSE response can
+	// finalize a Prompt Audit conversation checkpoint after handler completion.
+	r.Use(handler.SecurityAuditResponseCaptureMiddleware())
 	bodyLimit := middleware.RequestBodyLimit(cfg.Gateway.MaxBodySize)
 	textBodyLimit := middleware.RequestBodyLimit(cfg.Gateway.TextMaxBodySize)
 	clientRequestID := middleware.ClientRequestID()

@@ -102,8 +102,9 @@ type ActiveConfig struct {
 	RiskControlEnabled bool
 	Enabled            bool
 	BlockingEnabled    bool
-	// BlockingLatestTurnOnly is retained for config round-trip compatibility.
-	// Synchronous Evaluate always scans the latest user text only.
+	// BlockingLatestTurnOnly is retained only for rolling-upgrade config/API
+	// compatibility. Blocking mode now uses conversation checkpoints and does
+	// not branch on this legacy value.
 	BlockingLatestTurnOnly bool
 	StorePassEvents        bool
 	Strategy               string

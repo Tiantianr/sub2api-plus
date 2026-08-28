@@ -521,6 +521,8 @@ func (s *OpenAIGatewayService) ProxyLiveSideband(
 type LiveSidebandHooks struct {
 	BeforeFrame       func(context.Context) error
 	BeforeClientFrame func(context.Context, coderws.MessageType, []byte) error
+	AfterClientFrame  func(context.Context, coderws.MessageType, []byte, error)
+	AfterServerFrame  func(context.Context, coderws.MessageType, []byte, error)
 	RecheckEvery      time.Duration
 }
 
@@ -599,7 +601,11 @@ func (s *OpenAIGatewayService) ProxyLiveSidebandWithHooks(
 					return
 				}
 			}
-			if writeErr := upstream.WriteFrame(proxyCtx, messageType, payload); writeErr != nil {
+			writeErr := upstream.WriteFrame(proxyCtx, messageType, payload)
+			if hooks != nil && hooks.AfterClientFrame != nil {
+				hooks.AfterClientFrame(proxyCtx, messageType, payload, writeErr)
+			}
+			if writeErr != nil {
 				reportError(writeErr)
 				return
 			}
@@ -616,7 +622,11 @@ func (s *OpenAIGatewayService) ProxyLiveSidebandWithHooks(
 				reportError(policyErr)
 				return
 			}
-			if writeErr := downstream.Write(proxyCtx, messageType, payload); writeErr != nil {
+			writeErr := downstream.Write(proxyCtx, messageType, payload)
+			if hooks != nil && hooks.AfterServerFrame != nil {
+				hooks.AfterServerFrame(proxyCtx, messageType, payload, writeErr)
+			}
+			if writeErr != nil {
 				reportError(writeErr)
 				return
 			}
