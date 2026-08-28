@@ -10,7 +10,7 @@ import (
 	"github.com/LuckyKuang/sub2api-plus/internal/securityaudit"
 	"github.com/alicebob/miniredis/v2"
 	"github.com/gin-gonic/gin"
-	"github.com/redis/go-redis/v9"
+	"github.com/redis/go-redis/v9" //nolint:depguard // Test-only Redis setup for end-to-end capture coverage.
 	"github.com/stretchr/testify/require"
 )
 
