@@ -37,6 +37,40 @@ func TestRedisPayloadStoreRoundTripTTLNamespaceAndDelete(t *testing.T) {
 	require.ErrorIs(t, err, redis.Nil)
 }
 
+func TestRedisDeepReviewStateUsesVersionedCompareAndDelete(t *testing.T) {
+	address := strings.TrimSpace(os.Getenv(promptAuditRedisTestEnv))
+	if address == "" {
+		t.Skip(promptAuditRedisTestEnv + " is not set")
+	}
+	client := redis.NewClient(&redis.Options{Addr: address})
+	t.Cleanup(func() { require.NoError(t, client.Close()) })
+	store := NewRedisPayloadStore(client)
+	ctx := context.Background()
+	const userID int64 = 987654322
+	defer func() { _ = client.Del(ctx, deepReviewStateKey(userID)).Err() }()
+
+	require.NoError(t, store.Require(ctx, userID, "version-1"))
+	token, required, err := store.Required(ctx, userID)
+	require.NoError(t, err)
+	require.True(t, required)
+	require.Equal(t, "version-1", token)
+	replaced, err := store.Replace(ctx, userID, "version-1", "version-2")
+	require.NoError(t, err)
+	require.True(t, replaced)
+	replaced, err = store.Replace(ctx, userID, "version-1", "stale-version")
+	require.NoError(t, err)
+	require.False(t, replaced)
+	cleared, err := store.Clear(ctx, userID, "version-1")
+	require.NoError(t, err)
+	require.False(t, cleared)
+	cleared, err = store.Clear(ctx, userID, "version-2")
+	require.NoError(t, err)
+	require.True(t, cleared)
+	_, required, err = store.Required(ctx, userID)
+	require.NoError(t, err)
+	require.False(t, required)
+}
+
 func TestPromptRuntimeAggregatesConfigWorkersQueueRedisEndpointsAndGuardMetrics(t *testing.T) {
 	address := strings.TrimSpace(os.Getenv(promptAuditRedisTestEnv))
 	if address == "" {

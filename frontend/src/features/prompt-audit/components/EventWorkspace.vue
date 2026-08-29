@@ -35,6 +35,15 @@
           <option value="critical">{{ t('admin.promptAudit.riskLevels.critical') }}</option>
         </select>
       </label>
+      <label class="text-xs text-gray-600 dark:text-dark-200">
+        <span>{{ t('admin.promptAudit.events.executionMode') }}</span>
+        <select v-model="localFilters.execution_mode" class="input mt-1 w-full" :aria-label="t('admin.promptAudit.events.executionMode')" @change="filtersChanged">
+          <option value="">{{ t('common.all') }}</option>
+          <option value="blocking">{{ t('admin.promptAudit.mode.blocking') }}</option>
+          <option value="async_audit">{{ t('admin.promptAudit.mode.async_audit') }}</option>
+          <option value="async_deep">{{ t('admin.promptAudit.mode.async_deep') }}</option>
+        </select>
+      </label>
       <FilterInput v-model="localFilters.endpoint" :label="t('admin.promptAudit.events.endpoint')" @change="filtersChanged" />
       <FilterInput v-model="localFilters.client_ip" :label="t('admin.promptAudit.events.clientIp')" @change="filtersChanged" />
       <FilterInput v-model="localFilters.group_id" :label="t('admin.promptAudit.events.groupId')" type="number" @change="filtersChanged" />

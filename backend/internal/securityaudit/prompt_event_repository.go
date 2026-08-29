@@ -15,18 +15,19 @@ import (
 )
 
 type EventFilter struct {
-	Decision   string     `json:"decision,omitempty"`
-	RiskLevel  string     `json:"risk_level,omitempty"`
-	Endpoint   string     `json:"endpoint,omitempty"`
-	GroupID    *int64     `json:"group_id,omitempty"`
-	UserID     *int64     `json:"user_id,omitempty"`
-	APIKeyID   *int64     `json:"api_key_id,omitempty"`
-	RequestID  string     `json:"request_id,omitempty"`
-	ClientIP   string     `json:"client_ip,omitempty"`
-	PromptHash string     `json:"prompt_hash,omitempty"`
-	Keyword    string     `json:"keyword,omitempty"`
-	StartAt    *time.Time `json:"start_at,omitempty"`
-	EndAt      *time.Time `json:"end_at,omitempty"`
+	Decision      string     `json:"decision,omitempty"`
+	RiskLevel     string     `json:"risk_level,omitempty"`
+	ExecutionMode string     `json:"execution_mode,omitempty"`
+	Endpoint      string     `json:"endpoint,omitempty"`
+	GroupID       *int64     `json:"group_id,omitempty"`
+	UserID        *int64     `json:"user_id,omitempty"`
+	APIKeyID      *int64     `json:"api_key_id,omitempty"`
+	RequestID     string     `json:"request_id,omitempty"`
+	ClientIP      string     `json:"client_ip,omitempty"`
+	PromptHash    string     `json:"prompt_hash,omitempty"`
+	Keyword       string     `json:"keyword,omitempty"`
+	StartAt       *time.Time `json:"start_at,omitempty"`
+	EndAt         *time.Time `json:"end_at,omitempty"`
 }
 
 type EventPage struct {
@@ -273,6 +274,7 @@ func validateDeleteFilter(filter EventFilter) error {
 func canonicalEventFilter(filter EventFilter) EventFilter {
 	filter.Decision = strings.TrimSpace(strings.ToLower(filter.Decision))
 	filter.RiskLevel = strings.TrimSpace(strings.ToLower(filter.RiskLevel))
+	filter.ExecutionMode = strings.TrimSpace(strings.ToLower(filter.ExecutionMode))
 	filter.Endpoint = strings.TrimSpace(filter.Endpoint)
 	filter.RequestID = strings.TrimSpace(filter.RequestID)
 	if normalized := normalizePromptClientIP(filter.ClientIP); normalized != "" {
@@ -306,6 +308,9 @@ func buildEventWhere(filter EventFilter, firstIndex int) (string, []any) {
 	}
 	if filter.RiskLevel != "" {
 		add(" AND e.risk_level=$%d", filter.RiskLevel)
+	}
+	if filter.ExecutionMode != "" {
+		add(" AND e.execution_mode=$%d", filter.ExecutionMode)
 	}
 	if filter.Endpoint != "" {
 		add(" AND e.endpoint=$%d", filter.Endpoint)

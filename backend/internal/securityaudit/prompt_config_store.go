@@ -350,11 +350,18 @@ func (m *ConfigManager) buildNextStorage(current storageConfig, req UpdateConfig
 	}
 	next := storageConfig{
 		Enabled: req.Enabled, BlockingEnabled: req.BlockingEnabled, BlockingLatestTurnOnly: req.BlockingLatestTurnOnly, StorePassEvents: req.StorePassEvents,
+		BlockingReviewModules: current.BlockingReviewModules, DeepReviewModules: current.DeepReviewModules,
 		Strategy: strings.TrimSpace(req.Strategy), WorkerCount: req.WorkerCount,
 		QueueCapacity: req.QueueCapacity, Scanners: append([]string(nil), req.Scanners...),
 		AllGroups: req.AllGroups, GroupIDs: append([]int64(nil), req.GroupIDs...),
 		ConfigVersion: current.ConfigVersion, UpdatedBy: actorID,
 		Endpoints: make([]StorageEndpoint, 0, len(req.Endpoints)),
+	}
+	if req.BlockingReviewModules != nil {
+		next.BlockingReviewModules = *req.BlockingReviewModules
+	}
+	if req.DeepReviewModules != nil {
+		next.DeepReviewModules = *req.DeepReviewModules
 	}
 	for _, endpoint := range req.Endpoints {
 		baseURL, err := NormalizeBaseURL(endpoint.BaseURL)

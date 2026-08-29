@@ -263,7 +263,7 @@ func TestExtractionFailuresBlockAPIKeyAndOAuthBeforeDownstreamStages(t *testing.
 			prompt := securityaudit.NewPromptService(blockingCompatibilityConfigStore{cfg: securityaudit.ActiveConfig{
 				RiskControlEnabled: true, Enabled: true, BlockingEnabled: true, AllGroups: true,
 				Scanners: []string{"pii"}, Endpoints: []securityaudit.ActiveEndpoint{{ID: "guard", Enabled: true, TimeoutMS: 1000, InputLimit: 4096}},
-			}}, nil, nil, nil, metrics)
+			}}, nil, testPromptAuditRedisStore(t), nil, metrics)
 			coordinator := securityaudit.NewCoordinator(nil, prompt)
 			recorder := httptest.NewRecorder()
 			c, _ := gin.CreateTestContext(recorder)
@@ -309,7 +309,7 @@ func TestExtractionFailuresBlockWebSocketTurnBeforeUpstreamWrite(t *testing.T) {
 	prompt := securityaudit.NewPromptService(blockingCompatibilityConfigStore{cfg: securityaudit.ActiveConfig{
 		RiskControlEnabled: true, Enabled: true, BlockingEnabled: true, AllGroups: true,
 		Scanners: []string{"pii"}, Endpoints: []securityaudit.ActiveEndpoint{{ID: "guard", Enabled: true, TimeoutMS: 1000, InputLimit: 4096}},
-	}}, nil, nil, nil, metrics)
+	}}, nil, testPromptAuditRedisStore(t), nil, metrics)
 	coordinator := securityaudit.NewCoordinator(nil, prompt)
 	recorder := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(recorder)
@@ -333,6 +333,23 @@ func TestExtractionFailuresBlockWebSocketTurnBeforeUpstreamWrite(t *testing.T) {
 	require.Zero(t, upstreamWrites)
 	require.Equal(t, securityaudit.AuditMetricsSnapshot{ExtractionAttempted: 1, ExtractionFailed: 1}, metrics.AuditSnapshot())
 }
+
+type handlerPromptAuditStore struct{}
+
+func (handlerPromptAuditStore) Set(context.Context, int64, string, time.Duration) error { return nil }
+func (handlerPromptAuditStore) Get(context.Context, int64) (string, error)              { return "", nil }
+func (handlerPromptAuditStore) Delete(context.Context, int64) error                     { return nil }
+func (handlerPromptAuditStore) Ping(context.Context) error                              { return nil }
+func (handlerPromptAuditStore) Required(context.Context, int64) (string, bool, error) {
+	return "", false, nil
+}
+func (handlerPromptAuditStore) Require(context.Context, int64, string) error { return nil }
+func (handlerPromptAuditStore) Replace(context.Context, int64, string, string) (bool, error) {
+	return true, nil
+}
+func (handlerPromptAuditStore) Clear(context.Context, int64, string) (bool, error) { return true, nil }
+
+func testPromptAuditRedisStore(*testing.T) handlerPromptAuditStore { return handlerPromptAuditStore{} }
 
 type turnCountingEngine struct {
 	mode            securityaudit.Mode

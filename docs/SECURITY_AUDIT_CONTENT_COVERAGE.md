@@ -91,21 +91,27 @@ Both engines consume the same canonical document:
 | Engine/mode | Segment selection |
 | --- | --- |
 | Content Moderation | Scans only current direct-user text and images. Chat and Anthropic require an explicit `user` role; Responses, Live, and Gemini also accept their protocol-defined roleless user forms. Direct Alpha Search queries, embedding strings, and media prompts remain eligible. Instructions, system/developer context, reusable prompt variables, assistant/model messages, reasoning, tool definitions/calls/results, approval responses, and tool-produced images are excluded so platform or external content is not attributed to the user. |
-| Prompt Audit full/async | Scans every user-authored prompt in this request: `SourceMessage` with `role=user` (or a role-less Responses/Gemini/embeddings/media form treated as user), plus search queries, embedding strings, and media prompts. It excludes instructions/system/developer context, reusable prompt variables, reasoning, assistant/model text, and tool/function definitions, arguments, and outputs. Client harness XML blocks inside user text (`environment_context`, `permission_profile`, `system-reminder`, `filesystem`) are stripped; surrounding user sentences remain. |
-| Prompt Audit blocking latest-turn-only | Scans only the latest user text after the same client-harness XML strip. Instructions, tool definitions, older user turns, assistant/model output, and structured tool calls are omitted from the blocking input. `blocking_latest_turn_only` is stored for compatibility and does not change this selection. |
+| Prompt Audit async / async-deep | Always scans every user-authored prompt in this request: `SourceMessage` with `role=user` (or a role-less Responses/Gemini/embeddings/media form treated as user), plus search queries, embedding strings, and media prompts. Configuration independently adds instructions/system/developer context, assistant/model messages, reasoning, reusable prompt variables, tool definitions, tool-call arguments, and tool outputs. |
+| Prompt Audit blocking | Always scans the latest user text. Configuration independently adds the same source modules. `blocking_latest_turn_only` remains a compatibility field and does not override module selection. A user carrying a deep-review requirement is synchronously reviewed with the async-deep module selection instead. |
 
 Sharing a canonical document does not mean that the engines select identical
 segments. Content Moderation preserves the `v0.1.177+custom.003` attribution
 rule: only a direct user submission may produce a user content-policy
-violation. Prompt Audit Guard scans only user-authored prompt text: ordinary
-`hi` plus Codex/Claude instructions or a client tool schema must not become a
-jailbreak hit, while jailbreak text written in the latest user message still
-blocks. Client wrapper XML such as `<environment_context>` inside a user
-message is stripped so sentences like `你能做什么？` are scanned without the
-harness block. A turn containing only instructions, a tool result, or tool schema is
-a valid empty Prompt Audit selection. Incomplete canonical extraction is
-observable. Blocking Prompt Audit fails closed; async mode evaluates selected
-sibling user content and records the extraction defect.
+violation. Prompt Audit may inspect non-user sources when the corresponding
+module is enabled, but such a finding is review state rather than proof of user
+misconduct. The `system` module also retains `<system-reminder>` content so
+user-installed skills can be reviewed. `<environment_context>`,
+`<permission_profile>`, and `<filesystem>` blocks are still removed from user
+text. A turn containing only unselected modules is a valid empty Prompt Audit
+selection. Incomplete canonical extraction is observable. Blocking and forced
+deep review fail closed; async modes evaluate selected siblings and record the
+extraction defect.
+
+Configurations created before these module maps existed default synchronous
+review to system/instructions, prompt variables, and tool definitions. Deep
+review defaults all optional modules on. Administrators may independently
+disable any optional module; latest-user synchronous coverage and all-user-turn
+asynchronous coverage remain mandatory.
 
 ## Prompt Audit Event Evidence
 
@@ -124,16 +130,31 @@ and downloads never enter application logs. Event deletion cascades to the
 context artifact. Events created before this migration have no recoverable
 complete-context artifact.
 
+Blocking Allow starts a best-effort `async_deep` job only after Content
+Moderation and Prompt Guard both permit the request. A deep Block writes a
+versioned per-user Redis requirement before the job completes. The next request
+uses the configured deep modules synchronously; only Allow compare-and-deletes
+the same version. Flag, Block, dependency failure, and a newer concurrent
+finding keep the requirement and prevent upstream access. This state does not
+create a Content Moderation hash, violation count, or automatic penalty.
+
 ## Failure Semantics
 
 All enabled engine paths expose `extraction_attempted`,
 `extraction_succeeded`, `extraction_empty`, and `extraction_failed` counters.
 Every extraction, evaluation, or audit-dependency exception emits a structured
 log containing request ID, endpoint, protocol, stage, a stable error
-code/reason, available byte counts, and bounded incomplete reasons. Logs must
-not contain raw content, credentials, or unsanitized user fields. Extraction
-failure is an audit-dependency outcome rather than a fabricated policy match;
-blocking Prompt Audit reports it and prevents upstream side effects.
+code/reason, available byte counts, and bounded incomplete reasons. Extraction
+failure logs also contain a shared `failure_nodes` description resolved from
+the canonical failure path: the constrained item type and role, value kind,
+sorted bounded object keys, a value-free JSON shape, node byte count, and
+stable item-type/shape fingerprints. Scalar values other than protocol
+discriminators are replaced with type markers such as `$string`; suspicious
+or credential-like identifiers are redacted and retain only a fingerprint.
+Logs must not contain raw content, credentials, media, or unsanitized user
+fields. Extraction failure is an audit-dependency outcome rather than a
+fabricated policy match; blocking Prompt Audit reports it and prevents
+upstream side effects.
 
 Content Moderation applies the same log contract to asynchronous persistence,
 hash-cache, account-side-effect, notification, worker, cleanup, runtime, and

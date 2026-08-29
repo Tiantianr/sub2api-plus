@@ -1,47 +1,51 @@
-Sub2API Plus v0.1.183+custom.909
+Sub2API Plus v0.1.183+custom.910
 
 ## Highlights
 
-- Synchronize the published Plus `v0.1.183+custom.003` release and retire its
-  upstream billing probe and public billing endpoint.
-- Use Plus user-authored Prompt Audit selection while preserving the complete
-  canonical request context for authorized audit-event download.
-- Unify OpenAI OAuth group, session-sharing, and per-user access scope across
-  scheduling, administration, group duplication, Responses WS, and Live.
+- Add configurable dual-lane Prompt Audit: the latest user turn is reviewed
+  synchronously, and every user turn receives a best-effort asynchronous deep
+  review after the combined synchronous security decision allows the request.
+- Fence late asynchronous Blocks with a per-user synchronous deep-review
+  requirement on the next request; only a matching Allow restores normal mode.
+- Record value-free structural diagnostics for failed content extraction so
+  unsupported protocol item types can be identified without logging prompt,
+  tool, credential, or media values.
 
 ## Changed
 
-- Synchronous Prompt Audit always scans only the latest user input; asynchronous
-  Prompt Audit scans all user-authored turns.
-- Guard excludes system/developer instructions, assistant/model output,
-  reasoning, prompt variables, tool definitions/calls/results, and Live session
-  configuration.
-- Supported client harness XML is stripped from Guard input but retained in the
-  separately encrypted complete-context artifact.
+- Configure synchronous and asynchronous review independently for system
+  instructions, assistant history, reasoning, prompt variables, tool
+  definitions, tool calls, and tool outputs. Mandatory user coverage cannot be
+  disabled.
+- Store asynchronous deep jobs and events under `execution_mode=async_deep`,
+  with independent administration filters and the existing encrypted complete
+  context evidence.
+- Preserve rolling-upgrade compatibility for omitted module fields while
+  accepting explicitly supplied all-false optional module maps.
 
 ## Fixed
 
-- Prevent duplicated groups from creating effective OAuth session-sharing
-  access outside the account allowlist.
-- Revalidate current group eligibility as well as per-user grants on long-lived
-  Responses WebSocket and Live paths.
-- Keep Codex auto-review billing accurate when an unmapped request observes a
-  Luna response.
+- Require a user with a late deep Block to pass a fenced synchronous deep
+  review even after leaving the ordinary Prompt Audit group scope.
+- Keep non-user deep findings out of Content Moderation hashes, violation
+  counts, permanent bans, and automatic user penalties.
 
 ## Compatibility and migration
 
-- Removes obsolete upstream billing-probe database state and adds encrypted
-  complete-context storage tied to Prompt Audit event retention.
-- The legacy latest-turn configuration field remains accepted but no longer
-  changes synchronous Prompt Audit selection.
+- Migrations `239_prompt_audit_deep_review.sql` and
+  `240_prompt_audit_events_mode_index_notx.sql` run automatically. They admit
+  `async_deep` rows and create the event-mode index concurrently.
+- Existing Prompt Audit configurations inherit compatibility defaults when the
+  new module maps are absent. No manual configuration change is required.
 - No Compose, port, certificate, proxy, or persistent-volume change is required.
 - Personal images and binary archives remain Linux arm64 only.
 
 ## Known issues
 
-- PostgreSQL Prompt Audit integration tests still require an external
-  `PROMPT_AUDIT_TEST_POSTGRES_DSN`; repository migration coverage remains in the
-  protected Linux test matrix.
+- Asynchronous deep review begins only after synchronous Allow and cannot
+  retroactively cancel content already sent upstream or delivered to a client.
+- Blocking and forced recovery review remain fail closed on extraction,
+  encryption, Guard, and deep-review state-store failures.
 - Production deployment remains a separate operation and is not part of this
   release publication.
 

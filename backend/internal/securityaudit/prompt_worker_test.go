@@ -98,7 +98,7 @@ func (r *fakeJobRepository) record(value string) {
 	}
 }
 
-func (r *fakeJobRepository) CreateStagingWithCapacity(_ context.Context, snapshot PromptSnapshot, _ int64, _, _ int) (*Job, error) {
+func (r *fakeJobRepository) CreateStagingWithCapacity(_ context.Context, snapshot PromptSnapshot, mode Mode, _ int64, _, _ int) (*Job, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.record("create_staging")
@@ -107,7 +107,7 @@ func (r *fakeJobRepository) CreateStagingWithCapacity(_ context.Context, snapsho
 		return nil, r.createErr
 	}
 	if r.createJob == nil {
-		r.createJob = &Job{ID: 1, Snapshot: snapshot}
+		r.createJob = &Job{ID: 1, Snapshot: snapshot, ExecutionMode: mode}
 	}
 	return r.createJob, nil
 }
@@ -143,6 +143,7 @@ func (r *fakeJobRepository) RefreshLease(context.Context, int64, int64, time.Tim
 func (r *fakeJobRepository) Complete(_ context.Context, job *Job, result *NormalizedResult, storePass bool) (*Event, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	r.record("complete")
 	r.completeCount++
 	r.completedJob = job
 	r.completedResult, r.completedStore = result, storePass
@@ -192,6 +193,8 @@ type fakePayloadStore struct {
 	pingErr   error
 	setTTL    time.Duration
 	deleted   []int64
+	states    map[int64]string
+	stateErr  error
 }
 
 func (s *fakePayloadStore) Set(_ context.Context, jobID int64, value string, ttl time.Duration) error {
@@ -232,6 +235,54 @@ func (s *fakePayloadStore) Delete(_ context.Context, jobID int64) error {
 	return s.deleteErr
 }
 func (s *fakePayloadStore) Ping(context.Context) error { return s.pingErr }
+func (s *fakePayloadStore) Required(_ context.Context, userID int64) (string, bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.stateErr != nil {
+		return "", false, s.stateErr
+	}
+	token := s.states[userID]
+	return token, token != "", nil
+}
+func (s *fakePayloadStore) Require(_ context.Context, userID int64, token string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.trace != nil {
+		*s.trace = append(*s.trace, "state_require")
+	}
+	if s.stateErr != nil {
+		return s.stateErr
+	}
+	if s.states == nil {
+		s.states = map[int64]string{}
+	}
+	s.states[userID] = token
+	return nil
+}
+func (s *fakePayloadStore) Replace(_ context.Context, userID int64, oldToken, newToken string) (bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.stateErr != nil {
+		return false, s.stateErr
+	}
+	if s.states[userID] != oldToken {
+		return false, nil
+	}
+	s.states[userID] = newToken
+	return true, nil
+}
+func (s *fakePayloadStore) Clear(_ context.Context, userID int64, token string) (bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.stateErr != nil {
+		return false, s.stateErr
+	}
+	if s.states[userID] != token {
+		return false, nil
+	}
+	delete(s.states, userID)
+	return true, nil
+}
 
 func asyncConfig() ActiveConfig {
 	return ActiveConfig{
@@ -289,6 +340,22 @@ func TestEnqueuerStagingPayloadPublishProtocolAndFailureCleanup(t *testing.T) {
 		require.Equal(t, "queue_publish_failed", repo.markedCode)
 		require.NotContains(t, payload.values, int64(43))
 	})
+}
+
+func TestEnqueuerCreatesDistinctAsyncDeepJobWithConfiguredModules(t *testing.T) {
+	cfg := asyncConfig()
+	cfg.BlockingEnabled = true
+	cfg.DeepReviewModules = ReviewModules{System: true}
+	repo := &fakeJobRepository{}
+	payload := &fakePayloadStore{values: map[int64]string{}}
+	enqueuer := NewEnqueuer(&fakeConfigStore{cfg: cfg, active: true}, repo, payload)
+	req := Request{Protocol: "openai_chat_completions", Body: []byte(`{"messages":[{"role":"system","content":"deep system"},{"role":"user","content":"deep user"}]}`)}
+
+	require.NoError(t, enqueuer.EnqueueDeep(context.Background(), req))
+	require.Equal(t, ModeAsyncDeep, repo.createJob.ExecutionMode)
+	transient := decodeTransientPromptPayload(payload.values[repo.createJob.ID])
+	require.Contains(t, transient.ScanText, "deep user")
+	require.Contains(t, transient.ScanText, "deep system")
 }
 
 func TestEnqueuerSkipsOffOutOfScopeAndNoText(t *testing.T) {
@@ -678,6 +745,24 @@ func TestPromptAuditSyntheticAsyncBaseline(t *testing.T) {
 	require.LessOrEqual(t, snapshot.LatencyP50MS, snapshot.LatencyP95MS)
 	require.LessOrEqual(t, snapshot.LatencyP95MS, snapshot.LatencyP99MS)
 	t.Logf("synthetic async baseline: p50=%dms p95=%dms p99=%dms failure_rate=2%% false_positive_rate=0%% event_growth=8/100", snapshot.LatencyP50MS, snapshot.LatencyP95MS, snapshot.LatencyP99MS)
+}
+
+func TestAsyncDeepBlockMarksUserBeforeCompletingJob(t *testing.T) {
+	trace := []string{}
+	payload := &fakePayloadStore{trace: &trace, values: map[int64]string{51: "deep blocked input"}, states: map[int64]string{}}
+	repo := &fakeJobRepository{trace: &trace}
+	runner := NewRunner(&fakeConfigStore{active: true, cfg: asyncConfig()}, repo, payload, PromptScannerFunc(func(context.Context, ActiveEndpoint, string, []string) (*NormalizedResult, error) {
+		return &NormalizedResult{Decision: EventCritical, RiskLevel: RiskCritical, Action: ActionBlock, ScannerScores: map[string]float64{}, ScannerEvidence: map[string]string{}}, nil
+	}), NewAtomicMetrics())
+	job := &Job{
+		ID: 51, Snapshot: PromptSnapshot{UserID: 42, PromptLength: 18}, ExecutionMode: ModeAsyncDeep,
+		Status: "processing", Attempts: 1, MaxAttempts: 3, ClaimVersion: 7,
+	}
+
+	require.NoError(t, runner.processJob(context.Background(), 0, asyncConfig(), job))
+	require.Equal(t, "async:51:7", payload.states[42])
+	require.Equal(t, 1, repo.completeCount)
+	require.Equal(t, []string{"state_require", "complete", "payload_delete"}, trace)
 }
 
 func TestRequestCloneOwnsMutableInputs(t *testing.T) {

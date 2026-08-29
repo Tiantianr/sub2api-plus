@@ -153,12 +153,16 @@ current direct-user message text and images. It excludes `instructions`, tool
 definitions, reusable prompt variables, assistant/model messages, reasoning,
 tool calls/results, approval responses, and tool-produced screenshots. This
 prevents platform context or external tool content from being reported as a
-user policy violation. Prompt Audit consumes the same canonical result but
-selects user-authored text: asynchronous audit scans all user turns and
-synchronous blocking scans only the latest user turn. Instructions,
-assistant/model output, reasoning, reusable prompt variables, tool definitions,
-arguments, and results do not enter Guard input. Supported client harness XML
-is stripped from selected user text. Newly stored audit events retain a
+user policy violation. Prompt Audit consumes the same canonical result.
+Synchronous review always includes the latest user turn and asynchronous review
+always includes all user turns; each lane independently configures whether
+instructions, assistant/model output, reasoning, reusable prompt variables,
+tool definitions, arguments, and results enter Guard input. The system module
+also includes `system-reminder` skill content, while environment, permission,
+and filesystem wrappers remain excluded from user text. A blocking Allow starts
+an `async_deep` job. A deep Block forces the user's next request through the
+configured deep selection synchronously before WebSocket or HTTP upstream
+writes can resume. Newly stored audit events retain a
 separately encrypted complete canonical context artifact for authorized admin
 download, including text excluded from Guard selection.
 A supported WebSocket control frame may produce no audit input. Unknown sibling

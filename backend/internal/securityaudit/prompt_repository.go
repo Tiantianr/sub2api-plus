@@ -70,7 +70,7 @@ type Event struct {
 }
 
 type JobRepository interface {
-	CreateStagingWithCapacity(ctx context.Context, snapshot PromptSnapshot, configVersion int64, maxAttempts, capacity int) (*Job, error)
+	CreateStagingWithCapacity(ctx context.Context, snapshot PromptSnapshot, mode Mode, configVersion int64, maxAttempts, capacity int) (*Job, error)
 	PublishQueued(ctx context.Context, jobID int64) error
 	MarkStagingFailed(ctx context.Context, jobID int64, code, message string) error
 	ClaimNextJob(ctx context.Context, now time.Time) (*Job, bool, error)
@@ -92,9 +92,12 @@ func NewPostgreSQLRepository(db *sql.DB) *PostgreSQLRepository {
 	return &PostgreSQLRepository{db: db, clock: realClock{}}
 }
 
-func (r *PostgreSQLRepository) CreateStagingWithCapacity(ctx context.Context, snapshot PromptSnapshot, configVersion int64, maxAttempts, capacity int) (*Job, error) {
+func (r *PostgreSQLRepository) CreateStagingWithCapacity(ctx context.Context, snapshot PromptSnapshot, mode Mode, configVersion int64, maxAttempts, capacity int) (*Job, error) {
 	if r == nil || r.db == nil {
 		return nil, errors.New("prompt audit database unavailable")
+	}
+	if mode != ModeAsync && mode != ModeAsyncDeep {
+		return nil, errors.New("prompt audit queue execution mode invalid")
 	}
 	tx, err := r.db.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelReadCommitted})
 	if err != nil {
@@ -120,7 +123,7 @@ func (r *PostgreSQLRepository) CreateStagingWithCapacity(ctx context.Context, sn
 	if maxAttempts <= 0 {
 		maxAttempts = 3
 	}
-	job, err := insertJob(ctx, tx, snapshot.Redacted(), ModeAsync, configVersion, "staging", maxAttempts)
+	job, err := insertJob(ctx, tx, snapshot.Redacted(), mode, configVersion, "staging", maxAttempts)
 	if err != nil {
 		return nil, err
 	}

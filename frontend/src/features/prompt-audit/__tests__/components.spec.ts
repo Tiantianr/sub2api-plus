@@ -8,7 +8,7 @@ import EventDetailDialog from '../components/EventDetailDialog.vue'
 import FilterDeleteDialog from '../components/FilterDeleteDialog.vue'
 import RuntimeOverview from '../components/RuntimeOverview.vue'
 import type { PromptAuditDraft, PromptAuditEndpointDraft, PromptAuditEvent, PromptAuditRuntime, PromptEventFilters } from '../types'
-import { emptyEventFilters, resolveDeleteRangeFilters, SCANNER_CATALOG } from '../viewModel'
+import { DEFAULT_BLOCKING_REVIEW_MODULES, DEFAULT_DEEP_REVIEW_MODULES, emptyEventFilters, resolveDeleteRangeFilters, SCANNER_CATALOG } from '../viewModel'
 
 const { downloadEventContext, showError } = vi.hoisted(() => ({
   downloadEventContext: vi.fn(),
@@ -106,6 +106,7 @@ describe('Prompt Audit components', () => {
   it('supports group search, stale configured groups, nine scanners, and bounded worker inputs', async () => {
     const draft: PromptAuditDraft = {
       enabled: true, blocking_enabled: false, blocking_latest_turn_only: false, store_pass_events: false, effective_mode: 'async_audit', strategy: 'priority',
+      blocking_review_modules: { ...DEFAULT_BLOCKING_REVIEW_MODULES }, deep_review_modules: { ...DEFAULT_DEEP_REVIEW_MODULES },
       worker_count: 4, queue_capacity: 100, scanners: SCANNER_CATALOG.map((item) => item.id), all_groups: false, group_ids: [1, 99],
       endpoints: [endpoint()], config_version: 1, updated_at: '', updated_by: 0, change_summary: '',
     }
@@ -118,8 +119,12 @@ describe('Prompt Audit components', () => {
     expect(wrapper.text()).toContain('Beta')
     expect(wrapper.text()).not.toContain('Alpha')
     await wrapper.get('[aria-label="admin.promptAudit.policy.workerCount"]').setValue('6')
-    const emitted = wrapper.emitted('update:draft')?.at(-1)?.[0] as PromptAuditDraft
+    let emitted = wrapper.emitted('update:draft')?.at(-1)?.[0] as PromptAuditDraft
     expect(emitted.worker_count).toBe(6)
+    await wrapper.get('[data-test="blocking_review_modules-assistant"]').setValue(true)
+    emitted = wrapper.emitted('update:draft')?.at(-1)?.[0] as PromptAuditDraft
+    expect(emitted.blocking_review_modules.assistant).toBe(true)
+    expect(emitted.deep_review_modules.assistant).toBe(true)
   })
 
   it('keeps identity fields separate, supports selection, and opens filter deletion from the toolbar', async () => {
@@ -145,6 +150,8 @@ describe('Prompt Audit components', () => {
     expect(wrapper.emitted('selection')?.at(-1)?.[0]).toEqual([1])
     await wrapper.get('[aria-label="admin.promptAudit.events.filterByIp"]').trigger('click')
     expect((wrapper.emitted('search')?.at(-1)?.[0] as PromptEventFilters).client_ip).toBe('203.0.113.42')
+    await wrapper.get('[aria-label="admin.promptAudit.events.executionMode"]').setValue('async_deep')
+    expect((wrapper.emitted('filters-change')?.at(-1)?.[0] as PromptEventFilters).execution_mode).toBe('async_deep')
   })
 
   it('resolves delete range presets to an epoch start and a cutoff end', () => {

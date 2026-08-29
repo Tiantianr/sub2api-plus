@@ -21,6 +21,14 @@ func NewEnqueuer(config ConfigStore, repo JobRepository, payload PayloadStore, m
 }
 
 func (e *Enqueuer) Enqueue(ctx context.Context, req Request) error {
+	return e.enqueue(ctx, req, ModeAsync)
+}
+
+func (e *Enqueuer) EnqueueDeep(ctx context.Context, req Request) error {
+	return e.enqueue(ctx, req, ModeAsyncDeep)
+}
+
+func (e *Enqueuer) enqueue(ctx context.Context, req Request, mode Mode) error {
 	if e == nil || e.config == nil || e.repo == nil || e.payload == nil {
 		LogWarn(EventEnqueueDropped, mergeLogFields(requestLogFields(req), map[string]any{
 			"status": "dropped", "error_code": "enqueuer_unavailable", "error_kind": "audit_dependency",
@@ -32,7 +40,12 @@ func (e *Enqueuer) Enqueue(ctx context.Context, req Request) error {
 	}
 	cfg, ok := e.config.Active()
 	baseFields := requestLogFields(req)
-	if !ok || cfg.EffectiveMode() != ModeAsync {
+	baseFields["execution_mode"] = mode
+	expectedMode := ModeAsync
+	if mode == ModeAsyncDeep {
+		expectedMode = ModeBlocking
+	}
+	if !ok || cfg.EffectiveMode() != expectedMode {
 		LogInfo(EventEnqueueSkipped, mergeLogFields(baseFields, map[string]any{"status": "skipped", "error_code": "mode_not_async"}))
 		return nil
 	}
@@ -46,7 +59,7 @@ func (e *Enqueuer) Enqueue(ctx context.Context, req Request) error {
 		LogWarn(EventEnqueueDropped, mergeLogFields(baseFields, map[string]any{"status": "dropped", "error_code": "no_enabled_endpoint"}))
 		return nil
 	}
-	snapshot, diagnostic, err := extractPromptSnapshotWithDiagnostics(req, false)
+	snapshot, diagnostic, err := extractDeepPromptSnapshotWithDiagnostics(req, cfg.DeepReviewModules)
 	if diagnostic.Failed {
 		e.recordExtraction(ExtractionFailed)
 		logPromptExtractionFailure(req, diagnostic)
@@ -88,7 +101,7 @@ func (e *Enqueuer) Enqueue(ctx context.Context, req Request) error {
 		e.recordDropped()
 		return err
 	}
-	job, err := e.repo.CreateStagingWithCapacity(ctx, snapshot.Redacted(), cfg.ConfigVersion, 3, cfg.QueueCapacity)
+	job, err := e.repo.CreateStagingWithCapacity(ctx, snapshot.Redacted(), mode, cfg.ConfigVersion, 3, cfg.QueueCapacity)
 	if err != nil {
 		code := "database_unavailable"
 		if errors.Is(err, ErrQueueFull) {

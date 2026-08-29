@@ -43,7 +43,7 @@ func openPromptAuditIntegrationDB(t *testing.T) *sql.DB {
 		);
 	`)
 	require.NoError(t, err)
-	for _, name := range []string{"181_prompt_audit.sql", "182_prompt_audit_full_prompt.sql", "234_prompt_audit_observability.sql", "235_prompt_audit_client_ip_index_notx.sql", "238_prompt_audit_event_contexts.sql"} {
+	for _, name := range []string{"181_prompt_audit.sql", "182_prompt_audit_full_prompt.sql", "234_prompt_audit_observability.sql", "235_prompt_audit_client_ip_index_notx.sql", "238_prompt_audit_event_contexts.sql", "239_prompt_audit_deep_review.sql", "240_prompt_audit_events_mode_index_notx.sql"} {
 		migration, err := os.ReadFile(filepath.Join("..", "..", "migrations", name))
 		require.NoError(t, err)
 		// The migration runner can retry an interrupted deployment; the migration
@@ -56,6 +56,37 @@ func openPromptAuditIntegrationDB(t *testing.T) *sql.DB {
 	t.Cleanup(func() { require.NoError(t, db.Close()) })
 	resetPromptAuditIntegrationDB(t, db)
 	return db
+}
+
+func TestPromptAuditAsyncDeepExecutionModePersistsAndFilters(t *testing.T) {
+	db := openPromptAuditIntegrationDB(t)
+	repo := NewPostgreSQLRepository(db)
+	ctx := context.Background()
+	snapshot := integrationSnapshot("deep")
+	snapshot.UserID = insertIdentity(t, db, "users")
+	snapshot.APIKeyID = insertIdentity(t, db, "api_keys")
+	groupID := insertIdentity(t, db, "groups")
+	snapshot.GroupID = &groupID
+
+	job, err := repo.CreateStagingWithCapacity(ctx, snapshot, ModeAsyncDeep, 1, 3, 10)
+	require.NoError(t, err)
+	require.Equal(t, ModeAsyncDeep, job.ExecutionMode)
+	require.NoError(t, repo.PublishQueued(ctx, job.ID))
+	claimed, ok, err := repo.ClaimNextJob(ctx, time.Now().UTC().Add(time.Second))
+	require.NoError(t, err)
+	require.True(t, ok)
+	event, err := repo.Complete(ctx, claimed, integrationResult(EventCritical), false)
+	require.NoError(t, err)
+	require.Equal(t, ModeAsyncDeep, event.ExecutionMode)
+
+	page, err := repo.ListEvents(ctx, EventFilter{ExecutionMode: string(ModeAsyncDeep)}, 1, 20)
+	require.NoError(t, err)
+	require.Equal(t, int64(1), page.Total)
+	require.Len(t, page.Items, 1)
+	require.Equal(t, ModeAsyncDeep, page.Items[0].ExecutionMode)
+	blockingPage, err := repo.ListEvents(ctx, EventFilter{ExecutionMode: string(ModeBlocking)}, 1, 20)
+	require.NoError(t, err)
+	require.Zero(t, blockingPage.Total)
 }
 
 func resetPromptAuditIntegrationDB(t *testing.T, db *sql.DB) {
@@ -264,7 +295,7 @@ func TestPromptAuditDatabasePersistsFullPromptOnEventsOnly(t *testing.T) {
 	require.NoError(t, db.QueryRow(`SELECT row_to_json(j)::text FROM prompt_audit_jobs j WHERE id=$1`, event.JobID).Scan(&jobJSON))
 	require.NotContains(t, jobJSON, promptCanary)
 
-	failedJob, err := repo.CreateStagingWithCapacity(ctx, integrationSnapshot("error"), 1, 3, 10)
+	failedJob, err := repo.CreateStagingWithCapacity(ctx, integrationSnapshot("error"), ModeAsync, 1, 3, 10)
 	require.NoError(t, err)
 	const errorCanary = "GUARD_RAW_RESPONSE_CANARY_SECRET"
 	require.NoError(t, repo.MarkStagingFailed(ctx, failedJob.ID, "payload_store_failed", "raw guard body: "+errorCanary))
@@ -298,7 +329,7 @@ func TestPromptAuditRepositoryAdmissionClaimFencingAndEventTransaction(t *testin
 		go func(index int) {
 			defer wg.Done()
 			<-start
-			job, err := repo.CreateStagingWithCapacity(ctx, integrationSnapshot(string(rune('a'+index))), 1, 3, 1)
+			job, err := repo.CreateStagingWithCapacity(ctx, integrationSnapshot(string(rune('a'+index))), ModeAsync, 1, 3, 1)
 			results <- admissionResult{job: job, err: err}
 		}(i)
 	}
@@ -372,7 +403,7 @@ func TestPromptAuditRepositoryAdmissionClaimFencingAndEventTransaction(t *testin
 	require.NoError(t, db.QueryRow(`SELECT COUNT(*) FROM prompt_audit_events WHERE job_id=$1`, secondClaim.ID).Scan(&eventCount))
 	require.Equal(t, 1, eventCount)
 
-	staging, err := repo.CreateStagingWithCapacity(ctx, integrationSnapshot("stale"), 1, 3, 10)
+	staging, err := repo.CreateStagingWithCapacity(ctx, integrationSnapshot("stale"), ModeAsync, 1, 3, 10)
 	require.NoError(t, err)
 	reclaimed, err = repo.ReclaimStale(ctx, time.Now().Add(time.Hour), time.Now().Add(time.Hour), 10)
 	require.NoError(t, err)

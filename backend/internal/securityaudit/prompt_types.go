@@ -11,6 +11,7 @@ const (
 
 	ConfigInvalidationChannel = "sub2api:prompt_guard:config:invalidate"
 	PayloadKeyPrefix          = "sub2api:prompt_audit:payload:"
+	DeepReviewStateKeyPrefix  = "sub2api:prompt_audit:deep_required:user:"
 
 	ErrorCodeBlocked               = "prompt_guard_blocked"
 	ErrorCodeUnavailable           = "prompt_guard_unavailable"
@@ -20,6 +21,8 @@ const (
 	ErrorCodeConfigUnavailable     = "prompt_audit_config_unavailable"
 	ErrorCodeEncryptionKeyRequired = "prompt_audit_encryption_key_required"
 	ErrorCodeRequiresEnabled       = "prompt_guard_requires_audit_enabled"
+	ErrorCodeDeepReviewRequired    = "prompt_guard_deep_review_required"
+	ErrorCodeDeepReviewState       = "prompt_guard_deep_review_state_unavailable"
 
 	DefaultGuardModel = "sileader/qwen3guard:0.6b"
 )
@@ -27,10 +30,32 @@ const (
 type Mode string
 
 const (
-	ModeOff      Mode = "off"
-	ModeAsync    Mode = "async_audit"
-	ModeBlocking Mode = "blocking"
+	ModeOff       Mode = "off"
+	ModeAsync     Mode = "async_audit"
+	ModeAsyncDeep Mode = "async_deep"
+	ModeBlocking  Mode = "blocking"
 )
+
+type ReviewModules struct {
+	System          bool `json:"system"`
+	Assistant       bool `json:"assistant"`
+	Reasoning       bool `json:"reasoning"`
+	PromptVariables bool `json:"prompt_variables"`
+	ToolDefinitions bool `json:"tool_definitions"`
+	ToolCalls       bool `json:"tool_calls"`
+	ToolOutputs     bool `json:"tool_outputs"`
+}
+
+func DefaultBlockingReviewModules() ReviewModules {
+	return ReviewModules{System: true, PromptVariables: true, ToolDefinitions: true}
+}
+
+func DefaultDeepReviewModules() ReviewModules {
+	return ReviewModules{
+		System: true, Assistant: true, Reasoning: true, PromptVariables: true,
+		ToolDefinitions: true, ToolCalls: true, ToolOutputs: true,
+	}
+}
 
 type DecisionKind string
 
@@ -160,6 +185,7 @@ type PromptDecision struct {
 	ErrorCode      string            `json:"error_code,omitempty"`
 	Result         *NormalizedResult `json:"result,omitempty"`
 	AllowNextStage bool              `json:"allow_next_stage"`
+	DeepReviewed   bool              `json:"-"`
 }
 
 type LegacyDecision struct {
