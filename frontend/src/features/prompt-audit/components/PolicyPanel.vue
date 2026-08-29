@@ -76,6 +76,11 @@
           <span>{{ t('admin.promptAudit.policy.queueCapacity') }}</span>
           <input :value="draft.queue_capacity" type="number" min="1" max="100000" class="input mt-1.5 w-full" :aria-label="t('admin.promptAudit.policy.queueCapacity')" @input="patch({ queue_capacity: Number(($event.target as HTMLInputElement).value) })" />
         </label>
+        <label class="block text-sm text-gray-700 dark:text-dark-200">
+          <span>{{ t('admin.promptAudit.policy.allowReceiptTTL') }}</span>
+          <input :value="draft.allow_receipt_ttl_seconds" type="number" min="60" max="86400" step="60" class="input mt-1.5 w-full" :aria-label="t('admin.promptAudit.policy.allowReceiptTTL')" @input="patch({ allow_receipt_ttl_seconds: Number(($event.target as HTMLInputElement).value) })" />
+          <span class="mt-1 block text-xs text-gray-500 dark:text-dark-400">{{ t('admin.promptAudit.policy.allowReceiptTTLHint') }}</span>
+        </label>
         <div class="rounded-lg bg-gray-50 px-4 py-3 text-sm text-gray-600 dark:bg-dark-900/50 dark:text-dark-300">
           <p class="font-medium text-gray-800 dark:text-dark-100">{{ t('admin.promptAudit.policy.strategy') }}</p>
           <p class="mt-1">priority · {{ t('admin.promptAudit.policy.strategyHint') }}</p>

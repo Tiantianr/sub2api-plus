@@ -11,6 +11,7 @@ export const MIN_GUARD_TIMEOUT_MS = 100
 export const MAX_GUARD_TIMEOUT_MS = 30000
 export const MIN_GUARD_INPUT_LIMIT = 128
 export const MAX_GUARD_INPUT_LIMIT = 500000
+export const DEFAULT_ALLOW_RECEIPT_TTL_SECONDS = 3600
 
 export const DEFAULT_BLOCKING_REVIEW_MODULES = {
   system: true,
@@ -56,6 +57,7 @@ export function configToDraft(config: PromptAuditConfig): PromptAuditDraft {
     ...cloneData(config),
     blocking_review_modules: { ...DEFAULT_BLOCKING_REVIEW_MODULES, ...(config.blocking_review_modules ?? {}) },
     deep_review_modules: { ...DEFAULT_DEEP_REVIEW_MODULES, ...(config.deep_review_modules ?? {}) },
+    allow_receipt_ttl_seconds: config.allow_receipt_ttl_seconds ?? DEFAULT_ALLOW_RECEIPT_TTL_SECONDS,
     group_ids: [...(config.group_ids ?? [])],
     scanners: [...(config.scanners ?? [])],
     endpoints: (config.endpoints ?? []).map((endpoint) => ({
@@ -91,6 +93,7 @@ export function buildUpdateRequest(draft: PromptAuditDraft): PromptAuditUpdateRe
     blocking_latest_turn_only: draft.blocking_latest_turn_only,
     blocking_review_modules: cloneData(draft.blocking_review_modules),
     deep_review_modules: cloneData(draft.deep_review_modules),
+    allow_receipt_ttl_seconds: Number(draft.allow_receipt_ttl_seconds),
     store_pass_events: draft.store_pass_events,
     strategy: 'priority',
     worker_count: Number(draft.worker_count),

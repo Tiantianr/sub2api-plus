@@ -37,6 +37,7 @@ func TestDefaultConfigIsOff(t *testing.T) {
 	require.False(t, storage.BlockingLatestTurnOnly)
 	require.Equal(t, DefaultBlockingReviewModules(), storage.BlockingReviewModules)
 	require.Equal(t, DefaultDeepReviewModules(), storage.DeepReviewModules)
+	require.Equal(t, DefaultAllowReceiptTTLSeconds, storage.AllowReceiptTTLSeconds)
 	active, err := ActiveFromStorage(storage, true, prefixEncryptor{})
 	require.NoError(t, err)
 	require.Equal(t, ModeOff, active.EffectiveMode())
@@ -51,23 +52,27 @@ func TestReviewModuleConfigRoundTrip(t *testing.T) {
 	manager := &ConfigManager{encryptor: prefixEncryptor{}, encryptionKeyConfigured: true}
 	blockingModules := ReviewModules{System: true, ToolDefinitions: true}
 	deepModules := ReviewModules{Assistant: true, Reasoning: true, ToolCalls: true, ToolOutputs: true}
+	cacheTTL := 7200
 	request := UpdateConfigRequest{
 		ExpectedConfigVersion: 1, Enabled: true, BlockingEnabled: true,
-		BlockingReviewModules: &blockingModules,
-		DeepReviewModules:     &deepModules,
-		Strategy:              "priority", WorkerCount: 1, QueueCapacity: 10, Scanners: []string{"pii"}, AllGroups: true,
+		BlockingReviewModules:  &blockingModules,
+		DeepReviewModules:      &deepModules,
+		AllowReceiptTTLSeconds: &cacheTTL,
+		Strategy:               "priority", WorkerCount: 1, QueueCapacity: 10, Scanners: []string{"pii"}, AllGroups: true,
 		Endpoints: []UpdateEndpoint{{ID: "guard-1", Name: "Guard", Protocol: "openai_compatible", BaseURL: "http://127.0.0.1:8080", Model: DefaultGuardModel, TimeoutMS: 1000, InputLimit: 1000, Enabled: true}},
 	}
 	next, err := manager.buildNextStorage(DefaultStorageConfig(), request, 9)
 	require.NoError(t, err)
 	require.Equal(t, blockingModules, next.BlockingReviewModules)
 	require.Equal(t, deepModules, next.DeepReviewModules)
+	require.Equal(t, cacheTTL, next.AllowReceiptTTLSeconds)
 	require.Contains(t, changeSummary(next), `"blocking_review_modules"`)
 
 	active, err := ActiveFromStorage(next, true, prefixEncryptor{})
 	require.NoError(t, err)
 	require.Equal(t, blockingModules, active.BlockingReviewModules)
 	require.Equal(t, deepModules, PublicFromStorage(next, true, nil).DeepReviewModules)
+	require.Equal(t, cacheTTL, PublicFromStorage(next, true, nil).AllowReceiptTTLSeconds)
 }
 
 func TestReviewModuleConfigMissingUpdateFieldsPreservesCurrentValues(t *testing.T) {
@@ -81,6 +86,22 @@ func TestReviewModuleConfigMissingUpdateFieldsPreservesCurrentValues(t *testing.
 	require.NoError(t, err)
 	require.Equal(t, current.BlockingReviewModules, next.BlockingReviewModules)
 	require.Equal(t, current.DeepReviewModules, next.DeepReviewModules)
+	require.Equal(t, current.AllowReceiptTTLSeconds, next.AllowReceiptTTLSeconds)
+}
+
+func TestModuleAllowCacheTTLDefaultsForOldConfigAndRejectsInvalidUpdate(t *testing.T) {
+	storage, err := ParseStorageConfig(`{"enabled":false,"worker_count":1,"queue_capacity":10,"all_groups":true,"scanners":["pii"],"config_version":7}`)
+	require.NoError(t, err)
+	require.Equal(t, DefaultAllowReceiptTTLSeconds, storage.AllowReceiptTTLSeconds)
+
+	manager := &ConfigManager{encryptor: prefixEncryptor{}, encryptionKeyConfigured: true}
+	invalid := MinAllowReceiptTTLSeconds - 1
+	_, err = manager.buildNextStorage(DefaultStorageConfig(), UpdateConfigRequest{
+		ExpectedConfigVersion: 1, Strategy: "priority", WorkerCount: 1, QueueCapacity: 10,
+		AllowReceiptTTLSeconds: &invalid, Scanners: []string{"pii"}, AllGroups: true,
+	}, 9)
+	require.Error(t, err)
+	require.Equal(t, "prompt_audit_invalid_allow_receipt_ttl", infraerrors.Reason(err))
 }
 
 func TestBlockingLatestTurnOnlyConfigRoundTrip(t *testing.T) {

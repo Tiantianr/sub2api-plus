@@ -23,14 +23,15 @@ type WorkerRuntime struct {
 }
 
 type Runner struct {
-	config  ConfigStore
-	repo    JobRepository
-	payload PayloadStore
-	state   DeepReviewStateStore
-	scanner PromptScanner
-	metrics Metrics
-	clock   Clock
-	runtime WorkerRuntime
+	config   ConfigStore
+	repo     JobRepository
+	payload  PayloadStore
+	state    DeepReviewStateStore
+	receipts AllowReceiptStore
+	scanner  PromptScanner
+	metrics  Metrics
+	clock    Clock
+	runtime  WorkerRuntime
 
 	mu     sync.Mutex
 	cancel context.CancelFunc
@@ -39,7 +40,8 @@ type Runner struct {
 
 func NewRunner(config ConfigStore, repo JobRepository, payload PayloadStore, scanner PromptScanner, metrics Metrics) *Runner {
 	state, _ := payload.(DeepReviewStateStore)
-	return &Runner{config: config, repo: repo, payload: payload, state: state, scanner: scanner, metrics: metrics, clock: realClock{}}
+	receipts, _ := payload.(AllowReceiptStore)
+	return &Runner{config: config, repo: repo, payload: payload, state: state, receipts: receipts, scanner: scanner, metrics: metrics, clock: realClock{}}
 }
 
 func (r *Runner) Start(ctx context.Context) error {
@@ -116,8 +118,12 @@ func (r *Runner) worker(ctx context.Context, workerID int) {
 				if !claimed {
 					break
 				}
+				processConfig, active := r.config.Active()
+				if !active {
+					processConfig = ActiveConfig{}
+				}
 				r.runtime.active.Add(1)
-				r.processSafely(ctx, workerID, cfg, job)
+				r.processSafely(ctx, workerID, processConfig, job)
 				r.runtime.active.Add(-1)
 			}
 		}
@@ -146,6 +152,9 @@ func (r *Runner) processSafely(ctx context.Context, workerID int, cfg ActiveConf
 func (r *Runner) processJob(ctx context.Context, workerID int, cfg ActiveConfig, job *Job) error {
 	baseFields := jobLogFields(job)
 	LogInfo(EventAuditStarted, mergeLogFields(baseFields, map[string]any{"worker_id": workerID, "attempts": job.Attempts, "status": "processing"}))
+	if job.ConfigVersion != cfg.ConfigVersion {
+		return r.finishFailure(ctx, job, &GuardError{Code: "config_version_changed", Retryable: false})
+	}
 	storedPayload, err := r.payload.Get(ctx, job.ID)
 	if err != nil {
 		return r.finishFailure(ctx, job, &GuardError{Code: "payload_missing", Retryable: false, Cause: err})
@@ -156,6 +165,9 @@ func (r *Runner) processJob(ctx context.Context, workerID int, cfg ActiveConfig,
 	job.Snapshot.FullContextHash = payload.ContextHash
 	job.Snapshot.FullContextBytes = payload.ContextBytes
 	job.Snapshot.FullContextSegmentCount = payload.ContextSegmentCount
+	job.Snapshot.AllowReceiptKeys = append([]string(nil), payload.AllowReceiptKeys...)
+	job.Snapshot.AllowReceiptHitCount = payload.AllowReceiptHitCount
+	job.Snapshot.AllowReceiptWrite = payload.AllowReceiptWrite
 	// The job row only carries redacted metadata; the full prompt for the audit
 	// event is reconstructed here from the transient scan payload.
 	job.Snapshot.FullPrompt = FullPromptFromScanText(scanText)
@@ -230,6 +242,9 @@ func (r *Runner) processJob(ctx context.Context, workerID int, cfg ActiveConfig,
 			"worker_id": workerID, "status": "failed", "error_code": "job_complete_failed", "error_kind": "audit_dependency",
 		}))
 		return err
+	}
+	if aggregated.Action == ActionAllow && job.Snapshot.AllowReceiptWrite {
+		storeAllowReceipts(ctx, r.receipts, r.metrics, cfg, job.Snapshot)
 	}
 	if deleteErr := r.payload.Delete(ctx, job.ID); deleteErr != nil {
 		LogWarn(EventProcessFailed, mergeLogFields(baseFields, map[string]any{"worker_id": workerID, "status": "payload_delete_deferred", "error_code": "payload_delete_failed"}))

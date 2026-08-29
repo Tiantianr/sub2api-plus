@@ -45,6 +45,8 @@ func TestTransientPromptPayloadCarriesEncryptedContextAndReadsLegacyPayload(t *t
 	snapshot := PromptSnapshot{
 		ScanText: "selected user text", FullContextCiphertext: "ciphertext",
 		FullContextHash: "hash", FullContextBytes: 42, FullContextSegmentCount: 3,
+		AllowReceiptKeys: []string{"receipt-key"}, AllowReceiptHitCount: 2,
+		AllowReceiptWrite: true,
 	}
 	encoded, err := encodeTransientPromptPayload(snapshot)
 	require.NoError(t, err)
@@ -52,8 +54,43 @@ func TestTransientPromptPayloadCarriesEncryptedContextAndReadsLegacyPayload(t *t
 	require.Equal(t, snapshot.ScanText, decoded.ScanText)
 	require.Equal(t, snapshot.FullContextCiphertext, decoded.ContextCiphertext)
 	require.Equal(t, snapshot.FullContextSegmentCount, decoded.ContextSegmentCount)
+	require.Equal(t, snapshot.AllowReceiptKeys, decoded.AllowReceiptKeys)
+	require.Equal(t, snapshot.AllowReceiptHitCount, decoded.AllowReceiptHitCount)
+	require.True(t, decoded.AllowReceiptWrite)
 
 	legacy := decodeTransientPromptPayload("legacy plain scan text")
 	require.Equal(t, "legacy plain scan text", legacy.ScanText)
 	require.Empty(t, legacy.ContextCiphertext)
+}
+
+func TestCompleteContextRecordsIncrementalReceiptSelection(t *testing.T) {
+	cfg := allowReceiptTestConfig()
+	cfg.DeepReviewModules = ReviewModules{System: true, Assistant: true}
+	req := Request{
+		UserID: 7, Protocol: "openai_responses",
+		Body: []byte(`{"instructions":"stable system","input":[{"type":"message","role":"assistant","content":"new assistant"},{"type":"message","role":"user","content":"current user"}]}`),
+	}
+	snapshot, _, err := extractDeepPromptSnapshotWithDiagnostics(req, cfg.DeepReviewModules)
+	require.NoError(t, err)
+	receipts := newFakeAllowReceiptPayload()
+	trusted := make([]string, 0, 1)
+	for _, segment := range snapshot.ReviewSegments {
+		key := buildAllowReceiptKey(cfg, segment.Source, segment.Text)
+		switch segment.Source {
+		case "user":
+			trusted = append(trusted, key)
+		case "system":
+			receipts.values[allowReceiptTestKey(req.UserID, key)] = true
+		}
+	}
+
+	prepareAllowReceipts(t.Context(), receipts, NewAtomicMetrics(), cfg, &snapshot, trusted, false)
+	require.Equal(t, "new assistant", snapshot.ScanText)
+	var contextPayload completePromptContext
+	require.NoError(t, json.Unmarshal([]byte(snapshot.CompleteContext), &contextPayload))
+	require.Equal(t, "partial_hit", contextPayload.AllowReceiptStatus)
+	require.Equal(t, 2, contextPayload.AllowReceiptHits)
+	require.Equal(t, 1, contextPayload.AllowReceiptMisses)
+	require.Equal(t, "new assistant", contextPayload.GuardInput)
+	require.Len(t, contextPayload.Segments, 3)
 }

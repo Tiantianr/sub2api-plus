@@ -154,15 +154,25 @@ definitions, reusable prompt variables, assistant/model messages, reasoning,
 tool calls/results, approval responses, and tool-produced screenshots. This
 prevents platform context or external tool content from being reported as a
 user policy violation. Prompt Audit consumes the same canonical result.
-Synchronous review always includes the latest user turn and asynchronous review
-always includes all user turns; each lane independently configures whether
+Synchronous review always includes direct user text marked current. Every
+historical user turn requires a valid receipt and misses are synchronously
+reviewed, preventing client-controlled role ordering from hiding unreviewed
+text. Each lane
+independently configures whether
 instructions, assistant/model output, reasoning, reusable prompt variables,
 tool definitions, arguments, and results enter Guard input. The system module
 also includes `system-reminder` skill content, while environment, permission,
-and filesystem wrappers remain excluded from user text. A blocking Allow starts
-an `async_deep` job. A deep Block forces the user's next request through the
-configured deep selection synchronously before WebSocket or HTTP upstream
-writes can resume. Newly stored audit events retain a
+and filesystem wrappers remain excluded from user text. Canonical user turns
+and optional segments receive independent exact-content Allow receipts. A new
+current user turn ignores old receipts; a complete synchronous Allow may be
+reused only by the same request's `async_deep` handoff. Historical user,
+assistant, reasoning, and tool segments are omitted when their user-scoped
+receipt and active Guard policy still match. New receipt misses are combined in
+one incremental Guard input. Receipts are written only after Content Moderation
+also permits the original request. A blocking Allow starts an `async_deep`
+job. A deep Block forces the user's next request through the
+configured deep selection synchronously with all receipts bypassed before
+WebSocket or HTTP upstream writes can resume. Newly stored audit events retain a
 separately encrypted complete canonical context artifact for authorized admin
 download, including text excluded from Guard selection.
 A supported WebSocket control frame may produce no audit input. Unknown sibling

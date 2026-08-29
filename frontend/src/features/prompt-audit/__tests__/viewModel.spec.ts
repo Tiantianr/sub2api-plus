@@ -22,6 +22,7 @@ const config = (): PromptAuditConfig => ({
     system: true, assistant: true, reasoning: true, prompt_variables: true,
     tool_definitions: true, tool_calls: true, tool_outputs: true,
   },
+  allow_receipt_ttl_seconds: 3600,
   store_pass_events: false,
   effective_mode: 'async_audit',
   strategy: 'priority',
@@ -73,6 +74,14 @@ describe('Prompt Audit view model', () => {
       blocking_review_modules: { assistant: true, tool_outputs: false },
       deep_review_modules: { assistant: true, tool_outputs: false },
     })
+  })
+
+  it('defaults and saves the incremental Allow receipt TTL', () => {
+    const legacy = { ...config(), allow_receipt_ttl_seconds: undefined } as unknown as PromptAuditConfig
+    expect(configToDraft(legacy).allow_receipt_ttl_seconds).toBe(3600)
+    const draft = configToDraft(config())
+    draft.allow_receipt_ttl_seconds = 7200
+    expect(buildUpdateRequest(draft).allow_receipt_ttl_seconds).toBe(7200)
   })
 
   it('tracks dirty state from the full normalized save payload', () => {

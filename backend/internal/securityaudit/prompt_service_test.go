@@ -77,14 +77,16 @@ func TestPromptServiceBlockingScansOnlyLatestUserTurn(t *testing.T) {
 		}
 		return &NormalizedResult{Decision: EventPass, RiskLevel: RiskLow, Action: ActionAllow, ScannerScores: map[string]float64{}, ScannerEvidence: map[string]string{}}, nil
 	}), nil, NewAtomicMetrics(), 2, 2)
-	service := &PromptService{
-		config: &fakeConfigStore{active: true, cfg: ActiveConfig{
-			RiskControlEnabled: true, Enabled: true, BlockingEnabled: true, BlockingLatestTurnOnly: false, AllGroups: true,
-			Scanners: AllScannerIDs, Endpoints: []ActiveEndpoint{{ID: "guard-1", Enabled: true, TimeoutMS: 1000, InputLimit: 64}},
-		}},
-		evaluator: evaluator,
+	cfg := ActiveConfig{
+		RiskControlEnabled: true, Enabled: true, BlockingEnabled: true, BlockingLatestTurnOnly: false, AllGroups: true,
+		Scanners: AllScannerIDs, ConfigVersion: 1,
+		Endpoints: []ActiveEndpoint{{ID: "guard-1", Enabled: true, TimeoutMS: 1000, InputLimit: 64}},
 	}
-	decision, err := service.Evaluate(context.Background(), Request{Protocol: "openai_chat_completions", Body: []byte(`{"messages":[{"role":"system","content":"system instruction"},{"role":"user","content":"older blocked-marker input"},{"role":"assistant","content":"previous output"},{"role":"user","content":"latest safe input"}]}`)})
+	receipts := newFakeAllowReceiptPayload()
+	key := buildAllowReceiptKey(cfg, "user", "older blocked-marker input")
+	receipts.values[allowReceiptTestKey(7, key)] = true
+	service := &PromptService{config: &fakeConfigStore{active: true, cfg: cfg}, evaluator: evaluator, state: receipts, receipts: receipts}
+	decision, err := service.Evaluate(context.Background(), Request{UserID: 7, Protocol: "openai_chat_completions", Body: []byte(`{"messages":[{"role":"system","content":"system instruction"},{"role":"user","content":"older blocked-marker input"},{"role":"assistant","content":"previous output"},{"role":"user","content":"latest safe input"}]}`)})
 	require.NoError(t, err)
 	require.Equal(t, DecisionAllow, decision.Kind)
 	require.Equal(t, 1, decision.Result.ChunkTotal)

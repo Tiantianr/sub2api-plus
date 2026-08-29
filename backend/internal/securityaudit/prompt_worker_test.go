@@ -98,7 +98,7 @@ func (r *fakeJobRepository) record(value string) {
 	}
 }
 
-func (r *fakeJobRepository) CreateStagingWithCapacity(_ context.Context, snapshot PromptSnapshot, mode Mode, _ int64, _, _ int) (*Job, error) {
+func (r *fakeJobRepository) CreateStagingWithCapacity(_ context.Context, snapshot PromptSnapshot, mode Mode, configVersion int64, _, _ int) (*Job, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.record("create_staging")
@@ -107,7 +107,9 @@ func (r *fakeJobRepository) CreateStagingWithCapacity(_ context.Context, snapsho
 		return nil, r.createErr
 	}
 	if r.createJob == nil {
-		r.createJob = &Job{ID: 1, Snapshot: snapshot, ExecutionMode: mode}
+		r.createJob = &Job{ID: 1, Snapshot: snapshot, ExecutionMode: mode, ConfigVersion: configVersion}
+	} else {
+		r.createJob.ConfigVersion = configVersion
 	}
 	return r.createJob, nil
 }
@@ -487,6 +489,28 @@ func TestWorkerCompletesPassWithoutEventRefreshesEveryChunkAndDeletesPayload(t *
 	require.Equal(t, int64(1), metrics.Snapshot().Allowed)
 }
 
+func TestWorkerRejectsStaleConfigWithoutScanningOrWritingReceipts(t *testing.T) {
+	cfg := asyncConfig()
+	repo := &fakeJobRepository{}
+	payload := newFakeAllowReceiptPayload()
+	payload.payloads[51] = "stale input"
+	scans := 0
+	runner := NewRunner(&fakeConfigStore{cfg: cfg, active: true}, repo, payload, PromptScannerFunc(func(context.Context, ActiveEndpoint, string, []string) (*NormalizedResult, error) {
+		scans++
+		return allowReceiptResult(ActionAllow), nil
+	}), NewAtomicMetrics())
+	job := workerJob(1, 3)
+	job.ConfigVersion = cfg.ConfigVersion - 1
+	job.Snapshot.AllowReceiptKeys = []string{strings.Repeat("a", 64)}
+
+	err := runner.processJob(context.Background(), 0, cfg, job)
+	require.Error(t, err)
+	require.Zero(t, scans)
+	require.Zero(t, payload.writes)
+	require.Equal(t, "config_version_changed", repo.failedCode)
+	require.NotContains(t, payload.payloads, int64(51))
+}
+
 func TestWorkerMarksReconstructedContentIncompleteAfterNULRemoval(t *testing.T) {
 	repo := &fakeJobRepository{}
 	payload := &fakePayloadStore{values: map[int64]string{51: "abc\x00def"}}
@@ -756,7 +780,7 @@ func TestAsyncDeepBlockMarksUserBeforeCompletingJob(t *testing.T) {
 	}), NewAtomicMetrics())
 	job := &Job{
 		ID: 51, Snapshot: PromptSnapshot{UserID: 42, PromptLength: 18}, ExecutionMode: ModeAsyncDeep,
-		Status: "processing", Attempts: 1, MaxAttempts: 3, ClaimVersion: 7,
+		Status: "processing", Attempts: 1, MaxAttempts: 3, ClaimVersion: 7, ConfigVersion: asyncConfig().ConfigVersion,
 	}
 
 	require.NoError(t, runner.processJob(context.Background(), 0, asyncConfig(), job))
@@ -767,11 +791,13 @@ func TestAsyncDeepBlockMarksUserBeforeCompletingJob(t *testing.T) {
 
 func TestRequestCloneOwnsMutableInputs(t *testing.T) {
 	groupID := int64(7)
-	req := Request{Body: []byte("original"), GroupID: &groupID}
+	req := Request{Body: []byte("original"), GroupID: &groupID, AllowReceiptKeys: []string{"receipt"}}
 	clone := req.Clone()
 	clone.Body[0] = 'X'
 	*clone.GroupID = 8
+	clone.AllowReceiptKeys[0] = "changed"
 	require.Equal(t, []byte("original"), req.Body)
 	require.Equal(t, int64(7), *req.GroupID)
+	require.Equal(t, []string{"receipt"}, req.AllowReceiptKeys)
 	require.False(t, reflect.ValueOf(req.Body).Pointer() == reflect.ValueOf(clone.Body).Pointer())
 }

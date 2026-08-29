@@ -39,6 +39,7 @@ export default {
       queue: 'Active jobs / capacity', dependencies: 'Dependencies', guardMetrics: 'Synchronous Guard metrics', extractionMetrics: 'Content extraction coverage', latest: 'Latest activity', lastProcessed: 'Last successful processing', lastError: 'Last processing error',
       queueBreakdown: 'queued {queued} · processing {processing} · retry {retry} · done {done} · failed {failed}',
       deliveryTotals: 'Total enqueued {enqueued} · dropped {dropped} · processed {processed} · failed {failed}',
+      allowReceiptTotals: 'Incremental receipt hits {hits} · misses {misses} · writes {writes} · errors {errors}',
     },
     metrics: { total: 'Total', allowed: 'Allowed', flagged: 'Flagged', blocked: 'Blocked', unavailable: 'Unavailable', timeouts: 'Timeouts', failovers: 'Failovers', extractionAttempted: 'Attempted', extractionSucceeded: 'Succeeded', extractionEmpty: 'No text', extractionFailed: 'Failed' },
     pool: {
@@ -48,7 +49,7 @@ export default {
       probeProgress: 'Config validated ✓ · request sent · awaiting service response…', probeResult: 'Config ✓ · request ✓ · HTTP {http} · {status} · {latency} ms',
       name: 'Node name', id: 'Stable node ID', baseUrl: 'Base URL', apiKey: 'API Key', keepSecret: 'Leave blank to keep the saved API Key', reenterSecret: 'The saved API Key cannot be decrypted (encryption key changed); enter a new one',
       secretHint: 'Plaintext exists only in this editor and is cleared immediately after a successful save.', clearSecret: 'Explicitly clear the saved API Key', timeout: 'Total timeout (ms)', inputLimit: 'Unicode characters per chunk',
-      timeoutRange: 'Supported range: {min}–{max} ms.', inputLimitRange: 'Supported range: {min}–{max} Unicode characters.', inputLimitBehavior: 'Synchronous review always includes the latest user input; asynchronous review always includes all user turns. Each lane appends its selected modules. Oversized text is split at this limit; the smallest enabled-node limit applies.',
+      timeoutRange: 'Supported range: {min}–{max} ms.', inputLimitRange: 'Supported range: {min}–{max} Unicode characters.', inputLimitBehavior: 'Synchronous review requires current user input and reviews historical user receipt misses. Async submits only historical or new segment misses. Oversized text is split at this limit.',
       toggleNode: 'Toggle node {name}', deleteConfirm: 'Remove “{name}” from the draft? It takes effect after saving.',
     },
     policy: {
@@ -56,9 +57,9 @@ export default {
       searchGroups: 'Search groups', noGroups: 'No matching groups', missingGroups: 'Configured IDs for groups that no longer exist', selectedCount: '{count} groups selected',
       scanners: 'Qwen3Guard input-risk categories', blockingModules: 'Synchronous review modules', deepModules: 'Asynchronous deep-review modules',
       reviewModules: { system: 'System / instructions', assistant: 'Assistant history', reasoning: 'Reasoning', promptVariables: 'Prompt variables', toolDefinitions: 'Tool / plugin definitions', toolCalls: 'Tool call arguments', toolOutputs: 'Tool outputs' },
-      workerCount: 'Worker count', queueCapacity: 'Persistent queue capacity', strategy: 'Node strategy', strategyHint: 'Try nodes in configuration order and fail over when allowed.',
+      workerCount: 'Worker count', queueCapacity: 'Persistent queue capacity', allowReceiptTTL: 'Incremental Allow receipt TTL (seconds)', allowReceiptTTLHint: 'A new current user input must be reviewed first. Its synchronous Allow may be reused by the same request; history and automatic continuations are reviewed per canonical segment. Range: 60–86400 seconds.', strategy: 'Node strategy', strategyHint: 'Try nodes in configuration order and fail over when allowed.',
     },
-    saveBar: { enabled: 'Enable prompt audit', blocking: 'Synchronous blocking', blockingLatestTurnOnly: 'Synchronous blocking scans only the latest user input', storePass: 'Store safe events', dirty: 'Unsaved changes', synced: 'Configuration synced' },
+    saveBar: { enabled: 'Enable prompt audit', blocking: 'Synchronous blocking', blockingLatestTurnOnly: 'Synchronous blocking prioritizes current user input', storePass: 'Store safe events', dirty: 'Unsaved changes', synced: 'Configuration synced' },
     blockingConfirm: {
       title: 'Enable synchronous blocking?',
       message: 'Applicable requests wait for Guard before account selection, billing, or upstream access, then enter asynchronous deep review after allow. A deep hit requires the user’s next request to pass synchronous deep review.',

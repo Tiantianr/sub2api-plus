@@ -50,17 +50,23 @@ type completePromptContext struct {
 	GuardMode          string                          `json:"guard_mode"`
 	GuardModules       ReviewModules                   `json:"guard_modules"`
 	GuardInput         string                          `json:"guard_input"`
+	AllowReceiptStatus string                          `json:"allow_receipt_status,omitempty"`
+	AllowReceiptHits   int                             `json:"allow_receipt_hits,omitempty"`
+	AllowReceiptMisses int                             `json:"allow_receipt_misses,omitempty"`
 	Segments           []completeContextSegment        `json:"segments"`
 	Images             []completeContextImage          `json:"images"`
 }
 
 type transientPromptPayload struct {
-	FormatVersion       int    `json:"format_version"`
-	ScanText            string `json:"scan_text"`
-	ContextCiphertext   string `json:"context_ciphertext,omitempty"`
-	ContextHash         string `json:"context_hash,omitempty"`
-	ContextBytes        int    `json:"context_bytes,omitempty"`
-	ContextSegmentCount int    `json:"context_segment_count,omitempty"`
+	FormatVersion        int      `json:"format_version"`
+	ScanText             string   `json:"scan_text"`
+	ContextCiphertext    string   `json:"context_ciphertext,omitempty"`
+	ContextHash          string   `json:"context_hash,omitempty"`
+	ContextBytes         int      `json:"context_bytes,omitempty"`
+	ContextSegmentCount  int      `json:"context_segment_count,omitempty"`
+	AllowReceiptKeys     []string `json:"allow_receipt_keys,omitempty"`
+	AllowReceiptHitCount int      `json:"allow_receipt_hit_count,omitempty"`
+	AllowReceiptWrite    bool     `json:"allow_receipt_write,omitempty"`
 }
 
 type EventContextDownload struct {
@@ -138,6 +144,8 @@ func encodeTransientPromptPayload(snapshot PromptSnapshot) (string, error) {
 		FormatVersion: completeContextFormatVersion, ScanText: snapshot.ScanText,
 		ContextCiphertext: snapshot.FullContextCiphertext, ContextHash: snapshot.FullContextHash,
 		ContextBytes: snapshot.FullContextBytes, ContextSegmentCount: snapshot.FullContextSegmentCount,
+		AllowReceiptKeys: append([]string(nil), snapshot.AllowReceiptKeys...), AllowReceiptHitCount: snapshot.AllowReceiptHitCount,
+		AllowReceiptWrite: snapshot.AllowReceiptWrite,
 	}
 	raw, err := json.Marshal(payload)
 	return string(raw), err

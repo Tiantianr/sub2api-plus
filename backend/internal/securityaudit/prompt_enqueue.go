@@ -6,10 +6,11 @@ import (
 )
 
 type Enqueuer struct {
-	config  ConfigStore
-	repo    JobRepository
-	payload PayloadStore
-	metrics Metrics
+	config   ConfigStore
+	repo     JobRepository
+	payload  PayloadStore
+	receipts AllowReceiptStore
+	metrics  Metrics
 }
 
 func NewEnqueuer(config ConfigStore, repo JobRepository, payload PayloadStore, metrics ...Metrics) *Enqueuer {
@@ -17,7 +18,8 @@ func NewEnqueuer(config ConfigStore, repo JobRepository, payload PayloadStore, m
 	if len(metrics) > 0 {
 		metric = metrics[0]
 	}
-	return &Enqueuer{config: config, repo: repo, payload: payload, metrics: metric}
+	receipts, _ := payload.(AllowReceiptStore)
+	return &Enqueuer{config: config, repo: repo, payload: payload, receipts: receipts, metrics: metric}
 }
 
 func (e *Enqueuer) Enqueue(ctx context.Context, req Request) error {
@@ -25,6 +27,7 @@ func (e *Enqueuer) Enqueue(ctx context.Context, req Request) error {
 }
 
 func (e *Enqueuer) EnqueueDeep(ctx context.Context, req Request) error {
+	req.AllowReceiptWrite = true
 	return e.enqueue(ctx, req, ModeAsyncDeep)
 }
 
@@ -85,6 +88,11 @@ func (e *Enqueuer) enqueue(ctx context.Context, req Request, mode Mode) error {
 	}
 	if !diagnostic.Failed {
 		e.recordExtraction(ExtractionSucceeded)
+	}
+	prepareAllowReceipts(ctx, e.receipts, e.metrics, cfg, &snapshot, req.AllowReceiptKeys, false)
+	if snapshot.ScanText == "" {
+		LogInfo(EventEnqueueSkipped, mergeLogFields(baseFields, map[string]any{"status": "skipped", "error_code": "all_segments_allowed"}))
+		return nil
 	}
 	ciphertext, err := encryptCompletePromptContext(e.config, snapshot.CompleteContext)
 	if err != nil {

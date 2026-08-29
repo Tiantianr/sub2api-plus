@@ -36,6 +36,7 @@ export interface PromptAuditConfig {
   blocking_latest_turn_only: boolean
   blocking_review_modules: PromptAuditReviewModules
   deep_review_modules: PromptAuditReviewModules
+  allow_receipt_ttl_seconds: number
   store_pass_events: boolean
   effective_mode: PromptAuditMode
   strategy: 'priority'
@@ -62,6 +63,7 @@ export interface PromptAuditUpdateRequest {
   blocking_latest_turn_only: boolean
   blocking_review_modules: PromptAuditReviewModules
   deep_review_modules: PromptAuditReviewModules
+  allow_receipt_ttl_seconds: number
   store_pass_events: boolean
   strategy: 'priority'
   worker_count: number
@@ -143,6 +145,10 @@ export interface PromptAuditRuntime {
   extraction_succeeded: number
   extraction_empty: number
   extraction_failed: number
+  allow_receipt_hits: number
+  allow_receipt_misses: number
+  allow_receipt_writes: number
+  allow_receipt_errors: number
   last_processed_at?: string
   last_error_at?: string
   last_error_code?: string
