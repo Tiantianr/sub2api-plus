@@ -67,6 +67,8 @@ type storageConfig struct {
 	Enabled                bool              `json:"enabled"`
 	BlockingEnabled        bool              `json:"blocking_enabled"`
 	BlockingLatestTurnOnly bool              `json:"blocking_latest_turn_only"`
+	BlockingReviewModules  ReviewModules     `json:"blocking_review_modules"`
+	DeepReviewModules      ReviewModules     `json:"deep_review_modules"`
 	StorePassEvents        bool              `json:"store_pass_events"`
 	Strategy               string            `json:"strategy"`
 	WorkerCount            int               `json:"worker_count"`
@@ -105,6 +107,8 @@ type ActiveConfig struct {
 	// BlockingLatestTurnOnly is retained for rolling-upgrade config/API
 	// compatibility. Blocking always scans the latest user input.
 	BlockingLatestTurnOnly bool
+	BlockingReviewModules  ReviewModules
+	DeepReviewModules      ReviewModules
 	StorePassEvents        bool
 	Strategy               string
 	WorkerCount            int
@@ -136,6 +140,8 @@ type PublicConfig struct {
 	Enabled                bool             `json:"enabled"`
 	BlockingEnabled        bool             `json:"blocking_enabled"`
 	BlockingLatestTurnOnly bool             `json:"blocking_latest_turn_only"`
+	BlockingReviewModules  ReviewModules    `json:"blocking_review_modules"`
+	DeepReviewModules      ReviewModules    `json:"deep_review_modules"`
 	StorePassEvents        bool             `json:"store_pass_events"`
 	EffectiveMode          Mode             `json:"effective_mode"`
 	Strategy               string           `json:"strategy"`
@@ -169,6 +175,8 @@ type UpdateConfigRequest struct {
 	Enabled                bool             `json:"enabled"`
 	BlockingEnabled        bool             `json:"blocking_enabled"`
 	BlockingLatestTurnOnly bool             `json:"blocking_latest_turn_only"`
+	BlockingReviewModules  *ReviewModules   `json:"blocking_review_modules"`
+	DeepReviewModules      *ReviewModules   `json:"deep_review_modules"`
 	StorePassEvents        bool             `json:"store_pass_events"`
 	Strategy               string           `json:"strategy"`
 	WorkerCount            int              `json:"worker_count"`
@@ -184,6 +192,8 @@ func DefaultStorageConfig() storageConfig {
 		Enabled:                false,
 		BlockingEnabled:        false,
 		BlockingLatestTurnOnly: false,
+		BlockingReviewModules:  DefaultBlockingReviewModules(),
+		DeepReviewModules:      DefaultDeepReviewModules(),
 		StorePassEvents:        false,
 		Strategy:               "priority",
 		WorkerCount:            DefaultWorkerCount,
@@ -415,6 +425,7 @@ func PublicFromStorage(cfg storageConfig, riskControlEnabled bool, invalidTokenE
 	active := ActiveConfig{RiskControlEnabled: riskControlEnabled, Enabled: cfg.Enabled, BlockingEnabled: cfg.BlockingEnabled}
 	return PublicConfig{
 		Enabled: cfg.Enabled, BlockingEnabled: cfg.BlockingEnabled, BlockingLatestTurnOnly: cfg.BlockingLatestTurnOnly, StorePassEvents: cfg.StorePassEvents,
+		BlockingReviewModules: cfg.BlockingReviewModules, DeepReviewModules: cfg.DeepReviewModules,
 		EffectiveMode: active.EffectiveMode(), Strategy: cfg.Strategy, WorkerCount: cfg.WorkerCount,
 		QueueCapacity: cfg.QueueCapacity, Scanners: scanners, AllGroups: cfg.AllGroups,
 		GroupIDs: groupIDs, Endpoints: endpoints, ConfigVersion: cfg.ConfigVersion,
@@ -426,6 +437,8 @@ func ActiveFromStorage(cfg storageConfig, riskControlEnabled bool, encryptor Sec
 	active := ActiveConfig{
 		RiskControlEnabled: riskControlEnabled, Enabled: cfg.Enabled, BlockingEnabled: cfg.BlockingEnabled,
 		BlockingLatestTurnOnly: cfg.BlockingLatestTurnOnly,
+		BlockingReviewModules:  cfg.BlockingReviewModules,
+		DeepReviewModules:      cfg.DeepReviewModules,
 		StorePassEvents:        cfg.StorePassEvents, Strategy: cfg.Strategy, WorkerCount: cfg.WorkerCount,
 		QueueCapacity: cfg.QueueCapacity, Scanners: append([]string(nil), cfg.Scanners...), AllGroups: cfg.AllGroups,
 		GroupIDs: append([]int64(nil), cfg.GroupIDs...), ConfigVersion: cfg.ConfigVersion,
@@ -462,16 +475,18 @@ func ActiveFromStorage(cfg storageConfig, riskControlEnabled bool, encryptor Sec
 
 func changeSummary(cfg storageConfig) string {
 	summary := struct {
-		Enabled                bool   `json:"enabled"`
-		BlockingEnabled        bool   `json:"blocking_enabled"`
-		BlockingLatestTurnOnly bool   `json:"blocking_latest_turn_only"`
-		StorePassEvents        bool   `json:"store_pass_events"`
-		EndpointCount          int    `json:"endpoint_count"`
-		ScannerCount           int    `json:"scanner_count"`
-		AllGroups              bool   `json:"all_groups"`
-		GroupCount             int    `json:"group_count"`
-		GroupHash              string `json:"group_hash"`
-	}{cfg.Enabled, cfg.BlockingEnabled, cfg.BlockingLatestTurnOnly, cfg.StorePassEvents, len(cfg.Endpoints), len(cfg.Scanners), cfg.AllGroups, len(cfg.GroupIDs), ""}
+		Enabled                bool          `json:"enabled"`
+		BlockingEnabled        bool          `json:"blocking_enabled"`
+		BlockingLatestTurnOnly bool          `json:"blocking_latest_turn_only"`
+		BlockingReviewModules  ReviewModules `json:"blocking_review_modules"`
+		DeepReviewModules      ReviewModules `json:"deep_review_modules"`
+		StorePassEvents        bool          `json:"store_pass_events"`
+		EndpointCount          int           `json:"endpoint_count"`
+		ScannerCount           int           `json:"scanner_count"`
+		AllGroups              bool          `json:"all_groups"`
+		GroupCount             int           `json:"group_count"`
+		GroupHash              string        `json:"group_hash"`
+	}{cfg.Enabled, cfg.BlockingEnabled, cfg.BlockingLatestTurnOnly, cfg.BlockingReviewModules, cfg.DeepReviewModules, cfg.StorePassEvents, len(cfg.Endpoints), len(cfg.Scanners), cfg.AllGroups, len(cfg.GroupIDs), ""}
 	rawGroups, _ := json.Marshal(cfg.GroupIDs)
 	digest := sha256.Sum256(rawGroups)
 	summary.GroupHash = hex.EncodeToString(digest[:])

@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
@@ -17,7 +18,8 @@ import (
 type PromptService struct {
 	config    ConfigStore
 	repo      *PostgreSQLRepository
-	payload   *RedisPayloadStore
+	payload   PayloadStore
+	state     DeepReviewStateStore
 	enqueuer  *Enqueuer
 	runner    *Runner
 	evaluator *GuardEvaluator
@@ -37,10 +39,11 @@ type PromptService struct {
 func NewPromptService(
 	config ConfigStore,
 	repo *PostgreSQLRepository,
-	payload *RedisPayloadStore,
+	payload PayloadStore,
 	scanner *OpenAICompatibleScanner,
 	metrics *AtomicMetrics,
 ) *PromptService {
+	state, _ := payload.(DeepReviewStateStore)
 	var jobRepo JobRepository
 	if repo != nil {
 		jobRepo = repo
@@ -49,7 +52,7 @@ func NewPromptService(
 	evaluator := NewGuardEvaluator(scanner, jobRepo, metrics)
 	runner := NewRunner(config, jobRepo, payload, scanner, metrics)
 	return &PromptService{
-		config: config, repo: repo, payload: payload, scanner: scanner, metrics: metrics,
+		config: config, repo: repo, payload: payload, state: state, scanner: scanner, metrics: metrics,
 		enqueuer: enqueuer, evaluator: evaluator, runner: runner, clock: realClock{},
 		enqueueSlots: make(chan struct{}, 128), probes: map[string]ProbeResult{},
 	}
@@ -133,7 +136,19 @@ func (s *PromptService) BlockingApplies(req Request) bool {
 }
 
 func (s *PromptService) Enqueue(_ context.Context, req Request) error {
-	if s == nil || s.EffectiveMode() != ModeAsync {
+	return s.enqueue(req, ModeAsync)
+}
+
+func (s *PromptService) EnqueueDeep(_ context.Context, req Request) error {
+	return s.enqueue(req, ModeAsyncDeep)
+}
+
+func (s *PromptService) enqueue(req Request, mode Mode) error {
+	expectedMode := ModeAsync
+	if mode == ModeAsyncDeep {
+		expectedMode = ModeBlocking
+	}
+	if s == nil || s.EffectiveMode() != expectedMode {
 		return nil
 	}
 	if s.enqueuer == nil {
@@ -167,7 +182,11 @@ func (s *PromptService) Enqueue(_ context.Context, req Request) error {
 		defer func() { <-s.enqueueSlots }()
 		ctx, cancel := context.WithTimeout(background, 2*time.Second)
 		defer cancel()
-		_ = s.enqueuer.Enqueue(ctx, requestCopy)
+		if mode == ModeAsyncDeep {
+			_ = s.enqueuer.EnqueueDeep(ctx, requestCopy)
+		} else {
+			_ = s.enqueuer.Enqueue(ctx, requestCopy)
+		}
 	}()
 	return nil
 }
@@ -189,10 +208,32 @@ func (s *PromptService) Evaluate(ctx context.Context, req Request) (*PromptDecis
 		}
 		return &PromptDecision{Kind: DecisionAllow, AllowNextStage: true}, nil
 	}
-	if cfg.EffectiveMode() != ModeBlocking || !cfg.IncludesGroup(req.GroupID) {
+	if cfg.EffectiveMode() != ModeBlocking {
 		return &PromptDecision{Kind: DecisionAllow, AllowNextStage: true}, nil
 	}
-	snapshot, diagnostic, err := extractPromptSnapshotWithDiagnostics(req, true)
+	stateToken, deepRequired, stateErr := s.deepReviewRequired(ctx, req.UserID)
+	if stateErr != nil {
+		logPromptRequestFailure(req, DecisionUnavailable, ErrorCodeDeepReviewState)
+		return nil, &GuardError{Code: ErrorCodeDeepReviewState, Cause: stateErr}
+	}
+	if !deepRequired && !cfg.IncludesGroup(req.GroupID) {
+		return &PromptDecision{Kind: DecisionAllow, AllowNextStage: true}, nil
+	}
+	if deepRequired {
+		stateToken, stateErr = s.claimRequiredDeepReview(ctx, req, stateToken)
+		if stateErr != nil {
+			logPromptRequestFailure(req, DecisionUnavailable, ErrorCodeDeepReviewState)
+			return nil, &GuardError{Code: ErrorCodeDeepReviewState, Cause: stateErr}
+		}
+	}
+	var snapshot PromptSnapshot
+	var diagnostic promptExtractionDiagnostic
+	var err error
+	if deepRequired {
+		snapshot, diagnostic, err = extractDeepPromptSnapshotWithDiagnostics(req, cfg.DeepReviewModules)
+	} else {
+		snapshot, diagnostic, err = extractBlockingPromptSnapshotWithDiagnostics(req, cfg.BlockingReviewModules)
+	}
 	if diagnostic.Failed {
 		if s.metrics != nil {
 			s.metrics.ObserveExtraction(ExtractionFailed)
@@ -206,7 +247,10 @@ func (s *PromptService) Evaluate(ctx context.Context, req Request) (*PromptDecis
 		if s.metrics != nil {
 			s.metrics.ObserveExtraction(ExtractionEmpty)
 		}
-		return &PromptDecision{Kind: DecisionAllow, AllowNextStage: true}, nil
+		if deepRequired {
+			return &PromptDecision{Kind: DecisionBlock, ErrorCode: ErrorCodeDeepReviewRequired, AllowNextStage: false, DeepReviewed: true}, nil
+		}
+		return &PromptDecision{Kind: DecisionAllow, AllowNextStage: true, DeepReviewed: deepRequired}, nil
 	}
 	if err != nil {
 		if !diagnostic.Failed {
@@ -228,7 +272,56 @@ func (s *PromptService) Evaluate(ctx context.Context, req Request) (*PromptDecis
 	if s.metrics != nil {
 		s.metrics.ObserveExtraction(ExtractionSucceeded)
 	}
-	return s.evaluator.Evaluate(ctx, cfg, snapshot)
+	decision, err := s.evaluator.Evaluate(ctx, cfg, snapshot)
+	if err != nil || !deepRequired {
+		return decision, err
+	}
+	return s.finishRequiredDeepReview(ctx, req, stateToken, decision)
+}
+
+func (s *PromptService) deepReviewRequired(ctx context.Context, userID int64) (string, bool, error) {
+	if userID <= 0 {
+		return "", false, nil
+	}
+	if s == nil || s.state == nil {
+		return "", false, errors.New("prompt audit deep review state unavailable")
+	}
+	return s.state.Required(ctx, userID)
+}
+
+func (s *PromptService) claimRequiredDeepReview(ctx context.Context, req Request, token string) (string, error) {
+	claim := fmt.Sprintf("review:%s:%d", req.RequestID, s.clock.Now().UnixNano())
+	replaced, err := s.state.Replace(ctx, req.UserID, token, claim)
+	if err != nil {
+		return "", err
+	}
+	if !replaced {
+		return "", errors.New("prompt audit deep review state changed")
+	}
+	return claim, nil
+}
+
+func (s *PromptService) finishRequiredDeepReview(ctx context.Context, req Request, stateToken string, decision *PromptDecision) (*PromptDecision, error) {
+	if decision == nil || s == nil || s.state == nil {
+		return nil, &GuardError{Code: ErrorCodeDeepReviewState}
+	}
+	decision.DeepReviewed = true
+	if decision.Kind == DecisionAllow {
+		cleared, err := s.state.Clear(ctx, req.UserID, stateToken)
+		if err != nil || !cleared {
+			if err == nil {
+				err = errors.New("prompt audit deep review state changed")
+			}
+			return nil, &GuardError{Code: ErrorCodeDeepReviewState, Cause: err}
+		}
+		return decision, nil
+	}
+	if decision.Kind == DecisionFlag || decision.Kind == DecisionBlock {
+		decision.Kind = DecisionBlock
+		decision.ErrorCode = ErrorCodeDeepReviewRequired
+		decision.AllowNextStage = false
+	}
+	return decision, nil
 }
 
 func (s *PromptService) GetConfig() (PublicConfig, error) { return s.config.Public() }

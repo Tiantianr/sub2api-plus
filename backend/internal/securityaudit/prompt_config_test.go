@@ -35,6 +35,8 @@ func TestDefaultConfigIsOff(t *testing.T) {
 	require.NoError(t, err)
 	require.False(t, storage.Enabled)
 	require.False(t, storage.BlockingLatestTurnOnly)
+	require.Equal(t, DefaultBlockingReviewModules(), storage.BlockingReviewModules)
+	require.Equal(t, DefaultDeepReviewModules(), storage.DeepReviewModules)
 	active, err := ActiveFromStorage(storage, true, prefixEncryptor{})
 	require.NoError(t, err)
 	require.Equal(t, ModeOff, active.EffectiveMode())
@@ -43,6 +45,42 @@ func TestDefaultConfigIsOff(t *testing.T) {
 	require.NoError(t, err)
 	require.Contains(t, string(publicJSON), `"group_ids":[]`)
 	require.Contains(t, string(publicJSON), `"endpoints":[]`)
+}
+
+func TestReviewModuleConfigRoundTrip(t *testing.T) {
+	manager := &ConfigManager{encryptor: prefixEncryptor{}, encryptionKeyConfigured: true}
+	blockingModules := ReviewModules{System: true, ToolDefinitions: true}
+	deepModules := ReviewModules{Assistant: true, Reasoning: true, ToolCalls: true, ToolOutputs: true}
+	request := UpdateConfigRequest{
+		ExpectedConfigVersion: 1, Enabled: true, BlockingEnabled: true,
+		BlockingReviewModules: &blockingModules,
+		DeepReviewModules:     &deepModules,
+		Strategy:              "priority", WorkerCount: 1, QueueCapacity: 10, Scanners: []string{"pii"}, AllGroups: true,
+		Endpoints: []UpdateEndpoint{{ID: "guard-1", Name: "Guard", Protocol: "openai_compatible", BaseURL: "http://127.0.0.1:8080", Model: DefaultGuardModel, TimeoutMS: 1000, InputLimit: 1000, Enabled: true}},
+	}
+	next, err := manager.buildNextStorage(DefaultStorageConfig(), request, 9)
+	require.NoError(t, err)
+	require.Equal(t, blockingModules, next.BlockingReviewModules)
+	require.Equal(t, deepModules, next.DeepReviewModules)
+	require.Contains(t, changeSummary(next), `"blocking_review_modules"`)
+
+	active, err := ActiveFromStorage(next, true, prefixEncryptor{})
+	require.NoError(t, err)
+	require.Equal(t, blockingModules, active.BlockingReviewModules)
+	require.Equal(t, deepModules, PublicFromStorage(next, true, nil).DeepReviewModules)
+}
+
+func TestReviewModuleConfigMissingUpdateFieldsPreservesCurrentValues(t *testing.T) {
+	manager := &ConfigManager{encryptor: prefixEncryptor{}, encryptionKeyConfigured: true}
+	current := DefaultStorageConfig()
+	request := UpdateConfigRequest{
+		ExpectedConfigVersion: 1, Strategy: "priority", WorkerCount: 1, QueueCapacity: 10,
+		Scanners: []string{"pii"}, AllGroups: true,
+	}
+	next, err := manager.buildNextStorage(current, request, 9)
+	require.NoError(t, err)
+	require.Equal(t, current.BlockingReviewModules, next.BlockingReviewModules)
+	require.Equal(t, current.DeepReviewModules, next.DeepReviewModules)
 }
 
 func TestBlockingLatestTurnOnlyConfigRoundTrip(t *testing.T) {

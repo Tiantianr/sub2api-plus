@@ -1,6 +1,16 @@
-export type PromptAuditMode = 'off' | 'async_audit' | 'blocking'
+export type PromptAuditMode = 'off' | 'async_audit' | 'async_deep' | 'blocking'
 export type PromptDecision = 'pass' | 'flag' | 'critical'
 export type PromptRiskLevel = 'low' | 'medium' | 'high' | 'critical'
+
+export interface PromptAuditReviewModules {
+  system: boolean
+  assistant: boolean
+  reasoning: boolean
+  prompt_variables: boolean
+  tool_definitions: boolean
+  tool_calls: boolean
+  tool_outputs: boolean
+}
 
 export interface PromptAuditEndpoint {
   id: string
@@ -24,6 +34,8 @@ export interface PromptAuditConfig {
   enabled: boolean
   blocking_enabled: boolean
   blocking_latest_turn_only: boolean
+  blocking_review_modules: PromptAuditReviewModules
+  deep_review_modules: PromptAuditReviewModules
   store_pass_events: boolean
   effective_mode: PromptAuditMode
   strategy: 'priority'
@@ -48,6 +60,8 @@ export interface PromptAuditUpdateRequest {
   enabled: boolean
   blocking_enabled: boolean
   blocking_latest_turn_only: boolean
+  blocking_review_modules: PromptAuditReviewModules
+  deep_review_modules: PromptAuditReviewModules
   store_pass_events: boolean
   strategy: 'priority'
   worker_count: number
@@ -210,6 +224,7 @@ export interface PromptAuditEvent {
 export interface PromptEventFilters {
   decision: string
   risk_level: string
+  execution_mode: string
   endpoint: string
   group_id: string
   user_id: string

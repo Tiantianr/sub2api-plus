@@ -12,6 +12,26 @@ export const MAX_GUARD_TIMEOUT_MS = 30000
 export const MIN_GUARD_INPUT_LIMIT = 128
 export const MAX_GUARD_INPUT_LIMIT = 500000
 
+export const DEFAULT_BLOCKING_REVIEW_MODULES = {
+  system: true,
+  assistant: false,
+  reasoning: false,
+  prompt_variables: true,
+  tool_definitions: true,
+  tool_calls: false,
+  tool_outputs: false,
+}
+
+export const DEFAULT_DEEP_REVIEW_MODULES = {
+  system: true,
+  assistant: true,
+  reasoning: true,
+  prompt_variables: true,
+  tool_definitions: true,
+  tool_calls: true,
+  tool_outputs: true,
+}
+
 export const SCANNER_CATALOG = [
   { id: 'violent', label: 'Violent' },
   { id: 'non_violent_illegal_acts', label: 'Non-violent Illegal Acts' },
@@ -34,6 +54,8 @@ export function cloneData<T>(value: T): T {
 export function configToDraft(config: PromptAuditConfig): PromptAuditDraft {
   return {
     ...cloneData(config),
+    blocking_review_modules: { ...DEFAULT_BLOCKING_REVIEW_MODULES, ...(config.blocking_review_modules ?? {}) },
+    deep_review_modules: { ...DEFAULT_DEEP_REVIEW_MODULES, ...(config.deep_review_modules ?? {}) },
     group_ids: [...(config.group_ids ?? [])],
     scanners: [...(config.scanners ?? [])],
     endpoints: (config.endpoints ?? []).map((endpoint) => ({
@@ -67,6 +89,8 @@ export function buildUpdateRequest(draft: PromptAuditDraft): PromptAuditUpdateRe
     enabled: draft.enabled,
     blocking_enabled: draft.enabled && draft.blocking_enabled,
     blocking_latest_turn_only: draft.blocking_latest_turn_only,
+    blocking_review_modules: cloneData(draft.blocking_review_modules),
+    deep_review_modules: cloneData(draft.deep_review_modules),
     store_pass_events: draft.store_pass_events,
     strategy: 'priority',
     worker_count: Number(draft.worker_count),
@@ -98,6 +122,7 @@ export function emptyEventFilters(): PromptEventFilters {
   return {
     decision: '',
     risk_level: '',
+    execution_mode: '',
     endpoint: '',
     group_id: '',
     user_id: '',
@@ -119,7 +144,7 @@ function toISO(value: string): string | undefined {
 
 export function eventQueryParams(filters: PromptEventFilters): Record<string, string | number> {
   const result: Record<string, string | number> = {}
-  for (const key of ['decision', 'risk_level', 'endpoint', 'request_id', 'client_ip', 'prompt_hash', 'keyword'] as const) {
+  for (const key of ['decision', 'risk_level', 'execution_mode', 'endpoint', 'request_id', 'client_ip', 'prompt_hash', 'keyword'] as const) {
     const value = filters[key].trim()
     if (value) result[key] = value
   }

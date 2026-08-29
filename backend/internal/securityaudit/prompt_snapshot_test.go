@@ -710,6 +710,51 @@ func TestPromptSnapshotAsyncKeepsHistoricalUserAndExcludesAssistantToolOutput(t 
 	require.NotContains(t, blocking.ScanText, "assistant reply")
 }
 
+func TestPromptSnapshotSelectsConfiguredModulesPerLane(t *testing.T) {
+	body := []byte(`{
+		"instructions":"system skill instruction",
+		"tools":[{"type":"function","name":"lookup","description":"plugin definition"}],
+		"prompt":{"id":"pmpt_1","variables":{"skill":"prompt variable"}},
+		"input":[
+			{"type":"message","role":"user","content":"older user"},
+			{"type":"message","role":"assistant","content":"assistant history"},
+			{"type":"reasoning","content":[{"type":"reasoning_text","text":"reasoning text"}]},
+			{"type":"local_shell_call","call_id":"c1","action":{"command":"tool arguments"}},
+			{"type":"local_shell_call_output","call_id":"c1","output":"tool output"},
+			{"type":"message","role":"user","content":"latest user <system-reminder>installed skill</system-reminder> <environment_context>private cwd</environment_context>"}
+		]
+	}`)
+	req := Request{Protocol: "openai_responses", Body: body}
+
+	blocking, diagnostic, err := extractBlockingPromptSnapshotWithDiagnostics(req, ReviewModules{
+		System: true, Assistant: true, Reasoning: true, PromptVariables: true,
+		ToolDefinitions: true, ToolCalls: true, ToolOutputs: true,
+	})
+	require.NoError(t, err)
+	require.False(t, diagnostic.Failed)
+	for _, expected := range []string{"latest user", "installed skill", "system skill instruction", "assistant history", "reasoning text", "prompt variable", "plugin definition", "tool arguments", "tool output"} {
+		require.Contains(t, blocking.ScanText, expected)
+	}
+	require.NotContains(t, blocking.ScanText, "older user")
+	require.NotContains(t, blocking.ScanText, "private cwd")
+
+	minimal, _, err := extractBlockingPromptSnapshotWithDiagnostics(req, ReviewModules{Reasoning: true})
+	require.NoError(t, err)
+	require.Contains(t, minimal.ScanText, "latest user")
+	require.Contains(t, minimal.ScanText, "reasoning text")
+	for _, omitted := range []string{"installed skill", "system skill instruction", "assistant history", "prompt variable", "plugin definition", "tool arguments", "tool output", "older user"} {
+		require.NotContains(t, minimal.ScanText, omitted)
+	}
+
+	deep, _, err := extractDeepPromptSnapshotWithDiagnostics(req, ReviewModules{ToolOutputs: true})
+	require.NoError(t, err)
+	require.Contains(t, deep.ScanText, "latest user")
+	require.Contains(t, deep.ScanText, "older user")
+	require.Contains(t, deep.ScanText, "tool output")
+	require.NotContains(t, deep.ScanText, "system skill instruction")
+	require.NotContains(t, deep.ScanText, "assistant history")
+}
+
 func TestBuildPromptPreviewWithholdsMajorityOfOrdinaryText(t *testing.T) {
 	prompt := strings.Repeat("机密业务提示词内容", 40)
 	preview := BuildPromptPreview(prompt, DefaultPromptPreviewMaxRunes)

@@ -59,7 +59,7 @@ var allowedLogFields = map[string]struct{}{
 	"queue_length": {}, "queue_capacity": {}, "stage": {}, "upstream_dispatched": {},
 	"billing_preconsumed": {}, "worker_id": {}, "reclaimed_total": {}, "attempts": {},
 	"max_attempts": {}, "claim_version": {}, "http_status": {}, "retryable": {},
-	"body_bytes": {}, "incomplete_reasons": {},
+	"body_bytes": {}, "incomplete_reasons": {}, "failure_nodes": {},
 }
 
 func LogInfo(event string, fields map[string]any) {
@@ -94,6 +94,13 @@ func safeAttrs(fields map[string]any) []slog.Attr {
 				continue
 			}
 			value = auditcontent.SanitizeIncompleteReasons(reasons)
+		}
+		if key == "failure_nodes" {
+			details, ok := value.([]auditcontent.ExtractionFailureDetail)
+			if !ok {
+				continue
+			}
+			value = auditcontent.SanitizeExtractionFailureDetails(details)
 		}
 		if text, ok := value.(string); ok {
 			if key == "error_kind" || key == "error_code" {
@@ -138,6 +145,7 @@ func logPromptExtractionFailure(req Request, diagnostic promptExtractionDiagnost
 	LogWarn(EventExtractionFailed, mergeLogFields(requestLogFields(req), map[string]any{
 		"status": "failed", "error_code": code, "error_kind": "content_extraction",
 		"incomplete_reasons": diagnostic.Reasons,
+		"failure_nodes":      auditcontent.DescribeExtractionFailures(req.Body, diagnostic.Reasons),
 	}))
 }
 

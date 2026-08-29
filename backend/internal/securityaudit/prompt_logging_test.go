@@ -48,14 +48,14 @@ func TestPromptExtractionFailureLogHasBoundedContextWithoutRawContent(t *testing
 	slog.SetDefault(slog.New(slog.NewJSONHandler(&output, nil)))
 	t.Cleanup(func() { slog.SetDefault(previous) })
 
-	typeValue := "prompt_canary_secret"
+	typeValue := "future_response_item"
 	request := Request{
 		RequestID: "req-extraction", Endpoint: "/v1/responses", Protocol: "openai_responses", Stage: "subsequent_turn",
 		Body: []byte(`{"input":[{"type":"` + typeValue + `","payload":"` + canary + `"}]}`),
 	}
 	logPromptExtractionFailure(request, promptExtractionDiagnostic{
 		Failed: true, ErrorCode: "incomplete_content",
-		Reasons: []auditcontent.IncompleteReason{{Kind: auditcontent.IncompleteUnsupportedItemType, ItemType: typeValue}},
+		Reasons: []auditcontent.IncompleteReason{{Kind: auditcontent.IncompleteUnsupportedItemType, Path: "input.[0]", ItemType: typeValue}},
 	})
 
 	var entry map[string]any
@@ -68,7 +68,8 @@ func TestPromptExtractionFailureLogHasBoundedContextWithoutRawContent(t *testing
 	require.EqualValues(t, len(request.Body), entry["body_bytes"])
 	require.Equal(t, "incomplete_content", entry["error_code"])
 	require.Contains(t, output.String(), "unknown_item_type")
-	require.NotContains(t, output.String(), typeValue)
+	require.Contains(t, output.String(), `"item_type":"`+typeValue+`"`)
+	require.Contains(t, output.String(), `"node_shape":"{\"payload\":\"$string\",\"type\":\"`+typeValue+`\"}"`)
 	require.NotContains(t, output.String(), canary)
 }
 

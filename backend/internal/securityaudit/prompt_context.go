@@ -48,6 +48,7 @@ type completePromptContext struct {
 	ExtractionComplete bool                            `json:"extraction_complete"`
 	IncompleteReasons  []auditcontent.IncompleteReason `json:"incomplete_reasons,omitempty"`
 	GuardMode          string                          `json:"guard_mode"`
+	GuardModules       ReviewModules                   `json:"guard_modules"`
 	GuardInput         string                          `json:"guard_input"`
 	Segments           []completeContextSegment        `json:"segments"`
 	Images             []completeContextImage          `json:"images"`
@@ -67,7 +68,7 @@ type EventContextDownload struct {
 	SHA256 string
 }
 
-func buildCompletePromptContext(req Request, document auditcontent.Document, diagnostic promptExtractionDiagnostic, snapshot PromptSnapshot, latestTurnOnly bool) (string, string, int, int, error) {
+func buildCompletePromptContext(req Request, document auditcontent.Document, diagnostic promptExtractionDiagnostic, snapshot PromptSnapshot, selection promptSelection, modules ReviewModules) (string, string, int, int, error) {
 	segments := make([]completeContextSegment, 0, len(document.Segments))
 	for index, segment := range document.Segments {
 		segments = append(segments, completeContextSegment{
@@ -82,16 +83,12 @@ func buildCompletePromptContext(req Request, document auditcontent.Document, dia
 			ClientControlled: image.ClientControlled, URL: image.URL,
 		})
 	}
-	mode := "all_user_turns"
-	if latestTurnOnly {
-		mode = "latest_user_turn"
-	}
 	payload := completePromptContext{
 		FormatVersion: completeContextFormatVersion, CapturedAt: time.Now().UTC(),
 		RequestID: req.RequestID, Endpoint: req.Endpoint, Protocol: req.Protocol, Model: req.Model,
 		Stage: normalizeStage(req.Stage), BodyBytes: len(req.Body), ContentBearing: document.ContentBearing,
 		ExtractionComplete: !diagnostic.Failed, IncompleteReasons: diagnostic.Reasons,
-		GuardMode: mode, GuardInput: snapshot.FullPrompt, Segments: segments, Images: images,
+		GuardMode: string(selection), GuardModules: modules, GuardInput: snapshot.FullPrompt, Segments: segments, Images: images,
 	}
 	raw, err := json.MarshalIndent(payload, "", "  ")
 	if err != nil {

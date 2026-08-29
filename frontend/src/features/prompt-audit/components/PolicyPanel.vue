@@ -54,6 +54,20 @@
       </div>
 
       <div class="space-y-4 rounded-xl border border-gray-200 p-4 dark:border-dark-700/60 dark:bg-dark-900/20 sm:p-5">
+        <fieldset v-for="lane in reviewLanes" :key="lane.key">
+          <legend class="text-sm font-medium text-gray-900 dark:text-white">{{ t(lane.label) }}</legend>
+          <div class="mt-2 grid gap-2 sm:grid-cols-2 lg:grid-cols-1 xl:grid-cols-2">
+            <label v-for="module in reviewModules" :key="module.key" class="flex items-center gap-2 text-sm text-gray-700 dark:text-dark-200">
+              <input
+                type="checkbox"
+                :checked="reviewModulesFor(lane.key)[module.key]"
+                :data-test="`${lane.key}-${module.key}`"
+                @change="patchReviewModule(lane.key, module.key, ($event.target as HTMLInputElement).checked)"
+              />
+              {{ t(module.label) }}
+            </label>
+          </div>
+        </fieldset>
         <label class="block text-sm text-gray-700 dark:text-dark-200">
           <span>{{ t('admin.promptAudit.policy.workerCount') }}</span>
           <input :value="draft.worker_count" type="number" min="1" max="32" class="input mt-1.5 w-full" :aria-label="t('admin.promptAudit.policy.workerCount')" @input="patch({ worker_count: Number(($event.target as HTMLInputElement).value) })" />
@@ -74,13 +88,28 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
-import type { PromptAuditDraft, PromptAuditGroup } from '../types'
-import { cloneData, SCANNER_CATALOG } from '../viewModel'
+import type { PromptAuditDraft, PromptAuditGroup, PromptAuditReviewModules } from '../types'
+import { cloneData, DEFAULT_BLOCKING_REVIEW_MODULES, DEFAULT_DEEP_REVIEW_MODULES, SCANNER_CATALOG } from '../viewModel'
 
 const props = defineProps<{ draft: PromptAuditDraft; groups: PromptAuditGroup[] }>()
 const emit = defineEmits<{ (event: 'update:draft', value: PromptAuditDraft): void }>()
 const { t } = useI18n()
 const groupSearch = ref('')
+type ReviewLaneKey = 'blocking_review_modules' | 'deep_review_modules'
+type ReviewModuleKey = keyof PromptAuditReviewModules
+const reviewLanes: Array<{ key: ReviewLaneKey; label: string }> = [
+  { key: 'blocking_review_modules', label: 'admin.promptAudit.policy.blockingModules' },
+  { key: 'deep_review_modules', label: 'admin.promptAudit.policy.deepModules' },
+]
+const reviewModules: Array<{ key: ReviewModuleKey; label: string }> = [
+  { key: 'system', label: 'admin.promptAudit.policy.reviewModules.system' },
+  { key: 'assistant', label: 'admin.promptAudit.policy.reviewModules.assistant' },
+  { key: 'reasoning', label: 'admin.promptAudit.policy.reviewModules.reasoning' },
+  { key: 'prompt_variables', label: 'admin.promptAudit.policy.reviewModules.promptVariables' },
+  { key: 'tool_definitions', label: 'admin.promptAudit.policy.reviewModules.toolDefinitions' },
+  { key: 'tool_calls', label: 'admin.promptAudit.policy.reviewModules.toolCalls' },
+  { key: 'tool_outputs', label: 'admin.promptAudit.policy.reviewModules.toolOutputs' },
+]
 
 const filteredGroups = computed(() => {
   const query = groupSearch.value.trim().toLowerCase()
@@ -92,6 +121,12 @@ const missingGroupIds = computed(() => props.draft.group_ids.filter((id) => !kno
 
 function patch(value: Partial<PromptAuditDraft>) {
   emit('update:draft', { ...cloneData(props.draft), ...value })
+}
+function patchReviewModule(lane: ReviewLaneKey, module: ReviewModuleKey, value: boolean) {
+  patch({ [lane]: { ...reviewModulesFor(lane), [module]: value } })
+}
+function reviewModulesFor(lane: ReviewLaneKey): PromptAuditReviewModules {
+  return props.draft[lane] ?? (lane === 'blocking_review_modules' ? DEFAULT_BLOCKING_REVIEW_MODULES : DEFAULT_DEEP_REVIEW_MODULES)
 }
 function toggleGroup(id: number) {
   const selected = new Set(props.draft.group_ids)

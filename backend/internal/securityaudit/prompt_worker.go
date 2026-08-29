@@ -3,6 +3,7 @@ package securityaudit
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -25,6 +26,7 @@ type Runner struct {
 	config  ConfigStore
 	repo    JobRepository
 	payload PayloadStore
+	state   DeepReviewStateStore
 	scanner PromptScanner
 	metrics Metrics
 	clock   Clock
@@ -36,7 +38,8 @@ type Runner struct {
 }
 
 func NewRunner(config ConfigStore, repo JobRepository, payload PayloadStore, scanner PromptScanner, metrics Metrics) *Runner {
-	return &Runner{config: config, repo: repo, payload: payload, scanner: scanner, metrics: metrics, clock: realClock{}}
+	state, _ := payload.(DeepReviewStateStore)
+	return &Runner{config: config, repo: repo, payload: payload, state: state, scanner: scanner, metrics: metrics, clock: realClock{}}
 }
 
 func (r *Runner) Start(ctx context.Context) error {
@@ -211,6 +214,15 @@ func (r *Runner) processJob(ctx context.Context, workerID int, cfg ActiveConfig,
 		"action": aggregated.Action, "chunk_total": aggregated.ChunkTotal,
 		"latency_ms": aggregated.LatencyMS, "guard_endpoint_id": aggregated.GuardEndpointID, "status": "completed",
 	}))
+	if job.ExecutionMode == ModeAsyncDeep && aggregated.Action == ActionBlock && job.Snapshot.UserID > 0 {
+		if r.state == nil {
+			return r.finishFailure(ctx, job, &GuardError{Code: ErrorCodeDeepReviewState, Retryable: true})
+		}
+		token := fmt.Sprintf("async:%d:%d", job.ID, job.ClaimVersion)
+		if err := r.state.Require(ctx, job.Snapshot.UserID, token); err != nil {
+			return r.finishFailure(ctx, job, &GuardError{Code: ErrorCodeDeepReviewState, Retryable: true, Cause: err})
+		}
+	}
 	event, err := r.repo.Complete(ctx, job, aggregated, cfg.StorePassEvents)
 	if err != nil {
 		r.setLastError("job_complete_failed", err.Error())

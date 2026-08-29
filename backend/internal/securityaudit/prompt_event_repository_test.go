@@ -45,3 +45,9 @@ func TestBuildEventWhereFiltersExactClientIP(t *testing.T) {
 	require.Contains(t, where, "e.client_ip=$1")
 	require.Equal(t, []any{"2001:db8::1"}, args)
 }
+
+func TestBuildEventWhereFiltersAsyncDeepExecutionMode(t *testing.T) {
+	where, args := buildEventWhere(EventFilter{ExecutionMode: " ASYNC_DEEP "}, 1)
+	require.Contains(t, where, "e.execution_mode=$1")
+	require.Equal(t, []any{"async_deep"}, args)
+}

@@ -25,18 +25,23 @@ func (f *fakeLegacyEngine) Check(_ context.Context, req Request) (*LegacyDecisio
 }
 
 type fakePromptEngine struct {
-	mode      Mode
-	decision  *PromptDecision
-	err       error
-	enqueues  atomic.Int64
-	evaluates atomic.Int64
-	applies   bool
+	mode         Mode
+	decision     *PromptDecision
+	err          error
+	enqueues     atomic.Int64
+	deepEnqueues atomic.Int64
+	evaluates    atomic.Int64
+	applies      bool
 }
 
 func (f *fakePromptEngine) EffectiveMode() Mode          { return f.mode }
 func (f *fakePromptEngine) BlockingApplies(Request) bool { return f.applies }
 func (f *fakePromptEngine) Enqueue(context.Context, Request) error {
 	f.enqueues.Add(1)
+	return f.err
+}
+func (f *fakePromptEngine) EnqueueDeep(context.Context, Request) error {
+	f.deepEnqueues.Add(1)
 	return f.err
 }
 
@@ -227,4 +232,31 @@ func TestCoordinatorAsyncEnqueueFailuresNeverChangeResponseOrDownstreamDispatch(
 		require.Equal(t, int64(1), prompt.enqueues.Load())
 		require.Zero(t, prompt.evaluates.Load())
 	}
+}
+
+func TestCoordinatorEnqueuesDeepOnlyAfterCombinedBlockingAllow(t *testing.T) {
+	prompt := &fakePromptEngine{mode: ModeBlocking, decision: &PromptDecision{Kind: DecisionAllow, AllowNextStage: true}}
+	decision := NewCoordinator(&fakeLegacyEngine{decision: &LegacyDecision{Allowed: true}}, prompt).Check(context.Background(), Request{})
+	require.True(t, decision.AllowNextStage)
+	require.Equal(t, int64(1), prompt.deepEnqueues.Load())
+
+	prompt = &fakePromptEngine{mode: ModeBlocking, decision: &PromptDecision{Kind: DecisionAllow, AllowNextStage: true}}
+	decision = NewCoordinator(&fakeLegacyEngine{decision: &LegacyDecision{Blocked: true, StatusCode: http.StatusForbidden}}, prompt).Check(context.Background(), Request{})
+	require.False(t, decision.AllowNextStage)
+	require.Zero(t, prompt.deepEnqueues.Load())
+
+	prompt = &fakePromptEngine{mode: ModeBlocking, decision: &PromptDecision{Kind: DecisionAllow, AllowNextStage: true, DeepReviewed: true}}
+	decision = NewCoordinator(&fakeLegacyEngine{decision: &LegacyDecision{Allowed: true}}, prompt).Check(context.Background(), Request{})
+	require.True(t, decision.AllowNextStage)
+	require.Zero(t, prompt.deepEnqueues.Load())
+}
+
+func TestCoordinatorPreservesDeepReviewRequiredBlockCode(t *testing.T) {
+	decision := NewCoordinator(
+		&fakeLegacyEngine{decision: &LegacyDecision{Allowed: true}},
+		&fakePromptEngine{mode: ModeBlocking, decision: &PromptDecision{Kind: DecisionBlock, ErrorCode: ErrorCodeDeepReviewRequired, DeepReviewed: true}},
+	).Check(context.Background(), Request{})
+	require.Equal(t, DecisionBlock, decision.Kind)
+	require.Equal(t, ErrorCodeDeepReviewRequired, decision.ErrorCode)
+	require.False(t, decision.AllowNextStage)
 }

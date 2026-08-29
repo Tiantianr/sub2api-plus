@@ -234,6 +234,83 @@ func TestPromptServiceBlockingFailsClosedBeforeScanningIncompleteSiblingContent(
 	require.Equal(t, AuditMetricsSnapshot{ExtractionAttempted: 1, ExtractionFailed: 1}, metrics.AuditSnapshot())
 }
 
+func TestPromptServiceRequiredDeepReviewUsesDeepModulesAndClearsOnlyAllow(t *testing.T) {
+	state := &fakePayloadStore{states: map[int64]string{42: "pending-v1"}}
+	seen := ""
+	evaluator := newGuardEvaluator(PromptScannerFunc(func(_ context.Context, _ ActiveEndpoint, chunk string, _ []string) (*NormalizedResult, error) {
+		seen += chunk
+		return &NormalizedResult{Decision: EventPass, RiskLevel: RiskLow, Action: ActionAllow, ScannerScores: map[string]float64{}, ScannerEvidence: map[string]string{}}, nil
+	}), nil, NewAtomicMetrics(), 2, 2)
+	config := &fakeConfigStore{active: true, cfg: ActiveConfig{
+		RiskControlEnabled: true, Enabled: true, BlockingEnabled: true, AllGroups: false, GroupIDs: []int64{9},
+		BlockingReviewModules: ReviewModules{}, DeepReviewModules: ReviewModules{Assistant: true},
+		Scanners: AllScannerIDs, Endpoints: []ActiveEndpoint{{ID: "guard-1", Enabled: true, TimeoutMS: 1000, InputLimit: 4096}},
+	}}
+	promptService := &PromptService{config: config, evaluator: evaluator, state: state, clock: realClock{}}
+
+	decision, err := promptService.Evaluate(context.Background(), Request{
+		UserID: 42, Protocol: "openai_chat_completions",
+		Body: []byte(`{"messages":[{"role":"user","content":"older user"},{"role":"assistant","content":"assistant history"},{"role":"user","content":"latest user"}]}`),
+	})
+	require.NoError(t, err)
+	require.Equal(t, DecisionAllow, decision.Kind)
+	require.True(t, decision.DeepReviewed)
+	require.Contains(t, seen, "older user")
+	require.Contains(t, seen, "latest user")
+	require.Contains(t, seen, "assistant history")
+	require.Empty(t, state.states[42])
+}
+
+func TestPromptServiceRequiredDeepReviewWarnBlocksAndRefreshesRequirement(t *testing.T) {
+	state := &fakePayloadStore{states: map[int64]string{42: "pending-v1"}}
+	evaluator := newGuardEvaluator(PromptScannerFunc(func(context.Context, ActiveEndpoint, string, []string) (*NormalizedResult, error) {
+		return &NormalizedResult{Decision: EventFlag, RiskLevel: RiskMedium, Action: ActionWarn, ScannerScores: map[string]float64{}, ScannerEvidence: map[string]string{}}, nil
+	}), nil, NewAtomicMetrics(), 2, 2)
+	promptService := &PromptService{
+		config: &fakeConfigStore{active: true, cfg: ActiveConfig{
+			RiskControlEnabled: true, Enabled: true, BlockingEnabled: true, AllGroups: true,
+			DeepReviewModules: ReviewModules{System: true}, Scanners: AllScannerIDs,
+			Endpoints: []ActiveEndpoint{{ID: "guard-1", Enabled: true, TimeoutMS: 1000, InputLimit: 4096}},
+		}},
+		evaluator: evaluator, state: state, clock: fixedClock{now: time.Unix(123, 0)},
+	}
+
+	decision, err := promptService.Evaluate(context.Background(), Request{
+		RequestID: "req-recheck", UserID: 42, Protocol: "openai_chat_completions",
+		Body: []byte(`{"messages":[{"role":"user","content":"review me"}]}`),
+	})
+	require.NoError(t, err)
+	require.Equal(t, DecisionBlock, decision.Kind)
+	require.Equal(t, ErrorCodeDeepReviewRequired, decision.ErrorCode)
+	require.True(t, decision.DeepReviewed)
+	require.False(t, decision.AllowNextStage)
+	require.Equal(t, "review:req-recheck:123000000000", state.states[42])
+}
+
+func TestPromptServiceRequiredDeepReviewEmptySelectionCannotRestore(t *testing.T) {
+	state := &fakePayloadStore{states: map[int64]string{42: "pending-v1"}}
+	promptService := &PromptService{
+		config: &fakeConfigStore{active: true, cfg: ActiveConfig{
+			RiskControlEnabled: true, Enabled: true, BlockingEnabled: true, AllGroups: true,
+			Scanners: AllScannerIDs, Endpoints: []ActiveEndpoint{{ID: "guard-1", Enabled: true, TimeoutMS: 1000, InputLimit: 4096}},
+		}},
+		evaluator: newGuardEvaluator(PromptScannerFunc(func(context.Context, ActiveEndpoint, string, []string) (*NormalizedResult, error) {
+			t.Fatal("empty forced deep selection must not call Guard")
+			return nil, nil
+		}), nil, NewAtomicMetrics(), 1, 1),
+		state: state, clock: fixedClock{now: time.Unix(124, 0)},
+	}
+
+	decision, err := promptService.Evaluate(context.Background(), Request{
+		RequestID: "req-empty", UserID: 42, Protocol: "openai_chat_completions",
+		Body: []byte(`{"messages":[{"role":"system","content":"unselected system"}]}`),
+	})
+	require.NoError(t, err)
+	require.Equal(t, DecisionBlock, decision.Kind)
+	require.Equal(t, ErrorCodeDeepReviewRequired, decision.ErrorCode)
+	require.Equal(t, "review:req-empty:124000000000", state.states[42])
+}
+
 func TestPromptServiceRejectsInvalidDeleteConfirmationClaims(t *testing.T) {
 	now := time.Date(2026, 7, 16, 10, 0, 0, 0, time.UTC)
 	start, end := now.Add(-time.Hour), now.Add(time.Hour)

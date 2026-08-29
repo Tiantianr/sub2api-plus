@@ -1,12 +1,12 @@
 export default {
   promptAudit: {
     title: 'Prompt Audit',
-    description: 'Review user-authored input asynchronously or block the latest user input synchronously through OpenAI-compatible Qwen3Guard nodes. Stored events retain an encrypted complete-context download for admin review.',
+    description: 'Audit the current request synchronously through OpenAI-compatible Qwen3Guard nodes, then run a configurable asynchronous deep review after allow. Stored events retain an encrypted complete-context download.',
     configVersion: 'Config version v{version}',
     tabs: { config: 'Configuration', events: 'Events' },
     actions: { refresh: 'Refresh runtime', retry: 'Retry', Allow: 'Allow', Warn: 'Warn', Block: 'Block' },
     common: { actions: 'Actions', never: 'Never' },
-    mode: { off: 'Off', async_audit: 'Async audit only', blocking: 'Synchronous audit and block' },
+    mode: { off: 'Off', async_audit: 'Async audit only', async_deep: 'Async deep review', blocking: 'Synchronous audit and block' },
     status: { disabled: 'Disabled', running: 'Running', degraded: 'Degraded', error: 'Error', healthy: 'Healthy', failed: 'Failed', stale: 'Stale heartbeat' },
     decisions: { pass: 'Pass', flag: 'Flag', critical: 'Critical' },
     riskLevels: { low: 'Low', medium: 'Medium', high: 'High', critical: 'Critical' },
@@ -48,18 +48,20 @@ export default {
       probeProgress: 'Config validated ✓ · request sent · awaiting service response…', probeResult: 'Config ✓ · request ✓ · HTTP {http} · {status} · {latency} ms',
       name: 'Node name', id: 'Stable node ID', baseUrl: 'Base URL', apiKey: 'API Key', keepSecret: 'Leave blank to keep the saved API Key', reenterSecret: 'The saved API Key cannot be decrypted (encryption key changed); enter a new one',
       secretHint: 'Plaintext exists only in this editor and is cleared immediately after a successful save.', clearSecret: 'Explicitly clear the saved API Key', timeout: 'Total timeout (ms)', inputLimit: 'Unicode characters per chunk',
-      timeoutRange: 'Supported range: {min}–{max} ms.', inputLimitRange: 'Supported range: {min}–{max} Unicode characters.', inputLimitBehavior: 'Synchronous blocking scans the latest user input; asynchronous audit scans all user turns. Oversized selected text is split at this limit. When several nodes are enabled, the smallest limit applies.',
+      timeoutRange: 'Supported range: {min}–{max} ms.', inputLimitRange: 'Supported range: {min}–{max} Unicode characters.', inputLimitBehavior: 'Synchronous review always includes the latest user input; asynchronous review always includes all user turns. Each lane appends its selected modules. Oversized text is split at this limit; the smallest enabled-node limit applies.',
       toggleNode: 'Toggle node {name}', deleteConfirm: 'Remove “{name}” from the draft? It takes effect after saving.',
     },
     policy: {
       title: 'Audit policy', description: 'Configure group scope, nine input-risk categories, workers, and queue bounds.', scope: 'Scope', allGroups: 'All groups', selectedGroups: 'Selected groups',
       searchGroups: 'Search groups', noGroups: 'No matching groups', missingGroups: 'Configured IDs for groups that no longer exist', selectedCount: '{count} groups selected',
-      scanners: 'Qwen3Guard input-risk categories', workerCount: 'Worker count', queueCapacity: 'Persistent queue capacity', strategy: 'Node strategy', strategyHint: 'Try nodes in configuration order and fail over when allowed.',
+      scanners: 'Qwen3Guard input-risk categories', blockingModules: 'Synchronous review modules', deepModules: 'Asynchronous deep-review modules',
+      reviewModules: { system: 'System / instructions', assistant: 'Assistant history', reasoning: 'Reasoning', promptVariables: 'Prompt variables', toolDefinitions: 'Tool / plugin definitions', toolCalls: 'Tool call arguments', toolOutputs: 'Tool outputs' },
+      workerCount: 'Worker count', queueCapacity: 'Persistent queue capacity', strategy: 'Node strategy', strategyHint: 'Try nodes in configuration order and fail over when allowed.',
     },
     saveBar: { enabled: 'Enable prompt audit', blocking: 'Synchronous blocking', blockingLatestTurnOnly: 'Synchronous blocking scans only the latest user input', storePass: 'Store safe events', dirty: 'Unsaved changes', synced: 'Configuration synced' },
     blockingConfirm: {
       title: 'Enable synchronous blocking?',
-      message: 'Applicable requests wait for Guard before account selection, billing, or upstream access. Block, unavailable Guard, and invalid responses all prevent upstream access.',
+      message: 'Applicable requests wait for Guard before account selection, billing, or upstream access, then enter asynchronous deep review after allow. A deep hit requires the user’s next request to pass synchronous deep review.',
       confirm: 'I understand; enable it',
     },
     events: {

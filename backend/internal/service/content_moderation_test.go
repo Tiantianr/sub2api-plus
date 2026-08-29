@@ -628,7 +628,7 @@ func TestContentModerationExtractionFailureLogIsSafeAndComplete(t *testing.T) {
 		}},
 		&contentModerationTestRepo{}, nil, nil, nil, nil, nil, nil,
 	)
-	typeValue := "moderation_canary_secret"
+	typeValue := "future_response_item"
 	body := []byte(`{"input":[{"type":"` + typeValue + `","payload":"` + canary + `"}]}`)
 	decision, err := svc.Check(context.Background(), ContentModerationCheckInput{
 		RequestID: "req-safe-log", Protocol: ContentModerationProtocolOpenAIResponses,
@@ -647,7 +647,8 @@ func TestContentModerationExtractionFailureLogIsSafeAndComplete(t *testing.T) {
 	require.Contains(t, logs, `"body_bytes":`)
 	require.Contains(t, logs, "incomplete_content")
 	require.Contains(t, logs, "unknown_item_type")
-	require.NotContains(t, logs, typeValue)
+	require.Contains(t, logs, `"item_type":"`+typeValue+`"`)
+	require.Contains(t, logs, `"node_shape":"{\"payload\":\"$string\",\"type\":\"`+typeValue+`\"}"`)
 	require.NotContains(t, logs, canary)
 }
 

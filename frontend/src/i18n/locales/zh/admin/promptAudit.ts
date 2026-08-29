@@ -1,12 +1,12 @@
 export default {
   promptAudit: {
     title: '提示词审计',
-    description: '通过 OpenAI 兼容 Qwen3Guard 节点异步审计全部用户输入，或同步阻止最新用户输入；已保存事件提供加密的完整上下文下载，供管理员复核。',
+    description: '通过 OpenAI 兼容 Qwen3Guard 节点同步审计当前请求，并在放行后异步深度复核；已保存事件提供加密的完整上下文下载。',
     configVersion: '配置版本 v{version}',
     tabs: { config: '配置', events: '事件' },
     actions: { refresh: '刷新运行态', retry: '重试', Allow: '放行', Warn: '警告', Block: '阻止' },
     common: { actions: '操作', never: '从未' },
-    mode: { off: '已关闭', async_audit: '异步只审计', blocking: '同步审计并阻止' },
+    mode: { off: '已关闭', async_audit: '异步只审计', async_deep: '异步深度复核', blocking: '同步审计并阻止' },
     status: { disabled: '未启用', running: '运行中', degraded: '降级', error: '错误', healthy: '健康', failed: '失败', stale: '心跳过期' },
     decisions: { pass: '通过', flag: '标记', critical: '严重' },
     riskLevels: { low: '低', medium: '中', high: '高', critical: '严重' },
@@ -48,18 +48,20 @@ export default {
       probeProgress: '配置校验 ✓ · 请求已发送 · 等待服务响应…', probeResult: '配置校验 ✓ · 请求 ✓ · HTTP {http} · {status} · {latency} ms',
       name: '节点名称', id: '稳定节点 ID', baseUrl: 'Base URL', apiKey: 'API Key', keepSecret: '留空以保留已保存的 API Key', reenterSecret: '已保存的 API Key 无法解密（加密密钥已变更），请重新输入',
       secretHint: '明文只在本次编辑内存中存在；保存成功后会立即清除。', clearSecret: '显式清除已保存的 API Key', timeout: '总超时（毫秒）', inputLimit: '单片 Unicode 字符上限',
-      timeoutRange: '支持范围：{min}–{max} 毫秒。', inputLimitRange: '支持范围：{min}–{max} 个 Unicode 字符。', inputLimitBehavior: '同步阻止只审最新用户输入，异步审计全部用户轮次；选中内容超过该值时继续分片。多个启用节点同时存在时，以其中最小值为准。',
+      timeoutRange: '支持范围：{min}–{max} 毫秒。', inputLimitRange: '支持范围：{min}–{max} 个 Unicode 字符。', inputLimitBehavior: '同步审计始终包含最新用户输入，异步审计始终包含全部用户轮次，并分别追加已选模块；超过该值时继续分片。多个启用节点同时存在时，以其中最小值为准。',
       toggleNode: '切换节点 {name}', deleteConfirm: '从草稿中删除节点“{name}”？保存配置后生效。',
     },
     policy: {
       title: '审计策略', description: '配置适用分组、九类输入风险、Worker 与队列边界。', scope: '适用范围', allGroups: '全部分组', selectedGroups: '指定分组',
       searchGroups: '搜索分组', noGroups: '没有匹配分组', missingGroups: '配置中包含已删除的分组 ID', selectedCount: '已选择 {count} 个分组',
-      scanners: 'Qwen3Guard 输入风险分类', workerCount: 'Worker 数量', queueCapacity: '持久队列容量', strategy: '节点策略', strategyHint: '按配置顺序优先尝试，必要时故障切换。',
+      scanners: 'Qwen3Guard 输入风险分类', blockingModules: '同步审核附加模块', deepModules: '异步深度复核附加模块',
+      reviewModules: { system: 'System / Instructions', assistant: 'Assistant 历史', reasoning: 'Reasoning', promptVariables: 'Prompt variables', toolDefinitions: '工具 / 插件定义', toolCalls: '工具调用参数', toolOutputs: '工具结果' },
+      workerCount: 'Worker 数量', queueCapacity: '持久队列容量', strategy: '节点策略', strategyHint: '按配置顺序优先尝试，必要时故障切换。',
     },
     saveBar: { enabled: '启用提示词审计', blocking: '同步阻止', blockingLatestTurnOnly: '同步阻止仅审最新用户输入', storePass: '保存安全事件', dirty: '有未保存的更改', synced: '配置已同步' },
     blockingConfirm: {
       title: '开启同步阻止？',
-      message: '适用请求会在账号选择、计费和访问上游之前等待 Guard。命中 Block、Guard 不可用或响应非法时，请求都不会访问上游。',
+      message: '适用请求会在账号选择、计费和访问上游之前等待 Guard；同步放行后还会异步深度复核。深度命中后，用户下一次请求必须通过同步深度复核。',
       confirm: '理解风险并开启',
     },
     events: {

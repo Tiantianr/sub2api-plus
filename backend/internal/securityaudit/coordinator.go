@@ -24,6 +24,10 @@ type blockingScopePromptEngine interface {
 	BlockingApplies(req Request) bool
 }
 
+type deepReviewPromptEngine interface {
+	EnqueueDeep(ctx context.Context, req Request) error
+}
+
 type Coordinator struct {
 	legacy LegacyEngine
 	prompt PromptEngine
@@ -93,6 +97,11 @@ func (c *Coordinator) checkBlocking(ctx context.Context, req Request) Decision {
 	}()
 	wg.Wait()
 	decision := prioritize(legacy, prompt)
+	if decision.AllowNextStage && prompt != nil && !prompt.DeepReviewed {
+		if deep, ok := c.prompt.(deepReviewPromptEngine); ok {
+			_ = deep.EnqueueDeep(ctx, req.Clone())
+		}
+	}
 	return decision
 }
 
@@ -119,7 +128,11 @@ func prioritize(legacy *LegacyDecision, prompt *PromptDecision) Decision {
 		}
 	}
 	if prompt != nil && prompt.Kind == DecisionBlock {
-		return Decision{Kind: DecisionBlock, HTTPStatus: http.StatusForbidden, ErrorCode: ErrorCodeBlocked,
+		code := prompt.ErrorCode
+		if code == "" {
+			code = ErrorCodeBlocked
+		}
+		return Decision{Kind: DecisionBlock, HTTPStatus: http.StatusForbidden, ErrorCode: code,
 			ClientMessage: "安全审计拒绝了该请求，请移除破限插件等绕过行为，或检查提示词后重试", Legacy: legacy, Prompt: prompt}
 	}
 	if legacyDecisionUnavailable(legacy) {

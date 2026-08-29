@@ -1013,7 +1013,8 @@ func (s *ContentModerationService) Check(ctx context.Context, input ContentModer
 			"body_bytes", len(input.Body),
 			"error_code", extractionErrorCode,
 			"error_kind", "content_extraction",
-			"incomplete_reasons", auditcontent.SanitizeIncompleteReasons(incompleteReasons))
+			"incomplete_reasons", auditcontent.SanitizeIncompleteReasons(incompleteReasons),
+			"failure_nodes", auditcontent.DescribeExtractionFailures(input.Body, incompleteReasons))
 		if cfg.Mode == ContentModerationModePreBlock {
 			return contentModerationUnavailableDecision("内容审核无法完整提取请求，请稍后重试"), nil
 		}

@@ -14,6 +14,14 @@ const config = (): PromptAuditConfig => ({
   enabled: true,
   blocking_enabled: false,
   blocking_latest_turn_only: false,
+  blocking_review_modules: {
+    system: true, assistant: false, reasoning: false, prompt_variables: true,
+    tool_definitions: true, tool_calls: false, tool_outputs: false,
+  },
+  deep_review_modules: {
+    system: true, assistant: true, reasoning: true, prompt_variables: true,
+    tool_definitions: true, tool_calls: true, tool_outputs: true,
+  },
   store_pass_events: false,
   effective_mode: 'async_audit',
   strategy: 'priority',
@@ -57,10 +65,14 @@ describe('Prompt Audit view model', () => {
     expect(buildUpdateRequest(draft).endpoints[0]).toMatchObject({ token: undefined, clear_token: true })
   })
 
-  it('includes the optional narrow blocking scope in the update payload', () => {
+  it('saves independent synchronous and deep-review modules', () => {
     const draft = configToDraft(config())
-    draft.blocking_latest_turn_only = true
-    expect(buildUpdateRequest(draft)).toMatchObject({ blocking_latest_turn_only: true })
+    draft.blocking_review_modules.assistant = true
+    draft.deep_review_modules.tool_outputs = false
+    expect(buildUpdateRequest(draft)).toMatchObject({
+      blocking_review_modules: { assistant: true, tool_outputs: false },
+      deep_review_modules: { assistant: true, tool_outputs: false },
+    })
   })
 
   it('tracks dirty state from the full normalized save payload', () => {
@@ -78,10 +90,12 @@ describe('Prompt Audit view model', () => {
     filters.end_at = '2026-07-16T10:00'
     filters.group_id = '9'
     filters.client_ip = '203.0.113.42'
+    filters.execution_mode = 'async_deep'
     expect(hasExplicitDeleteRange(filters)).toBe(true)
     expect(eventFilterPayload(filters)).toMatchObject({
       group_id: 9,
       client_ip: '203.0.113.42',
+      execution_mode: 'async_deep',
       start_at: new Date(filters.start_at).toISOString(),
       end_at: new Date(filters.end_at).toISOString(),
     })
