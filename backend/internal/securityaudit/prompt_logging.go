@@ -21,6 +21,10 @@ const (
 	EventEnqueueDropped       = "prompt_audit.enqueue_dropped"
 	EventExtractionFailed     = "prompt_audit.extraction_failed"
 	EventAllowReceiptFailed   = "prompt_audit.allow_receipt_failed"
+	EventRecoveryRequired     = "prompt_audit.recovery_required"
+	EventRecoveryCleared      = "prompt_audit.recovery_cleared"
+	EventRecoveryRetained     = "prompt_audit.recovery_retained"
+	EventRecoveryStateFailed  = "prompt_audit.recovery_state_failed"
 	EventAuditStarted         = "prompt_audit.started"
 	EventProcessingReclaimed  = "prompt_audit.processing_reclaimed"
 	EventProcessed            = "prompt_audit.processed"
@@ -45,6 +49,7 @@ var knownLogEvents = map[string]struct{}{
 	EventConfigUpdated: {}, EventConfigLoaded: {}, EventConfigReloadDegraded: {}, EventConfigTokenInvalid: {},
 	EventProbeStarted: {}, EventProbeFinished: {}, EventProbeFailed: {},
 	EventJobEnqueued: {}, EventEnqueueSkipped: {}, EventEnqueueDropped: {}, EventExtractionFailed: {}, EventAllowReceiptFailed: {},
+	EventRecoveryRequired: {}, EventRecoveryCleared: {}, EventRecoveryRetained: {}, EventRecoveryStateFailed: {},
 	EventAuditStarted: {}, EventProcessingReclaimed: {}, EventProcessed: {}, EventProcessFailed: {}, EventFindingRecorded: {},
 	EventChunkStarted: {}, EventChunkCompleted: {}, EventChunkFailed: {}, EventChunksAggregated: {},
 	EventEvaluationStarted: {}, EventGuardAllowed: {}, EventGuardBlocked: {}, EventGuardFailed: {}, EventResultRecordFailed: {},
@@ -61,6 +66,7 @@ var allowedLogFields = map[string]struct{}{
 	"billing_preconsumed": {}, "worker_id": {}, "reclaimed_total": {}, "attempts": {},
 	"max_attempts": {}, "claim_version": {}, "http_status": {}, "retryable": {},
 	"body_bytes": {}, "incomplete_reasons": {}, "failure_nodes": {},
+	"recovery_source": {},
 }
 
 func LogInfo(event string, fields map[string]any) {

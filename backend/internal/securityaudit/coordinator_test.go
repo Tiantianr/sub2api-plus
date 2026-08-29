@@ -33,7 +33,10 @@ type fakePromptEngine struct {
 	deepEnqueues   atomic.Int64
 	evaluates      atomic.Int64
 	receiptCommits atomic.Int64
+	fenceChecks    atomic.Int64
 	applies        bool
+	fenceDecision  *PromptDecision
+	fenceErr       error
 	lastEnqueue    Request
 	lastDeep       Request
 }
@@ -53,6 +56,10 @@ func (f *fakePromptEngine) EnqueueDeep(_ context.Context, req Request) error {
 func (f *fakePromptEngine) commitAllowReceipts(context.Context, *PromptDecision) {
 	f.receiptCommits.Add(1)
 }
+func (f *fakePromptEngine) pendingRecoveryDecision(context.Context, Request) (*PromptDecision, error) {
+	f.fenceChecks.Add(1)
+	return f.fenceDecision, f.fenceErr
+}
 
 func TestCoordinatorMarksLegacyTextAsShadowOnlyWhenPromptCoversRequest(t *testing.T) {
 	legacy := &fakeLegacyEngine{decision: &LegacyDecision{Allowed: true}}
@@ -69,6 +76,42 @@ func TestCoordinatorMarksLegacyTextAsShadowOnlyWhenPromptCoversRequest(t *testin
 	decision = NewCoordinator(legacy, prompt).Check(context.Background(), Request{APIKeyID: 7})
 	require.True(t, decision.AllowNextStage)
 	require.False(t, legacy.last.PromptTextAuthority)
+}
+
+func TestCoordinatorFinalRecoveryFenceStopsConcurrentOrdinaryAllow(t *testing.T) {
+	prompt := &fakePromptEngine{
+		mode:     ModeBlocking,
+		decision: &PromptDecision{Kind: DecisionAllow, AllowNextStage: true},
+		fenceDecision: &PromptDecision{
+			Kind: DecisionBlock, ErrorCode: ErrorCodeDeepReviewRequired,
+			AllowNextStage: false, DeepReviewed: true,
+		},
+	}
+	decision := NewCoordinator(&fakeLegacyEngine{decision: &LegacyDecision{Allowed: true}}, prompt).
+		Check(context.Background(), Request{UserID: 42})
+
+	require.Equal(t, DecisionBlock, decision.Kind)
+	require.Equal(t, ErrorCodeDeepReviewRequired, decision.ErrorCode)
+	require.False(t, decision.AllowNextStage)
+	require.Equal(t, int64(1), prompt.fenceChecks.Load())
+	require.Zero(t, prompt.receiptCommits.Load())
+	require.Zero(t, prompt.deepEnqueues.Load())
+}
+
+func TestCoordinatorFinalRecoveryFenceFailsClosedOnStateError(t *testing.T) {
+	prompt := &fakePromptEngine{
+		mode:     ModeBlocking,
+		decision: &PromptDecision{Kind: DecisionAllow, AllowNextStage: true},
+		fenceErr: errors.New("redis unavailable"),
+	}
+	decision := NewCoordinator(&fakeLegacyEngine{decision: &LegacyDecision{Allowed: true}}, prompt).
+		Check(context.Background(), Request{UserID: 42})
+
+	require.Equal(t, DecisionUnavailable, decision.Kind)
+	require.Equal(t, ErrorCodeDeepReviewState, decision.ErrorCode)
+	require.False(t, decision.AllowNextStage)
+	require.Zero(t, prompt.receiptCommits.Load())
+	require.Zero(t, prompt.deepEnqueues.Load())
 }
 func (f *fakePromptEngine) Evaluate(context.Context, Request) (*PromptDecision, error) {
 	f.evaluates.Add(1)

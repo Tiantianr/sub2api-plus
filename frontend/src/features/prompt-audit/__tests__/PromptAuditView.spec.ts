@@ -30,6 +30,8 @@ const runtime = (): PromptAuditRuntime => ({
   queue: { staging: 0, queued: 0, processing: 1, retry: 0, done: 5, failed: 0, active: 1 },
   processed_total: 5, failed_total: 0, enqueued_total: 5, dropped_total: 0,
   extraction_attempted: 5, extraction_succeeded: 5, extraction_empty: 0, extraction_failed: 0,
+  allow_receipt_hits: 0, allow_receipt_misses: 0, allow_receipt_writes: 0, allow_receipt_errors: 0,
+  recovery_required_sync: 0, recovery_required_async: 0, recovery_cleared: 0, recovery_retained: 0, recovery_errors: 0,
   database_status: 'ok', redis_status: 'ok', endpoints: {},
   guard_metrics: { total: 1, allowed: 1, flagged: 0, blocked: 0, unavailable: 0, invalid: 0, timeouts: 0, failovers: 0, bulkhead_full: 0, record_failed: 0 },
 })

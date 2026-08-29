@@ -775,9 +775,10 @@ func TestAsyncDeepBlockMarksUserBeforeCompletingJob(t *testing.T) {
 	trace := []string{}
 	payload := &fakePayloadStore{trace: &trace, values: map[int64]string{51: "deep blocked input"}, states: map[int64]string{}}
 	repo := &fakeJobRepository{trace: &trace}
+	metrics := NewAtomicMetrics()
 	runner := NewRunner(&fakeConfigStore{active: true, cfg: asyncConfig()}, repo, payload, PromptScannerFunc(func(context.Context, ActiveEndpoint, string, []string) (*NormalizedResult, error) {
 		return &NormalizedResult{Decision: EventCritical, RiskLevel: RiskCritical, Action: ActionBlock, ScannerScores: map[string]float64{}, ScannerEvidence: map[string]string{}}, nil
-	}), NewAtomicMetrics())
+	}), metrics)
 	job := &Job{
 		ID: 51, Snapshot: PromptSnapshot{UserID: 42, PromptLength: 18}, ExecutionMode: ModeAsyncDeep,
 		Status: "processing", Attempts: 1, MaxAttempts: 3, ClaimVersion: 7, ConfigVersion: asyncConfig().ConfigVersion,
@@ -787,6 +788,27 @@ func TestAsyncDeepBlockMarksUserBeforeCompletingJob(t *testing.T) {
 	require.Equal(t, "async:51:7", payload.states[42])
 	require.Equal(t, 1, repo.completeCount)
 	require.Equal(t, []string{"state_require", "complete", "payload_delete"}, trace)
+	require.Equal(t, int64(1), metrics.AuditSnapshot().RecoveryRequiredAsync)
+}
+
+func TestAsyncDeepBlockFailsJobWhenRecoveryStateCannotBeWritten(t *testing.T) {
+	payload := &fakePayloadStore{
+		values: map[int64]string{52: "deep blocked input"}, states: map[int64]string{},
+		stateErr: errors.New("redis unavailable"),
+	}
+	repo := &fakeJobRepository{}
+	metrics := NewAtomicMetrics()
+	runner := NewRunner(&fakeConfigStore{active: true, cfg: asyncConfig()}, repo, payload, PromptScannerFunc(func(context.Context, ActiveEndpoint, string, []string) (*NormalizedResult, error) {
+		return &NormalizedResult{Decision: EventCritical, RiskLevel: RiskCritical, Action: ActionBlock, ScannerScores: map[string]float64{}, ScannerEvidence: map[string]string{}}, nil
+	}), metrics)
+	job := &Job{
+		ID: 52, Snapshot: PromptSnapshot{UserID: 42, PromptLength: 18}, ExecutionMode: ModeAsyncDeep,
+		Status: "processing", Attempts: 1, MaxAttempts: 3, ClaimVersion: 7, ConfigVersion: asyncConfig().ConfigVersion,
+	}
+
+	require.Error(t, runner.processJob(context.Background(), 0, asyncConfig(), job))
+	require.Zero(t, repo.completeCount)
+	require.Equal(t, int64(1), metrics.AuditSnapshot().RecoveryErrors)
 }
 
 func TestRequestCloneOwnsMutableInputs(t *testing.T) {

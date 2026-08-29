@@ -280,16 +280,21 @@ type GuardMetricsSnapshot struct {
 }
 
 type AuditMetricsSnapshot struct {
-	Enqueued            int64 `json:"enqueued"`
-	Dropped             int64 `json:"dropped"`
-	ExtractionAttempted int64 `json:"extraction_attempted"`
-	ExtractionSucceeded int64 `json:"extraction_succeeded"`
-	ExtractionEmpty     int64 `json:"extraction_empty"`
-	ExtractionFailed    int64 `json:"extraction_failed"`
-	AllowReceiptHits    int64 `json:"allow_receipt_hits"`
-	AllowReceiptMisses  int64 `json:"allow_receipt_misses"`
-	AllowReceiptWrites  int64 `json:"allow_receipt_writes"`
-	AllowReceiptErrors  int64 `json:"allow_receipt_errors"`
+	Enqueued              int64 `json:"enqueued"`
+	Dropped               int64 `json:"dropped"`
+	ExtractionAttempted   int64 `json:"extraction_attempted"`
+	ExtractionSucceeded   int64 `json:"extraction_succeeded"`
+	ExtractionEmpty       int64 `json:"extraction_empty"`
+	ExtractionFailed      int64 `json:"extraction_failed"`
+	AllowReceiptHits      int64 `json:"allow_receipt_hits"`
+	AllowReceiptMisses    int64 `json:"allow_receipt_misses"`
+	AllowReceiptWrites    int64 `json:"allow_receipt_writes"`
+	AllowReceiptErrors    int64 `json:"allow_receipt_errors"`
+	RecoveryRequiredSync  int64 `json:"recovery_required_sync"`
+	RecoveryRequiredAsync int64 `json:"recovery_required_async"`
+	RecoveryCleared       int64 `json:"recovery_cleared"`
+	RecoveryRetained      int64 `json:"recovery_retained"`
+	RecoveryErrors        int64 `json:"recovery_errors"`
 }
 
 type ExtractionOutcome string
@@ -334,6 +339,11 @@ type RuntimeSnapshot struct {
 	AllowReceiptMisses    int64                  `json:"allow_receipt_misses"`
 	AllowReceiptWrites    int64                  `json:"allow_receipt_writes"`
 	AllowReceiptErrors    int64                  `json:"allow_receipt_errors"`
+	RecoveryRequiredSync  int64                  `json:"recovery_required_sync"`
+	RecoveryRequiredAsync int64                  `json:"recovery_required_async"`
+	RecoveryCleared       int64                  `json:"recovery_cleared"`
+	RecoveryRetained      int64                  `json:"recovery_retained"`
+	RecoveryErrors        int64                  `json:"recovery_errors"`
 	LastProcessedAt       *time.Time             `json:"last_processed_at,omitempty"`
 	LastErrorAt           *time.Time             `json:"last_error_at,omitempty"`
 	LastErrorCode         string                 `json:"last_error_code,omitempty"`
@@ -367,6 +377,10 @@ type Metrics interface {
 	IncAllowReceiptMiss()
 	IncAllowReceiptWrite()
 	IncAllowReceiptError()
+	IncRecoveryRequired(mode Mode)
+	IncRecoveryCleared()
+	IncRecoveryRetained()
+	IncRecoveryError()
 }
 
 type PromptScanner interface {

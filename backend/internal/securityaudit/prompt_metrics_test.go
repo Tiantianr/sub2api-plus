@@ -24,6 +24,11 @@ func TestAtomicMetricsExposeCountsLatencyDistributionAndAsyncDelivery(t *testing
 	metrics.ObserveExtraction(ExtractionSucceeded)
 	metrics.ObserveExtraction(ExtractionEmpty)
 	metrics.ObserveExtraction(ExtractionFailed)
+	metrics.IncRecoveryRequired(ModeBlocking)
+	metrics.IncRecoveryRequired(ModeAsyncDeep)
+	metrics.IncRecoveryCleared()
+	metrics.IncRecoveryRetained()
+	metrics.IncRecoveryError()
 
 	snapshot := metrics.Snapshot()
 	require.Equal(t, int64(5), snapshot.Total)
@@ -36,6 +41,7 @@ func TestAtomicMetricsExposeCountsLatencyDistributionAndAsyncDelivery(t *testing
 	require.Equal(t, AuditMetricsSnapshot{
 		Enqueued: 1, Dropped: 1, ExtractionAttempted: 3,
 		ExtractionSucceeded: 1, ExtractionEmpty: 1, ExtractionFailed: 1,
+		RecoveryRequiredSync: 1, RecoveryRequiredAsync: 1, RecoveryCleared: 1, RecoveryRetained: 1, RecoveryErrors: 1,
 	}, metrics.AuditSnapshot())
 }
 

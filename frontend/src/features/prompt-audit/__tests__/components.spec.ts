@@ -43,6 +43,7 @@ describe('Prompt Audit components', () => {
       processed_total: 5, failed_total: 0, enqueued_total: 5, dropped_total: 0,
       extraction_attempted: 7, extraction_succeeded: 5, extraction_empty: 1, extraction_failed: 1,
       allow_receipt_hits: 3, allow_receipt_misses: 2, allow_receipt_writes: 1, allow_receipt_errors: 0,
+      recovery_required_sync: 2, recovery_required_async: 1, recovery_cleared: 1, recovery_retained: 1, recovery_errors: 0,
       last_processed_at: '2026-07-16T00:05:00Z', last_error_at: '2026-07-16T00:01:00Z',
       last_error_code: 'prompt_guard_unavailable', last_error_message: 'Prompt Guard unavailable',
       database_status: 'ok', redis_status: 'ok', endpoints: {},
@@ -60,6 +61,7 @@ describe('Prompt Audit components', () => {
     expect(wrapper.text()).toContain('admin.promptAudit.runtime.lastError')
     expect(wrapper.text()).toContain('prompt_guard_unavailable')
     expect(wrapper.text()).toContain('admin.promptAudit.runtime.allowReceiptTotals')
+    expect(wrapper.text()).toContain('admin.promptAudit.runtime.recoveryTotals')
   })
 
   it('edits a saved endpoint with blank-secret keep, explicit clear, replacement, and probe actions', async () => {

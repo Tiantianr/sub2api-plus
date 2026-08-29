@@ -149,6 +149,11 @@ export interface PromptAuditRuntime {
   allow_receipt_misses: number
   allow_receipt_writes: number
   allow_receipt_errors: number
+  recovery_required_sync: number
+  recovery_required_async: number
+  recovery_cleared: number
+  recovery_retained: number
+  recovery_errors: number
   last_processed_at?: string
   last_error_at?: string
   last_error_code?: string
