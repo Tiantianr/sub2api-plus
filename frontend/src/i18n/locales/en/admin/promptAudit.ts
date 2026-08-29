@@ -49,8 +49,8 @@ export default {
       configured: 'API Key configured', missing: 'API Key missing', invalid: 'API Key cannot be decrypted; re-enter it', probe: 'Test connection', probing: 'Probing…',
       probeProgress: 'Config validated ✓ · request sent · awaiting service response…', probeResult: 'Config ✓ · request ✓ · HTTP {http} · {status} · {latency} ms',
       name: 'Node name', id: 'Stable node ID', baseUrl: 'Base URL', apiKey: 'API Key', keepSecret: 'Leave blank to keep the saved API Key', reenterSecret: 'The saved API Key cannot be decrypted (encryption key changed); enter a new one',
-      secretHint: 'Plaintext exists only in this editor and is cleared immediately after a successful save.', clearSecret: 'Explicitly clear the saved API Key', timeout: 'Total timeout (ms)', inputLimit: 'Unicode characters per chunk',
-      timeoutRange: 'Supported range: {min}–{max} ms.', inputLimitRange: 'Supported range: {min}–{max} Unicode characters.', inputLimitBehavior: 'Synchronous review requires current user input and reviews historical user receipt misses. Async submits only historical or new segment misses. Oversized text is split at this limit.',
+      secretHint: 'Plaintext exists only in this editor and is cleared immediately after a successful save.', clearSecret: 'Explicitly clear the saved API Key', timeout: 'Per-node timeout per chunk (ms)', inputLimit: 'Unicode characters per chunk',
+      timeoutRange: 'Supported range: {min}–{max} ms.', inputLimitRange: 'Supported range: {min}–{max} Unicode characters.', inputLimitBehavior: 'Synchronous review scans current and historical user receipt misses; async-only current-user input is always reviewed. Oversized text is split at this limit.',
       toggleNode: 'Toggle node {name}', deleteConfirm: 'Remove “{name}” from the draft? It takes effect after saving.',
     },
     policy: {
@@ -58,7 +58,7 @@ export default {
       searchGroups: 'Search groups', noGroups: 'No matching groups', missingGroups: 'Configured IDs for groups that no longer exist', selectedCount: '{count} groups selected',
       scanners: 'Qwen3Guard input-risk categories', blockingModules: 'Synchronous review modules', deepModules: 'Deep-review modules',
       reviewModules: { system: 'System / instructions', assistant: 'Assistant history', reasoning: 'Reasoning', promptVariables: 'Prompt variables', toolDefinitions: 'Tool / plugin definitions', toolCalls: 'Tool call arguments', toolOutputs: 'Tool outputs' },
-      workerCount: 'Worker count', queueCapacity: 'Persistent queue capacity', allowReceiptTTL: 'Incremental Allow receipt TTL (seconds)', allowReceiptTTLHint: 'A new current user input must be reviewed first. Its synchronous Allow may be reused by the same request; history and automatic continuations are reviewed per canonical segment. Range: 60–86400 seconds.', strategy: 'Node strategy', strategyHint: 'Try nodes in configuration order and fail over when allowed.',
+      workerCount: 'Worker count', queueCapacity: 'Persistent queue capacity', allowReceiptTTL: 'Incremental Allow receipt TTL (seconds)', allowReceiptTTLHint: 'In blocking mode, new or changed current-user input must be reviewed first; the same user and policy may reuse an Allow receipt for fixed text until it expires, while strictly formatted media hash markers may vary. Async-only current-user input is still reviewed. Range: 60–86400 seconds.', strategy: 'Node strategy', strategyHint: 'Try nodes in configuration order and fail over when allowed.',
     },
     saveBar: { enabled: 'Enable prompt audit', blocking: 'Synchronous blocking', blockingLatestTurnOnly: 'Synchronous blocking prioritizes current user input', storePass: 'Store safe events', dirty: 'Unsaved changes', synced: 'Configuration synced' },
     blockingConfirm: {
@@ -67,7 +67,7 @@ export default {
       confirm: 'I understand; enable it',
     },
     events: {
-      title: 'Audit events', description: 'Review events by identity, IP, route, risk, hash, and time; the detail view shows the complete audited content.', decision: 'Decision', risk: 'Risk level', endpoint: 'Endpoint', clientIp: 'Client IP', filterByIp: 'Filter by IP {ip}', groupId: 'Group ID', userId: 'User ID', apiKeyId: 'API Key ID', keyword: 'Keyword',
+      title: 'Audit events', description: 'Review events by identity, IP, route, risk, hash, and time; the detail view shows the complete audited content.', decision: 'Decision', risk: 'Risk level', endpoint: 'Endpoint', clientIp: 'Client IP', filterByIp: 'Filter by IP {ip}', groupId: 'Group ID', userId: 'User ID', filterByUserId: 'Filter by user ID {id}', apiKeyId: 'API Key ID', keyword: 'Keyword',
       startAt: 'Start time', endAt: 'End time', deleteSelected: 'Delete selected ({count})', deleteByFilter: 'Delete by filter',
       filterDeleteDialogTitle: 'Delete audit events by filter', filterDeleteDialogDesc: 'Choose the time range and risk criteria, then delete directly. Deletion is permanent. Generate a preview first if you want to see the match count.',
       filterTimeRange: 'Deletion time range', filterTimeRangeHint: 'Deletes events created before the selected cutoff. Events created after the preview are not affected.',

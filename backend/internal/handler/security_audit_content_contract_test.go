@@ -41,6 +41,15 @@ func TestContentModerationUsesLatestUserTextWithoutInstructionContext(t *testing
 			body: `{"input":[{"type":"message","role":"user","content":"older prompt"},{"type":"message","role":"assistant","content":"current assistant payload"}]}`,
 		},
 		{
+			name: "responses user agent message", protocol: service.ContentModerationProtocolOpenAIResponses,
+			body: `{"input":[{"type":"agent_message","author":"user","recipient":"assistant","content":[{"type":"input_text","text":"agent user request"},{"type":"encrypted_content","encrypted_content":"opaque"}]}]}`,
+			want: "agent user request",
+		},
+		{
+			name: "responses named agent message skipped", protocol: service.ContentModerationProtocolOpenAIResponses,
+			body: `{"input":[{"type":"agent_message","author":"research_agent","recipient":"assistant","content":[{"type":"input_text","text":"internal agent result"}]}]}`,
+		},
+		{
 			name: "responses prompt variables skipped", protocol: service.ContentModerationProtocolOpenAIResponses,
 			body: `{"prompt":{"id":"pmpt_1","variables":{"plain":"reusable variable","image":{"type":"input_image","image_url":"https://example.test/prompt.png"}}}}`,
 		},
@@ -133,6 +142,20 @@ func TestPromptAuditUsesUserAuthoredConversationText(t *testing.T) {
 			name: "responses reusable prompt variables are excluded", protocol: service.ContentModerationProtocolOpenAIResponses,
 			body:     `{"prompt":{"id":"pmpt_1","variables":{"plain":"reusable variable","typed":{"type":"input_text","text":"typed variable"}}}}`,
 			omit:     []string{"reusable variable", "typed variable"},
+			noFull:   true,
+			noLatest: true,
+		},
+		{
+			name: "responses user agent message", protocol: service.ContentModerationProtocolOpenAIResponses,
+			body:   `{"input":[{"type":"agent_message","author":"user","recipient":"assistant","content":[{"type":"input_text","text":"agent user request"},{"type":"encrypted_content","encrypted_content":"opaque agent state"}]}]}`,
+			full:   []string{"agent user request"},
+			latest: "agent user request",
+			omit:   []string{"opaque agent state"},
+		},
+		{
+			name: "responses named agent message is not user prompt", protocol: service.ContentModerationProtocolOpenAIResponses,
+			body:     `{"input":[{"type":"agent_message","author":"research_agent","recipient":"assistant","content":[{"type":"input_text","text":"internal agent result"}]}]}`,
+			omit:     []string{"internal agent result"},
 			noFull:   true,
 			noLatest: true,
 		},

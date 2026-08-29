@@ -1,46 +1,53 @@
-Sub2API Plus v0.1.183+custom.912
+Sub2API Plus v0.1.183+custom.913
 
 ## Highlights
 
-- Require a user whose synchronous Prompt Audit request was blocked to pass one
-  complete synchronous deep review before upstream processing can resume.
-- Prevent API-key, group, or client session changes from skipping that recovery
-  review while preserving exact-Allow automatic recovery.
+- Accept Responses `agent_message` histories without rejecting extractable
+  requests, while preserving visible text and direct-user attribution.
+- Reuse exact blocking Prompt Audit Allows for repeated fixed current-user
+  prompts, including strict opaque media-hash marker changes.
+- Give each synchronous Guard node and chunk its own timeout so a timed-out
+  priority node can fail over to the next configured node.
 
 ## Changed
 
-- Make synchronous and asynchronous Prompt Audit Blocks share the same
-  non-expiring, versioned user recovery state.
-- Use the active deep-review module selection for recovery, force all user
-  turns, and bypass trusted and stored Allow receipts.
-- Add bounded recovery-required, cleared, retained, and error logs and runtime
-  counters without exposing state tokens or audited content.
+- Classify recognized `agent_message` authors as user, system, developer,
+  assistant, or model; classify other named agents as non-user assistant
+  sources and ignore only known opaque encrypted content and turn metadata.
+- Advance the Allow receipt schema and permit unexpired stored current-user
+  receipts in blocking mode while keeping async-only current input and forced
+  recovery uncached.
+- Clarify the audit-pool timeout as a per-node, per-chunk limit.
+- Show user IDs in the Prompt Audit event identity column and make them
+  clickable user filters.
 
 ## Fixed
 
-- Stop an agent from resuming through ordinary incremental Allow immediately
-  after a synchronous Prompt Audit Block.
-- Add a final recovery-state fence before receipt persistence, deep-job enqueue,
-  account selection, billing, or upstream writes.
-- Preserve a newer concurrent synchronous or asynchronous Block when an older
-  recovery request finishes with Allow.
+- Stop supported `agent_message` items with visible `input_text` from producing
+  duplicate Prompt Audit and Content Moderation extraction failures and HTTP
+  503 responses.
+- Let a second Guard node receive its own timeout after the first node consumes
+  its configured timeout.
+- Avoid repeated Guard calls for fixed text when only a strict
+  `[images:<hex>]` reference changes.
 
 ## Compatibility and migration
 
-- No database migration or new configuration field is required. Recovery uses
-  the existing `deep_review_modules` policy and Redis state.
-- A request after Prompt Audit Block may return
-  `prompt_guard_deep_review_required` until complete deep review returns exact
-  Allow.
+- No database migration or new configuration field is required.
+- Existing Allow receipts are invalidated by receipt schema version 2 and are
+  rebuilt after one successful review.
+- Synchronous worst-case audit latency is now bounded by required chunks times
+  the sum of attempted node timeouts instead of the first node's single shared
+  timeout.
 - No Compose, port, certificate, proxy, or persistent-volume change is
   required. Personal images and binary archives remain Linux arm64 only.
 
 ## Known issues
 
-- Disabling risk control or synchronous Prompt Audit pauses recovery
-  enforcement without clearing pending state; enabling it resumes recovery.
-- Requests that already completed the final audit gate cannot be retroactively
-  cancelled. Removed prior content is not reattached to recovery input.
+- Opaque `agent_message.encrypted_content` is not decrypted or audited; every
+  visible supported sibling remains audited.
+- Unknown future `agent_message` content blocks still fail closed while
+  blocking audit applies.
 - Production deployment remains a separate operation and is not part of this
   release publication.
 

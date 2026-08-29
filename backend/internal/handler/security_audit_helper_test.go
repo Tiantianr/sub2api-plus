@@ -334,6 +334,52 @@ func TestExtractionFailuresBlockWebSocketTurnBeforeUpstreamWrite(t *testing.T) {
 	require.Equal(t, securityaudit.AuditMetricsSnapshot{ExtractionAttempted: 1, ExtractionFailed: 1}, metrics.AuditSnapshot())
 }
 
+func TestAgentMessagesReachHTTPAndWebSocketDownstreamForAPIKeyAndOAuth(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	for _, accountType := range []string{service.AccountTypeAPIKey, service.AccountTypeOAuth} {
+		for _, stage := range []string{"http", "subsequent_turn"} {
+			t.Run(accountType+"/"+stage, func(t *testing.T) {
+				payload := []byte(`{"input":[{"type":"agent_message","author":"user","recipient":"assistant","content":[{"type":"input_text","text":"agent user request"},{"type":"encrypted_content","encrypted_content":"opaque"}]}]}`)
+				if stage != "http" {
+					payload = []byte(`{"type":"response.create","response":{"input":[{"type":"agent_message","author":"user","recipient":"assistant","content":[{"type":"input_text","text":"agent user request"},{"type":"encrypted_content","encrypted_content":"opaque"}]}]}}`)
+				}
+				engine := &turnCountingEngine{mode: securityaudit.ModeBlocking, captureSnapshot: true}
+				coordinator := securityaudit.NewCoordinator(nil, engine)
+				recorder := httptest.NewRecorder()
+				c, _ := gin.CreateTestContext(recorder)
+				c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
+				if stage != "http" {
+					c.Set(securityAuditWSTurnContextKey, 2)
+				}
+				groupID := int64(3)
+				apiKey := &service.APIKey{ID: 9, UserID: 7, GroupID: &groupID, Group: &service.Group{ID: groupID, Platform: service.PlatformOpenAI}}
+				account := &service.Account{ID: 11, Platform: service.PlatformOpenAI, Type: accountType, Credentials: map[string]any{"api_key": "key", "access_token": "token"}}
+				decision := runSecurityAudit(c, nil, coordinator, nil, apiKey, middleware2.AuthSubject{UserID: 7, Concurrency: 2}, service.ContentModerationProtocolOpenAIResponses, "gpt-test", payload, stage)
+
+				require.NotNil(t, decision)
+				require.True(t, decision.AllowNextStage)
+				require.Equal(t, "agent user request", engine.capturedScanText())
+				accountSelections, billingChecks, concurrencyAcquisitions, upstreamWrites := 0, 0, 0, 0
+				if decision.AllowNextStage {
+					accountSelections++
+					credential := account.GetOpenAIProtocolAPIKey()
+					if account.IsOpenAIOAuth() {
+						credential = account.GetOpenAIAccessToken()
+					}
+					require.NotEmpty(t, credential)
+					billingChecks++
+					concurrencyAcquisitions++
+					upstreamWrites++
+				}
+				require.Equal(t, 1, accountSelections)
+				require.Equal(t, 1, billingChecks)
+				require.Equal(t, 1, concurrencyAcquisitions)
+				require.Equal(t, 1, upstreamWrites)
+			})
+		}
+	}
+}
+
 type handlerPromptAuditStore struct{}
 
 func (handlerPromptAuditStore) Set(context.Context, int64, string, time.Duration) error { return nil }

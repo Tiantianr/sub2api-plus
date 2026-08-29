@@ -64,12 +64,6 @@ func (g *GuardEvaluator) Evaluate(ctx context.Context, cfg ActiveConfig, snapsho
 		logGuardFailure(snapshot, cfg, DecisionUnavailable, ErrorCodeUnavailable, "", g.clock.Now().Sub(start))
 		return nil, &GuardError{Code: ErrorCodeUnavailable}
 	}
-	timeout := time.Duration(endpoints[0].TimeoutMS) * time.Millisecond
-	if timeout <= 0 {
-		timeout = DefaultTimeoutMS * time.Millisecond
-	}
-	evalCtx, cancel := context.WithTimeout(ctx, timeout)
-	defer cancel()
 	inputLimit := minimumInputLimit(endpoints)
 	chunks := SplitRunes(snapshot.ScanText, inputLimit)
 	if len(chunks) == 0 {
@@ -87,7 +81,7 @@ func (g *GuardEvaluator) Evaluate(ctx context.Context, cfg ActiveConfig, snapsho
 			"chunk_chars": len([]rune(chunk)), "input_chars": snapshot.PromptLength, "input_limit": inputLimit,
 			"status": "started",
 		}))
-		result, err := g.scanChunk(evalCtx, cfg, endpoints, chunk)
+		result, err := g.scanChunk(ctx, cfg, endpoints, chunk)
 		if err != nil {
 			code := guardErrorCode(err)
 			LogWarn(EventChunkFailed, mergeLogFields(baseFields, map[string]any{
@@ -193,6 +187,9 @@ func logGuardFailure(snapshot PromptSnapshot, cfg ActiveConfig, kind DecisionKin
 func (g *GuardEvaluator) scanChunk(ctx context.Context, cfg ActiveConfig, endpoints []ActiveEndpoint, chunk string) (*NormalizedResult, error) {
 	var lastErr error
 	for index, endpoint := range endpoints {
+		if err := ctx.Err(); err != nil {
+			return nil, &GuardError{Code: ErrorCodeUnavailable, Retryable: true, Timeout: errors.Is(err, context.DeadlineExceeded), Cause: err}
+		}
 		semaphore := g.nodeSemaphore(endpoint.ID)
 		select {
 		case semaphore <- struct{}{}:
@@ -208,8 +205,22 @@ func (g *GuardEvaluator) scanChunk(ctx context.Context, cfg ActiveConfig, endpoi
 			}
 			continue
 		}
-		result, err := callPromptScanner(ctx, g.scanner, endpoint, chunk, cfg.Scanners)
+		timeout := time.Duration(endpoint.TimeoutMS) * time.Millisecond
+		if timeout <= 0 {
+			timeout = DefaultTimeoutMS * time.Millisecond
+		}
+		attemptCtx, cancel := context.WithTimeout(ctx, timeout)
+		result, err := callPromptScanner(attemptCtx, g.scanner, endpoint, chunk, cfg.Scanners)
+		attemptErr := attemptCtx.Err()
+		cancel()
 		<-semaphore
+		if parentErr := ctx.Err(); parentErr != nil {
+			return nil, &GuardError{Code: ErrorCodeUnavailable, Retryable: true, Timeout: errors.Is(parentErr, context.DeadlineExceeded), Cause: parentErr}
+		}
+		if attemptErr != nil {
+			result = nil
+			err = &GuardError{Code: ErrorCodeUnavailable, Retryable: true, Timeout: errors.Is(attemptErr, context.DeadlineExceeded), Cause: attemptErr}
+		}
 		if err == nil && result != nil {
 			return result, nil
 		}

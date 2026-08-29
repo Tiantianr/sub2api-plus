@@ -300,6 +300,43 @@ func TestExtractResponsesOfficialExtendedInputItems(t *testing.T) {
 	require.NotContains(t, joined, "opaque")
 }
 
+func TestExtractResponsesAgentMessages(t *testing.T) {
+	namedAgent, err := Extract("openai_responses", []byte(`{"input":[{"type":"agent_message","id":"msg-1","author":"research_agent","recipient":"assistant","content":[{"type":"input_text","text":"visible agent result"},{"type":"encrypted_content","encrypted_content":"OPAQUE_AGENT_STATE"}],"internal_chat_message_metadata_passthrough":{"create_time":123,"turn_id":"turn-1"}}]}`))
+	require.NoError(t, err)
+	require.True(t, namedAgent.ContentBearing)
+	require.False(t, namedAgent.Incomplete)
+	require.Equal(t, []string{"visible agent result"}, segmentTexts(namedAgent.Segments))
+	require.Equal(t, "assistant", namedAgent.Segments[0].Role)
+	require.NotContains(t, strings.Join(segmentTexts(namedAgent.Segments), "\n"), "OPAQUE_AGENT_STATE")
+
+	userAgent, err := Extract("openai_responses", []byte(`{"input":[{"type":"agent_message","id":"msg-2","author":"user","recipient":"assistant","content":[{"type":"input_text","text":"visible user request"}]}]}`))
+	require.NoError(t, err)
+	require.False(t, userAgent.Incomplete)
+	require.Equal(t, []string{"visible user request"}, segmentTexts(userAgent.Segments))
+	require.Equal(t, "user", userAgent.Segments[0].Role)
+
+	futureBlock, err := Extract("openai_responses", []byte(`{"input":[{"type":"agent_message","author":"assistant","content":[{"type":"future_content","payload":"must add adapter"}]}]}`))
+	require.NoError(t, err)
+	require.True(t, futureBlock.ContentBearing)
+	require.True(t, futureBlock.Incomplete)
+
+	for _, body := range []string{
+		`{"input":[{"type":"agent_message","author":"user","payload":"hidden prompt"}]}`,
+		`{"input":[{"type":"agent_message","author":"user","content":[{"type":"encrypted_content","encrypted_content":"opaque","text":"visible hidden prompt"}]}]}`,
+		`{"input":[{"type":"agent_message","author":{"role":"user"},"content":[{"type":"input_text","text":"ambiguous author"}]}]}`,
+		`{"input":[{"type":"agent_message","author":"user","content":[{"type":"input_text","text":"visible"}],"internal_chat_message_metadata_passthrough":{"turn_id":"turn-1","future_payload":"hidden"}}]}`,
+	} {
+		malformed, extractErr := Extract("openai_responses", []byte(body))
+		require.NoError(t, extractErr)
+		require.True(t, malformed.ContentBearing)
+		require.True(t, malformed.Incomplete)
+	}
+
+	visibleOpaqueSibling, err := Extract("openai_responses", []byte(`{"input":[{"type":"agent_message","author":"user","content":[{"type":"encrypted_content","encrypted_content":"opaque","text":"visible hidden prompt"}]}]}`))
+	require.NoError(t, err)
+	require.Contains(t, strings.Join(segmentTexts(visibleOpaqueSibling.Segments), "\n"), "visible hidden prompt")
+}
+
 func TestExtractResponsesOfficialToolSearchOutputAuditsDynamicTools(t *testing.T) {
 	document, err := Extract("openai_responses", []byte(`{"input":[{"type":"tool_search_output","execution":"client","call_id":"call_1","status":"completed","tools":[{"type":"function","name":"lookup","description":"dynamic search definition"}]}]}`))
 	require.NoError(t, err)
