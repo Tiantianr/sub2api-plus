@@ -40,6 +40,7 @@ export default {
       queueBreakdown: 'queued {queued} · processing {processing} · retry {retry} · done {done} · failed {failed}',
       deliveryTotals: 'Total enqueued {enqueued} · dropped {dropped} · processed {processed} · failed {failed}',
       allowReceiptTotals: 'Incremental receipt hits {hits} · misses {misses} · writes {writes} · errors {errors}',
+      recoveryTotals: 'Recovery required sync {sync} · async {async} · cleared {cleared} · retained {retained} · errors {errors}',
     },
     metrics: { total: 'Total', allowed: 'Allowed', flagged: 'Flagged', blocked: 'Blocked', unavailable: 'Unavailable', timeouts: 'Timeouts', failovers: 'Failovers', extractionAttempted: 'Attempted', extractionSucceeded: 'Succeeded', extractionEmpty: 'No text', extractionFailed: 'Failed' },
     pool: {
@@ -55,14 +56,14 @@ export default {
     policy: {
       title: 'Audit policy', description: 'Configure group scope, nine input-risk categories, workers, and queue bounds.', scope: 'Scope', allGroups: 'All groups', selectedGroups: 'Selected groups',
       searchGroups: 'Search groups', noGroups: 'No matching groups', missingGroups: 'Configured IDs for groups that no longer exist', selectedCount: '{count} groups selected',
-      scanners: 'Qwen3Guard input-risk categories', blockingModules: 'Synchronous review modules', deepModules: 'Asynchronous deep-review modules',
+      scanners: 'Qwen3Guard input-risk categories', blockingModules: 'Synchronous review modules', deepModules: 'Deep-review modules',
       reviewModules: { system: 'System / instructions', assistant: 'Assistant history', reasoning: 'Reasoning', promptVariables: 'Prompt variables', toolDefinitions: 'Tool / plugin definitions', toolCalls: 'Tool call arguments', toolOutputs: 'Tool outputs' },
       workerCount: 'Worker count', queueCapacity: 'Persistent queue capacity', allowReceiptTTL: 'Incremental Allow receipt TTL (seconds)', allowReceiptTTLHint: 'A new current user input must be reviewed first. Its synchronous Allow may be reused by the same request; history and automatic continuations are reviewed per canonical segment. Range: 60–86400 seconds.', strategy: 'Node strategy', strategyHint: 'Try nodes in configuration order and fail over when allowed.',
     },
     saveBar: { enabled: 'Enable prompt audit', blocking: 'Synchronous blocking', blockingLatestTurnOnly: 'Synchronous blocking prioritizes current user input', storePass: 'Store safe events', dirty: 'Unsaved changes', synced: 'Configuration synced' },
     blockingConfirm: {
       title: 'Enable synchronous blocking?',
-      message: 'Applicable requests wait for Guard before account selection, billing, or upstream access, then enter asynchronous deep review after allow. A deep hit requires the user’s next request to pass synchronous deep review.',
+      message: 'Applicable requests wait for Guard before account selection, billing, or upstream access, then enter asynchronous deep review after allow. Any synchronous or deep Block requires the user’s next request to pass synchronous deep review.',
       confirm: 'I understand; enable it',
     },
     events: {

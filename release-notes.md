@@ -1,45 +1,46 @@
-Sub2API Plus v0.1.183+custom.911
+Sub2API Plus v0.1.183+custom.912
 
 ## Highlights
 
-- Reduce Prompt Audit load during agent tool loops by reviewing each new user
-  turn synchronously and only newly introduced canonical segments afterward.
-- Preserve the existing dual-lane flow: combined synchronous Allow starts
-  asynchronous deep review while normal upstream processing continues.
+- Require a user whose synchronous Prompt Audit request was blocked to pass one
+  complete synchronous deep review before upstream processing can resume.
+- Prevent API-key, group, or client session changes from skipping that recovery
+  review while preserving exact-Allow automatic recovery.
 
 ## Changed
 
-- Add user-scoped, policy-bound Allow receipts for historical user, system,
-  assistant, reasoning, prompt-variable, tool-definition, tool-call, and
-  tool-output segments.
-- Reuse an exact synchronous Allow in the same request's asynchronous deep
-  review while preserving late-Block recovery.
-- Add a configurable receipt TTL with a one-hour default, Redis batch lookup
-  and pipeline writes, encrypted hit/miss evidence, and runtime counters.
-- Keep unverified historical user turns in synchronous receipt selection so
-  client-controlled role ordering cannot hide new user content.
+- Make synchronous and asynchronous Prompt Audit Blocks share the same
+  non-expiring, versioned user recovery state.
+- Use the active deep-review module selection for recovery, force all user
+  turns, and bypass trusted and stored Allow receipts.
+- Add bounded recovery-required, cleared, retained, and error logs and runtime
+  counters without exposing state tokens or audited content.
 
 ## Fixed
 
-- Stop repeatedly submitting complete user and tool history on every automatic
-  assistant or tool continuation.
-- Write receipts only after Content Moderation and Prompt Guard jointly permit
-  the original request.
-- Reject queued asynchronous jobs whose configuration version no longer
-  matches the active Guard policy.
+- Stop an agent from resuming through ordinary incremental Allow immediately
+  after a synchronous Prompt Audit Block.
+- Add a final recovery-state fence before receipt persistence, deep-job enqueue,
+  account selection, billing, or upstream writes.
+- Preserve a newer concurrent synchronous or asynchronous Block when an older
+  recovery request finishes with Allow.
 
 ## Compatibility and migration
 
-- No database migration is required. Configurations that omit
-  `allow_receipt_ttl_seconds` use 3600 seconds; the accepted range is
-  60-86400 seconds.
+- No database migration or new configuration field is required. Recovery uses
+  the existing `deep_review_modules` policy and Redis state.
+- A request after Prompt Audit Block may return
+  `prompt_guard_deep_review_required` until complete deep review returns exact
+  Allow.
 - No Compose, port, certificate, proxy, or persistent-volume change is
   required. Personal images and binary archives remain Linux arm64 only.
 
 ## Known issues
 
-- Asynchronous deep findings affect the next request and cannot retroactively
-  cancel content already sent upstream or delivered to a client.
+- Disabling risk control or synchronous Prompt Audit pauses recovery
+  enforcement without clearing pending state; enabling it resumes recovery.
+- Requests that already completed the final audit gate cannot be retroactively
+  cancelled. Removed prior content is not reattached to recovery input.
 - Production deployment remains a separate operation and is not part of this
   release publication.
 

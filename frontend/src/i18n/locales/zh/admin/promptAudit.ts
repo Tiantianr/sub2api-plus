@@ -40,6 +40,7 @@ export default {
       queueBreakdown: 'queued {queued} · processing {processing} · retry {retry} · done {done} · failed {failed}',
       deliveryTotals: '累计入队 {enqueued} · 丢弃 {dropped} · 处理 {processed} · 失败 {failed}',
       allowReceiptTotals: '增量凭据命中 {hits} · 未命中 {misses} · 写入 {writes} · 错误 {errors}',
+      recoveryTotals: '恢复要求：同步 {sync} · 异步 {async} · 清除 {cleared} · 保留 {retained} · 错误 {errors}',
     },
     metrics: { total: '总计', allowed: '放行', flagged: '标记', blocked: '阻止', unavailable: '不可用', timeouts: '超时', failovers: '故障切换', extractionAttempted: '尝试提取', extractionSucceeded: '提取成功', extractionEmpty: '无文本', extractionFailed: '提取失败' },
     pool: {
@@ -55,14 +56,14 @@ export default {
     policy: {
       title: '审计策略', description: '配置适用分组、九类输入风险、Worker 与队列边界。', scope: '适用范围', allGroups: '全部分组', selectedGroups: '指定分组',
       searchGroups: '搜索分组', noGroups: '没有匹配分组', missingGroups: '配置中包含已删除的分组 ID', selectedCount: '已选择 {count} 个分组',
-      scanners: 'Qwen3Guard 输入风险分类', blockingModules: '同步审核附加模块', deepModules: '异步深度复核附加模块',
+      scanners: 'Qwen3Guard 输入风险分类', blockingModules: '同步审核附加模块', deepModules: '深度复核附加模块',
       reviewModules: { system: 'System / Instructions', assistant: 'Assistant 历史', reasoning: 'Reasoning', promptVariables: 'Prompt variables', toolDefinitions: '工具 / 插件定义', toolCalls: '工具调用参数', toolOutputs: '工具结果' },
       workerCount: 'Worker 数量', queueCapacity: '持久队列容量', allowReceiptTTL: '增量 Allow 凭据有效期（秒）', allowReceiptTTLHint: '当前新 user 输入必须先审核；同步 Allow 可供同请求异步复用，历史与自动续轮按 canonical segment 增量审核。范围：60–86400 秒。', strategy: '节点策略', strategyHint: '按配置顺序优先尝试，必要时故障切换。',
     },
     saveBar: { enabled: '启用提示词审计', blocking: '同步阻止', blockingLatestTurnOnly: '同步阻止优先审当前用户输入', storePass: '保存安全事件', dirty: '有未保存的更改', synced: '配置已同步' },
     blockingConfirm: {
       title: '开启同步阻止？',
-      message: '适用请求会在账号选择、计费和访问上游之前等待 Guard；同步放行后还会异步深度复核。深度命中后，用户下一次请求必须通过同步深度复核。',
+      message: '适用请求会在账号选择、计费和访问上游之前等待 Guard；同步放行后还会异步深度复核。同步或深度复核 Block 后，用户下一次请求必须通过同步深度复核。',
       confirm: '理解风险并开启',
     },
     events: {

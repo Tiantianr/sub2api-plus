@@ -10,31 +10,36 @@ import (
 const latencySampleCapacity = 2048
 
 type AtomicMetrics struct {
-	total              atomic.Int64
-	allowed            atomic.Int64
-	flagged            atomic.Int64
-	blocked            atomic.Int64
-	unavailable        atomic.Int64
-	invalid            atomic.Int64
-	timeouts           atomic.Int64
-	failovers          atomic.Int64
-	bulkheadFull       atomic.Int64
-	recordFailed       atomic.Int64
-	latencyTotal       atomic.Int64
-	latencyMax         atomic.Int64
-	enqueued           atomic.Int64
-	dropped            atomic.Int64
-	extractTried       atomic.Int64
-	extractOK          atomic.Int64
-	extractEmpty       atomic.Int64
-	extractFail        atomic.Int64
-	allowReceiptHits   atomic.Int64
-	allowReceiptMisses atomic.Int64
-	allowReceiptWrites atomic.Int64
-	allowReceiptErrors atomic.Int64
-	latencyMu          sync.RWMutex
-	latencies          []int64
-	latencyNext        int
+	total                 atomic.Int64
+	allowed               atomic.Int64
+	flagged               atomic.Int64
+	blocked               atomic.Int64
+	unavailable           atomic.Int64
+	invalid               atomic.Int64
+	timeouts              atomic.Int64
+	failovers             atomic.Int64
+	bulkheadFull          atomic.Int64
+	recordFailed          atomic.Int64
+	latencyTotal          atomic.Int64
+	latencyMax            atomic.Int64
+	enqueued              atomic.Int64
+	dropped               atomic.Int64
+	extractTried          atomic.Int64
+	extractOK             atomic.Int64
+	extractEmpty          atomic.Int64
+	extractFail           atomic.Int64
+	allowReceiptHits      atomic.Int64
+	allowReceiptMisses    atomic.Int64
+	allowReceiptWrites    atomic.Int64
+	allowReceiptErrors    atomic.Int64
+	recoveryRequiredSync  atomic.Int64
+	recoveryRequiredAsync atomic.Int64
+	recoveryCleared       atomic.Int64
+	recoveryRetained      atomic.Int64
+	recoveryErrors        atomic.Int64
+	latencyMu             sync.RWMutex
+	latencies             []int64
+	latencyNext           int
 }
 
 func NewAtomicMetrics() *AtomicMetrics { return &AtomicMetrics{} }
@@ -74,6 +79,9 @@ func (m *AtomicMetrics) AuditSnapshot() AuditMetricsSnapshot {
 		ExtractionEmpty: m.extractEmpty.Load(), ExtractionFailed: m.extractFail.Load(),
 		AllowReceiptHits: m.allowReceiptHits.Load(), AllowReceiptMisses: m.allowReceiptMisses.Load(),
 		AllowReceiptWrites: m.allowReceiptWrites.Load(), AllowReceiptErrors: m.allowReceiptErrors.Load(),
+		RecoveryRequiredSync: m.recoveryRequiredSync.Load(), RecoveryRequiredAsync: m.recoveryRequiredAsync.Load(),
+		RecoveryCleared: m.recoveryCleared.Load(), RecoveryRetained: m.recoveryRetained.Load(),
+		RecoveryErrors: m.recoveryErrors.Load(),
 	}
 }
 
@@ -190,5 +198,30 @@ func (m *AtomicMetrics) IncAllowReceiptWrite() {
 func (m *AtomicMetrics) IncAllowReceiptError() {
 	if m != nil {
 		m.allowReceiptErrors.Add(1)
+	}
+}
+func (m *AtomicMetrics) IncRecoveryRequired(mode Mode) {
+	if m == nil {
+		return
+	}
+	if mode == ModeAsyncDeep {
+		m.recoveryRequiredAsync.Add(1)
+		return
+	}
+	m.recoveryRequiredSync.Add(1)
+}
+func (m *AtomicMetrics) IncRecoveryCleared() {
+	if m != nil {
+		m.recoveryCleared.Add(1)
+	}
+}
+func (m *AtomicMetrics) IncRecoveryRetained() {
+	if m != nil {
+		m.recoveryRetained.Add(1)
+	}
+}
+func (m *AtomicMetrics) IncRecoveryError() {
+	if m != nil {
+		m.recoveryErrors.Add(1)
 	}
 }

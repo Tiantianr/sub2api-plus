@@ -32,6 +32,10 @@ type allowReceiptCommitter interface {
 	commitAllowReceipts(ctx context.Context, decision *PromptDecision)
 }
 
+type recoveryFencePromptEngine interface {
+	pendingRecoveryDecision(ctx context.Context, req Request) (*PromptDecision, error)
+}
+
 type Coordinator struct {
 	legacy LegacyEngine
 	prompt PromptEngine
@@ -104,6 +108,16 @@ func (c *Coordinator) checkBlocking(ctx context.Context, req Request) Decision {
 	}()
 	wg.Wait()
 	decision := prioritize(legacy, prompt)
+	if decision.AllowNextStage {
+		if fence, ok := c.prompt.(recoveryFencePromptEngine); ok {
+			pending, err := fence.pendingRecoveryDecision(ctx, req)
+			if err != nil {
+				decision = prioritize(legacy, unavailablePromptDecision(ErrorCodeDeepReviewState))
+			} else if pending != nil {
+				decision = prioritize(legacy, pending)
+			}
+		}
+	}
 	if decision.AllowNextStage {
 		if committer, ok := c.prompt.(allowReceiptCommitter); ok {
 			committer.commitAllowReceipts(ctx, prompt)

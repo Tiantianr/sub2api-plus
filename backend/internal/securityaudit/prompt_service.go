@@ -215,6 +215,7 @@ func (s *PromptService) Evaluate(ctx context.Context, req Request) (*PromptDecis
 	}
 	stateToken, deepRequired, stateErr := s.deepReviewRequired(ctx, req.UserID)
 	if stateErr != nil {
+		s.observeRecoveryStateFailure(req, ErrorCodeDeepReviewState)
 		logPromptRequestFailure(req, DecisionUnavailable, ErrorCodeDeepReviewState)
 		return nil, &GuardError{Code: ErrorCodeDeepReviewState, Cause: stateErr}
 	}
@@ -224,6 +225,7 @@ func (s *PromptService) Evaluate(ctx context.Context, req Request) (*PromptDecis
 	if deepRequired {
 		stateToken, stateErr = s.claimRequiredDeepReview(ctx, req, stateToken)
 		if stateErr != nil {
+			s.observeRecoveryStateFailure(req, ErrorCodeDeepReviewState)
 			logPromptRequestFailure(req, DecisionUnavailable, ErrorCodeDeepReviewState)
 			return nil, &GuardError{Code: ErrorCodeDeepReviewState, Cause: stateErr}
 		}
@@ -243,6 +245,9 @@ func (s *PromptService) Evaluate(ctx context.Context, req Request) (*PromptDecis
 		logPromptExtractionFailure(req, diagnostic)
 	}
 	if diagnostic.Failed {
+		if deepRequired {
+			s.observeRecoveryRetained(req, DecisionUnavailable, ErrorCodeExtractionFailed)
+		}
 		return nil, &GuardError{Code: ErrorCodeExtractionFailed, Cause: err}
 	}
 	if errors.Is(err, ErrNoPromptText) {
@@ -250,7 +255,7 @@ func (s *PromptService) Evaluate(ctx context.Context, req Request) (*PromptDecis
 			s.metrics.ObserveExtraction(ExtractionEmpty)
 		}
 		if deepRequired {
-			return &PromptDecision{Kind: DecisionBlock, ErrorCode: ErrorCodeDeepReviewRequired, AllowNextStage: false, DeepReviewed: true}, nil
+			return s.finishRequiredDeepReview(ctx, req, stateToken, &PromptDecision{Kind: DecisionBlock, ErrorCode: ErrorCodeDeepReviewRequired, AllowNextStage: false})
 		}
 		return &PromptDecision{Kind: DecisionAllow, AllowNextStage: true, DeepReviewed: deepRequired}, nil
 	}
@@ -262,6 +267,9 @@ func (s *PromptService) Evaluate(ctx context.Context, req Request) (*PromptDecis
 			}
 			logPromptExtractionFailure(req, diagnostic)
 		}
+		if deepRequired {
+			s.observeRecoveryRetained(req, DecisionUnavailable, ErrorCodeExtractionFailed)
+		}
 		return nil, &GuardError{Code: ErrorCodeExtractionFailed, Cause: err}
 	}
 	prepareAllowReceipts(ctx, s.receipts, s.metrics, cfg, &snapshot, req.AllowReceiptKeys, deepRequired)
@@ -270,12 +278,15 @@ func (s *PromptService) Evaluate(ctx context.Context, req Request) (*PromptDecis
 			s.metrics.ObserveExtraction(ExtractionSucceeded)
 		}
 		if deepRequired {
-			return &PromptDecision{Kind: DecisionBlock, ErrorCode: ErrorCodeDeepReviewRequired, AllowNextStage: false, DeepReviewed: true}, nil
+			return s.finishRequiredDeepReview(ctx, req, stateToken, &PromptDecision{Kind: DecisionBlock, ErrorCode: ErrorCodeDeepReviewRequired, AllowNextStage: false})
 		}
 		return &PromptDecision{Kind: DecisionAllow, AllowNextStage: true}, nil
 	}
 	ciphertext, err := encryptCompletePromptContext(s.config, snapshot.CompleteContext)
 	if err != nil {
+		if deepRequired {
+			s.observeRecoveryRetained(req, DecisionUnavailable, ErrorCodeEncryptionKeyRequired)
+		}
 		logPromptRequestFailure(req, DecisionUnavailable, ErrorCodeEncryptionKeyRequired)
 		return nil, &GuardError{Code: ErrorCodeEncryptionKeyRequired, Cause: err}
 	}
@@ -289,8 +300,25 @@ func (s *PromptService) Evaluate(ctx context.Context, req Request) (*PromptDecis
 		decision.AllowReceiptKeys = append([]string(nil), snapshot.AllowReceiptKeys...)
 		decision.allowReceipt = &allowReceiptCommit{ConfigVersion: cfg.ConfigVersion, Snapshot: snapshot}
 	}
-	if err != nil || !deepRequired {
+	if err != nil {
+		if deepRequired {
+			s.observeRecoveryRetained(req, DecisionUnavailable, guardErrorCode(err))
+		}
 		return decision, err
+	}
+	if !deepRequired {
+		if decision != nil && decision.Kind == DecisionBlock && req.UserID > 0 {
+			now := time.Now().UTC()
+			if s.clock != nil {
+				now = s.clock.Now()
+			}
+			token := fmt.Sprintf("blocking:%s:%d", req.RequestID, now.UnixNano())
+			if stateErr := markDeepReviewRequired(ctx, s.state, s.metrics, req.UserID, token, ModeBlocking, requestLogFields(req)); stateErr != nil {
+				logPromptRequestFailure(req, DecisionUnavailable, ErrorCodeDeepReviewState)
+				return nil, &GuardError{Code: ErrorCodeDeepReviewState, Cause: stateErr}
+			}
+		}
+		return decision, nil
 	}
 	return s.finishRequiredDeepReview(ctx, req, stateToken, decision)
 }
@@ -319,6 +347,22 @@ func (s *PromptService) deepReviewRequired(ctx context.Context, userID int64) (s
 	return s.state.Required(ctx, userID)
 }
 
+func (s *PromptService) pendingRecoveryDecision(ctx context.Context, req Request) (*PromptDecision, error) {
+	_, required, err := s.deepReviewRequired(ctx, req.UserID)
+	if err != nil {
+		s.observeRecoveryStateFailure(req, ErrorCodeDeepReviewState)
+		return nil, &GuardError{Code: ErrorCodeDeepReviewState, Cause: err}
+	}
+	if !required {
+		return nil, nil
+	}
+	s.observeRecoveryRetained(req, DecisionBlock, ErrorCodeDeepReviewRequired)
+	return &PromptDecision{
+		Kind: DecisionBlock, ErrorCode: ErrorCodeDeepReviewRequired,
+		AllowNextStage: false, DeepReviewed: true,
+	}, nil
+}
+
 func (s *PromptService) claimRequiredDeepReview(ctx context.Context, req Request, token string) (string, error) {
 	claim := fmt.Sprintf("review:%s:%d", req.RequestID, s.clock.Now().UnixNano())
 	replaced, err := s.state.Replace(ctx, req.UserID, token, claim)
@@ -333,6 +377,9 @@ func (s *PromptService) claimRequiredDeepReview(ctx context.Context, req Request
 
 func (s *PromptService) finishRequiredDeepReview(ctx context.Context, req Request, stateToken string, decision *PromptDecision) (*PromptDecision, error) {
 	if decision == nil || s == nil || s.state == nil {
+		if s != nil {
+			s.observeRecoveryStateFailure(req, ErrorCodeDeepReviewState)
+		}
 		return nil, &GuardError{Code: ErrorCodeDeepReviewState}
 	}
 	decision.DeepReviewed = true
@@ -342,8 +389,15 @@ func (s *PromptService) finishRequiredDeepReview(ctx context.Context, req Reques
 			if err == nil {
 				err = errors.New("prompt audit deep review state changed")
 			}
+			s.observeRecoveryStateFailure(req, ErrorCodeDeepReviewState)
 			return nil, &GuardError{Code: ErrorCodeDeepReviewState, Cause: err}
 		}
+		if s.metrics != nil {
+			s.metrics.IncRecoveryCleared()
+		}
+		LogInfo(EventRecoveryCleared, mergeLogFields(requestLogFields(req), map[string]any{
+			"recovery_source": "recovery", "decision": DecisionAllow, "status": "cleared",
+		}))
 		return decision, nil
 	}
 	if decision.Kind == DecisionFlag || decision.Kind == DecisionBlock {
@@ -351,7 +405,58 @@ func (s *PromptService) finishRequiredDeepReview(ctx context.Context, req Reques
 		decision.ErrorCode = ErrorCodeDeepReviewRequired
 		decision.AllowNextStage = false
 	}
+	s.observeRecoveryRetained(req, decision.Kind, decision.ErrorCode)
 	return decision, nil
+}
+
+func markDeepReviewRequired(ctx context.Context, state DeepReviewStateStore, metrics Metrics, userID int64, token string, mode Mode, fields map[string]any) error {
+	source := "blocking"
+	if mode == ModeAsyncDeep {
+		source = "async_deep"
+	}
+	if state == nil {
+		if metrics != nil {
+			metrics.IncRecoveryError()
+		}
+		LogWarn(EventRecoveryStateFailed, mergeLogFields(fields, map[string]any{
+			"recovery_source": source, "status": "failed", "error_code": ErrorCodeDeepReviewState,
+		}))
+		return errors.New("prompt audit deep review state unavailable")
+	}
+	if err := state.Require(ctx, userID, token); err != nil {
+		if metrics != nil {
+			metrics.IncRecoveryError()
+		}
+		LogWarn(EventRecoveryStateFailed, mergeLogFields(fields, map[string]any{
+			"recovery_source": source, "status": "failed", "error_code": ErrorCodeDeepReviewState,
+		}))
+		return err
+	}
+	if metrics != nil {
+		metrics.IncRecoveryRequired(mode)
+	}
+	LogInfo(EventRecoveryRequired, mergeLogFields(fields, map[string]any{
+		"recovery_source": source, "status": "required",
+	}))
+	return nil
+}
+
+func (s *PromptService) observeRecoveryRetained(req Request, decision DecisionKind, code string) {
+	if s.metrics != nil {
+		s.metrics.IncRecoveryRetained()
+	}
+	LogWarn(EventRecoveryRetained, mergeLogFields(requestLogFields(req), map[string]any{
+		"recovery_source": "recovery", "decision": decision, "status": "retained", "error_code": code,
+	}))
+}
+
+func (s *PromptService) observeRecoveryStateFailure(req Request, code string) {
+	if s.metrics != nil {
+		s.metrics.IncRecoveryError()
+	}
+	LogWarn(EventRecoveryStateFailed, mergeLogFields(requestLogFields(req), map[string]any{
+		"recovery_source": "recovery", "status": "failed", "error_code": code,
+	}))
 }
 
 func (s *PromptService) GetConfig() (PublicConfig, error) { return s.config.Public() }
@@ -414,6 +519,11 @@ func (s *PromptService) Runtime(ctx context.Context) RuntimeSnapshot {
 		runtime.AllowReceiptMisses = auditMetrics.AllowReceiptMisses
 		runtime.AllowReceiptWrites = auditMetrics.AllowReceiptWrites
 		runtime.AllowReceiptErrors = auditMetrics.AllowReceiptErrors
+		runtime.RecoveryRequiredSync = auditMetrics.RecoveryRequiredSync
+		runtime.RecoveryRequiredAsync = auditMetrics.RecoveryRequiredAsync
+		runtime.RecoveryCleared = auditMetrics.RecoveryCleared
+		runtime.RecoveryRetained = auditMetrics.RecoveryRetained
+		runtime.RecoveryErrors = auditMetrics.RecoveryErrors
 	}
 	runtime.WorkerHeartbeatAt, runtime.LastProcessedAt = heartbeat, lastProcessed
 	if workerCode != "" {

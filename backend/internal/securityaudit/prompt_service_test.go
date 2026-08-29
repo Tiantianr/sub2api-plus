@@ -3,6 +3,7 @@ package securityaudit
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -141,6 +142,84 @@ func TestPromptServiceBlockingExcludesCodexHarness(t *testing.T) {
 	require.Equal(t, DecisionBlock, blocked.Kind)
 }
 
+func TestPromptServiceSynchronousBlockRequiresUncachedDeepRecovery(t *testing.T) {
+	state := newFakeAllowReceiptPayload()
+	seen := make([]string, 0, 4)
+	scanCount := 0
+	evaluator := newGuardEvaluator(PromptScannerFunc(func(_ context.Context, _ ActiveEndpoint, chunk string, _ []string) (*NormalizedResult, error) {
+		scanCount++
+		seen = append(seen, chunk)
+		if scanCount == 2 {
+			return &NormalizedResult{Decision: EventCritical, RiskLevel: RiskCritical, Action: ActionBlock, ScannerScores: map[string]float64{"jailbreak": 1}, ScannerEvidence: map[string]string{}}, nil
+		}
+		return &NormalizedResult{Decision: EventPass, RiskLevel: RiskLow, Action: ActionAllow, ScannerScores: map[string]float64{}, ScannerEvidence: map[string]string{}}, nil
+	}), nil, NewAtomicMetrics(), 2, 2)
+	metrics := NewAtomicMetrics()
+	cfg := ActiveConfig{
+		RiskControlEnabled: true, Enabled: true, BlockingEnabled: true, AllGroups: false, GroupIDs: []int64{1}, ConfigVersion: 7,
+		BlockingReviewModules: ReviewModules{System: true}, DeepReviewModules: ReviewModules{Assistant: true},
+		Scanners: AllScannerIDs, Endpoints: []ActiveEndpoint{{ID: "guard-1", Enabled: true, TimeoutMS: 1000, InputLimit: 4096}},
+	}
+	service := &PromptService{
+		config: &fakeConfigStore{active: true, cfg: cfg}, evaluator: evaluator, state: state, receipts: state,
+		metrics: metrics, clock: fixedClock{now: time.Unix(123, 0)},
+	}
+
+	allowedGroupID := int64(1)
+	blocked, err := service.Evaluate(context.Background(), Request{
+		RequestID: "req-block", UserID: 42, APIKeyID: 1, GroupID: &allowedGroupID, Protocol: "openai_chat_completions",
+		Body: []byte(`{"messages":[{"role":"system","content":"selected system block"},{"role":"user","content":"safe current user"}]}`),
+	})
+	require.NoError(t, err)
+	require.Equal(t, DecisionBlock, blocked.Kind)
+	require.Equal(t, "blocking:req-block:123000000000", state.states[42])
+	require.Equal(t, int64(1), metrics.AuditSnapshot().RecoveryRequiredSync)
+
+	for _, segment := range []PromptReviewSegment{{Source: "user", Text: "older user"}, {Source: "user", Text: "latest user", CurrentUser: true}, {Source: "assistant", Text: "assistant history"}} {
+		key := buildAllowReceiptKey(cfg, segment.Source, segment.Text)
+		state.values[allowReceiptTestKey(42, key)] = true
+	}
+	seen = seen[:0]
+	groupID := int64(99)
+	recovered, err := service.Evaluate(context.Background(), Request{
+		RequestID: "req-recover", UserID: 42, APIKeyID: 2, GroupID: &groupID, Protocol: "openai_chat_completions",
+		Body: []byte(`{"messages":[{"role":"user","content":"older user"},{"role":"assistant","content":"assistant history"},{"role":"user","content":"latest user"}]}`),
+	})
+	require.NoError(t, err)
+	require.Equal(t, DecisionAllow, recovered.Kind)
+	require.True(t, recovered.DeepReviewed)
+	require.Empty(t, state.states[42])
+	require.Contains(t, strings.Join(seen, "\n"), "older user")
+	require.Contains(t, strings.Join(seen, "\n"), "latest user")
+	require.Contains(t, strings.Join(seen, "\n"), "assistant history")
+	require.Equal(t, int64(1), metrics.AuditSnapshot().RecoveryCleared)
+}
+
+func TestPromptServiceSynchronousBlockFailsClosedWhenRecoveryStateCannotBeWritten(t *testing.T) {
+	metrics := NewAtomicMetrics()
+	state := &requireErrorDeepReviewState{requireErr: errors.New("redis unavailable")}
+	service := &PromptService{
+		config: &fakeConfigStore{active: true, cfg: ActiveConfig{
+			RiskControlEnabled: true, Enabled: true, BlockingEnabled: true, AllGroups: true, ConfigVersion: 1,
+			Scanners: AllScannerIDs, Endpoints: []ActiveEndpoint{{ID: "guard-1", Enabled: true, TimeoutMS: 1000, InputLimit: 4096}},
+		}},
+		evaluator: newGuardEvaluator(PromptScannerFunc(func(context.Context, ActiveEndpoint, string, []string) (*NormalizedResult, error) {
+			return &NormalizedResult{Decision: EventCritical, RiskLevel: RiskCritical, Action: ActionBlock, ScannerScores: map[string]float64{}, ScannerEvidence: map[string]string{}}, nil
+		}), nil, metrics, 1, 1),
+		state: state, metrics: metrics, clock: fixedClock{now: time.Unix(124, 0)},
+	}
+
+	decision, err := service.Evaluate(context.Background(), Request{
+		RequestID: "req-state-error", UserID: 42, Protocol: "openai_chat_completions",
+		Body: []byte(`{"messages":[{"role":"user","content":"blocked"}]}`),
+	})
+	require.Nil(t, decision)
+	var guardErr *GuardError
+	require.ErrorAs(t, err, &guardErr)
+	require.Equal(t, ErrorCodeDeepReviewState, guardErr.Code)
+	require.Equal(t, int64(1), metrics.AuditSnapshot().RecoveryErrors)
+}
+
 func TestPromptServiceBlockingFailsClosedOnEmptyContentExtractionFailure(t *testing.T) {
 	metrics := NewAtomicMetrics()
 	service := &PromptService{
@@ -239,16 +318,17 @@ func TestPromptServiceBlockingFailsClosedBeforeScanningIncompleteSiblingContent(
 func TestPromptServiceRequiredDeepReviewUsesDeepModulesAndClearsOnlyAllow(t *testing.T) {
 	state := &fakePayloadStore{states: map[int64]string{42: "pending-v1"}}
 	seen := ""
+	metrics := NewAtomicMetrics()
 	evaluator := newGuardEvaluator(PromptScannerFunc(func(_ context.Context, _ ActiveEndpoint, chunk string, _ []string) (*NormalizedResult, error) {
 		seen += chunk
 		return &NormalizedResult{Decision: EventPass, RiskLevel: RiskLow, Action: ActionAllow, ScannerScores: map[string]float64{}, ScannerEvidence: map[string]string{}}, nil
-	}), nil, NewAtomicMetrics(), 2, 2)
+	}), nil, metrics, 2, 2)
 	config := &fakeConfigStore{active: true, cfg: ActiveConfig{
 		RiskControlEnabled: true, Enabled: true, BlockingEnabled: true, AllGroups: false, GroupIDs: []int64{9},
 		BlockingReviewModules: ReviewModules{}, DeepReviewModules: ReviewModules{Assistant: true},
 		Scanners: AllScannerIDs, Endpoints: []ActiveEndpoint{{ID: "guard-1", Enabled: true, TimeoutMS: 1000, InputLimit: 4096}},
 	}}
-	promptService := &PromptService{config: config, evaluator: evaluator, state: state, clock: realClock{}}
+	promptService := &PromptService{config: config, evaluator: evaluator, state: state, metrics: metrics, clock: realClock{}}
 
 	decision, err := promptService.Evaluate(context.Background(), Request{
 		UserID: 42, Protocol: "openai_chat_completions",
@@ -261,20 +341,22 @@ func TestPromptServiceRequiredDeepReviewUsesDeepModulesAndClearsOnlyAllow(t *tes
 	require.Contains(t, seen, "latest user")
 	require.Contains(t, seen, "assistant history")
 	require.Empty(t, state.states[42])
+	require.Equal(t, int64(1), promptService.metrics.AuditSnapshot().RecoveryCleared)
 }
 
 func TestPromptServiceRequiredDeepReviewWarnBlocksAndRefreshesRequirement(t *testing.T) {
 	state := &fakePayloadStore{states: map[int64]string{42: "pending-v1"}}
+	metrics := NewAtomicMetrics()
 	evaluator := newGuardEvaluator(PromptScannerFunc(func(context.Context, ActiveEndpoint, string, []string) (*NormalizedResult, error) {
 		return &NormalizedResult{Decision: EventFlag, RiskLevel: RiskMedium, Action: ActionWarn, ScannerScores: map[string]float64{}, ScannerEvidence: map[string]string{}}, nil
-	}), nil, NewAtomicMetrics(), 2, 2)
+	}), nil, metrics, 2, 2)
 	promptService := &PromptService{
 		config: &fakeConfigStore{active: true, cfg: ActiveConfig{
 			RiskControlEnabled: true, Enabled: true, BlockingEnabled: true, AllGroups: true,
 			DeepReviewModules: ReviewModules{System: true}, Scanners: AllScannerIDs,
 			Endpoints: []ActiveEndpoint{{ID: "guard-1", Enabled: true, TimeoutMS: 1000, InputLimit: 4096}},
 		}},
-		evaluator: evaluator, state: state, clock: fixedClock{now: time.Unix(123, 0)},
+		evaluator: evaluator, state: state, metrics: metrics, clock: fixedClock{now: time.Unix(123, 0)},
 	}
 
 	decision, err := promptService.Evaluate(context.Background(), Request{
@@ -287,6 +369,80 @@ func TestPromptServiceRequiredDeepReviewWarnBlocksAndRefreshesRequirement(t *tes
 	require.True(t, decision.DeepReviewed)
 	require.False(t, decision.AllowNextStage)
 	require.Equal(t, "review:req-recheck:123000000000", state.states[42])
+	require.Equal(t, int64(1), promptService.metrics.AuditSnapshot().RecoveryRetained)
+}
+
+func TestPromptServiceRequiredDeepReviewAllowsToolContinuationWithoutNewUser(t *testing.T) {
+	state := &fakePayloadStore{states: map[int64]string{42: "pending-v1"}}
+	metrics := NewAtomicMetrics()
+	service := &PromptService{
+		config: &fakeConfigStore{active: true, cfg: ActiveConfig{
+			RiskControlEnabled: true, Enabled: true, BlockingEnabled: true, AllGroups: true,
+			DeepReviewModules: ReviewModules{ToolOutputs: true}, Scanners: AllScannerIDs,
+			Endpoints: []ActiveEndpoint{{ID: "guard-1", Enabled: true, TimeoutMS: 1000, InputLimit: 4096}},
+		}},
+		evaluator: newGuardEvaluator(PromptScannerFunc(func(_ context.Context, _ ActiveEndpoint, chunk string, _ []string) (*NormalizedResult, error) {
+			require.Contains(t, chunk, "safe tool result")
+			return &NormalizedResult{Decision: EventPass, RiskLevel: RiskLow, Action: ActionAllow, ScannerScores: map[string]float64{}, ScannerEvidence: map[string]string{}}, nil
+		}), nil, metrics, 1, 1),
+		state: state, metrics: metrics, clock: fixedClock{now: time.Unix(125, 0)},
+	}
+
+	decision, err := service.Evaluate(context.Background(), Request{
+		RequestID: "req-tool-recovery", UserID: 42, Protocol: "openai_responses",
+		Body: []byte(`{"input":[{"type":"function_call_output","call_id":"call_1","output":"safe tool result"}]}`),
+	})
+	require.NoError(t, err)
+	require.Equal(t, DecisionAllow, decision.Kind)
+	require.True(t, decision.DeepReviewed)
+	require.Empty(t, state.states[42])
+	require.Equal(t, int64(1), metrics.AuditSnapshot().RecoveryCleared)
+}
+
+func TestPromptServiceRequiredDeepReviewCannotClearNewerFinding(t *testing.T) {
+	state := &fakePayloadStore{states: map[int64]string{42: "pending-v1"}}
+	metrics := NewAtomicMetrics()
+	service := &PromptService{
+		config: &fakeConfigStore{active: true, cfg: ActiveConfig{
+			RiskControlEnabled: true, Enabled: true, BlockingEnabled: true, AllGroups: true,
+			Scanners: AllScannerIDs, Endpoints: []ActiveEndpoint{{ID: "guard-1", Enabled: true, TimeoutMS: 1000, InputLimit: 4096}},
+		}},
+		evaluator: newGuardEvaluator(PromptScannerFunc(func(context.Context, ActiveEndpoint, string, []string) (*NormalizedResult, error) {
+			state.mu.Lock()
+			state.states[42] = "async:99:2"
+			state.mu.Unlock()
+			return &NormalizedResult{Decision: EventPass, RiskLevel: RiskLow, Action: ActionAllow, ScannerScores: map[string]float64{}, ScannerEvidence: map[string]string{}}, nil
+		}), nil, metrics, 1, 1),
+		state: state, metrics: metrics, clock: fixedClock{now: time.Unix(126, 0)},
+	}
+
+	decision, err := service.Evaluate(context.Background(), Request{
+		RequestID: "req-raced-recovery", UserID: 42, Protocol: "openai_chat_completions",
+		Body: []byte(`{"messages":[{"role":"user","content":"safe recovery"}]}`),
+	})
+	require.Nil(t, decision)
+	var guardErr *GuardError
+	require.ErrorAs(t, err, &guardErr)
+	require.Equal(t, ErrorCodeDeepReviewState, guardErr.Code)
+	require.Equal(t, "async:99:2", state.states[42])
+	require.Equal(t, int64(1), metrics.AuditSnapshot().RecoveryErrors)
+}
+
+type requireErrorDeepReviewState struct {
+	requireErr error
+}
+
+func (*requireErrorDeepReviewState) Required(context.Context, int64) (string, bool, error) {
+	return "", false, nil
+}
+func (s *requireErrorDeepReviewState) Require(context.Context, int64, string) error {
+	return s.requireErr
+}
+func (*requireErrorDeepReviewState) Replace(context.Context, int64, string, string) (bool, error) {
+	return false, nil
+}
+func (*requireErrorDeepReviewState) Clear(context.Context, int64, string) (bool, error) {
+	return false, nil
 }
 
 func TestPromptServiceRequiredDeepReviewEmptySelectionCannotRestore(t *testing.T) {

@@ -92,7 +92,7 @@ Both engines consume the same canonical document:
 | --- | --- |
 | Content Moderation | Scans only current direct-user text and images. Chat and Anthropic require an explicit `user` role; Responses, Live, and Gemini also accept their protocol-defined roleless user forms. Direct Alpha Search queries, embedding strings, and media prompts remain eligible. Instructions, system/developer context, reusable prompt variables, assistant/model messages, reasoning, tool definitions/calls/results, approval responses, and tool-produced images are excluded so platform or external content is not attributed to the user. |
 | Prompt Audit async / async-deep | Selects user turns plus configured instructions/system/developer context, assistant/model messages, reasoning, reusable prompt variables, tool definitions, tool-call arguments, and tool outputs. A new current user turn is mandatory unless the same blocking request passes its exact complete Allow in-process. Historical and automatic segments with valid per-segment Allow receipts are omitted from Guard input. |
-| Prompt Audit blocking | Always scans direct user text marked `Current`. Every historical user turn requires a valid receipt; misses are synchronously reviewed so client-controlled role ordering cannot hide unreviewed text. Configuration independently adds the same source modules. `blocking_latest_turn_only` remains a compatibility field and does not override module selection. A user carrying a deep-review requirement is synchronously reviewed with the async-deep module selection and all receipts bypassed. |
+| Prompt Audit blocking | Always scans direct user text marked `Current`. Every historical user turn requires a valid receipt; misses are synchronously reviewed so client-controlled role ordering cannot hide unreviewed text. Configuration independently adds the same source modules. `blocking_latest_turn_only` remains a compatibility field and does not override module selection. Any aggregate Block writes user-level deep-review state before returning 403. A user carrying that requirement is synchronously reviewed with the active async-deep module selection and all receipts bypassed, regardless of API key, group, or client session identity. |
 
 Sharing a canonical document does not mean that the engines select identical
 segments. Content Moderation preserves the `v0.1.177+custom.003` attribution
@@ -163,12 +163,21 @@ describe only the receipt misses; every selected canonical source segment
 remains in encrypted context for review.
 
 Blocking Allow starts a best-effort `async_deep` job only after Content
-Moderation and Prompt Guard both permit the request. A deep Block writes a
-versioned per-user Redis requirement before the job completes. The next request
-uses the configured deep modules synchronously; only Allow compare-and-deletes
-the same version. Flag, Block, dependency failure, and a newer concurrent
-finding keep the requirement and prevent upstream access. This state does not
-create a Content Moderation hash, violation count, or automatic penalty.
+Moderation and Prompt Guard both permit the request. A synchronous aggregate
+Block writes a versioned per-user Redis requirement before returning 403; an
+asynchronous deep Block writes the same state before its job completes. The
+next request uses the active configured deep modules synchronously, bypasses
+all receipts, and may clear only the exact version it claimed after complete
+Allow. Flag, Block, empty selection, dependency failure, and a newer concurrent
+finding keep the non-expiring requirement and prevent upstream access. The
+state is independent of API key, group, and client session identity. It does
+not create a Content Moderation hash, violation count, or automatic penalty.
+Coordinator performs a final state fence before an ordinary combined Allow can
+persist receipts, enqueue deep review, or return to the upstream path. Explicit
+administrator disabling of risk control, Prompt Audit, or blocking mode pauses
+enforcement without clearing the Redis state; re-enabling blocking resumes it.
+Requests that already completed the final audit gate cannot be retroactively
+cancelled.
 
 ## Failure Semantics
 

@@ -34,11 +34,28 @@ func TestPromptAuditLogAllowlistAndErrorsDoNotLeakCanarySecrets(t *testing.T) {
 	beforeUnknown := output.Len()
 	LogWarn("prompt_audit.typo_event", map[string]any{"status": "failed"})
 	require.Equal(t, beforeUnknown, output.Len(), "events outside the stable dictionary must not be emitted")
-	require.Len(t, knownLogEvents, 30)
+	require.Len(t, knownLogEvents, 34)
 
 	_, err := NormalizeBaseURL("https://guard.example.test/path?token=" + canary)
 	require.Error(t, err)
 	require.NotContains(t, err.Error(), canary)
+}
+
+func TestPromptRecoveryLogExposesSourceWithoutTokenOrContent(t *testing.T) {
+	const canary = "PROMPT_RECOVERY_CANARY_DO_NOT_LOG"
+	var output bytes.Buffer
+	previous := slog.Default()
+	slog.SetDefault(slog.New(slog.NewJSONHandler(&output, nil)))
+	t.Cleanup(func() { slog.SetDefault(previous) })
+
+	LogInfo(EventRecoveryRequired, map[string]any{
+		"request_id": "req-recovery", "user_id": int64(42), "recovery_source": "blocking",
+		"status": "required", "token": "blocking:" + canary, "raw_prompt": canary,
+	})
+
+	require.Contains(t, output.String(), EventRecoveryRequired)
+	require.Contains(t, output.String(), `"recovery_source":"blocking"`)
+	require.NotContains(t, output.String(), canary)
 }
 
 func TestPromptExtractionFailureLogHasBoundedContextWithoutRawContent(t *testing.T) {

@@ -54,6 +54,9 @@ func TestRedisDeepReviewStateUsesVersionedCompareAndDelete(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, required)
 	require.Equal(t, "version-1", token)
+	ttl, err := client.TTL(ctx, deepReviewStateKey(userID)).Result()
+	require.NoError(t, err)
+	require.Equal(t, time.Duration(-1), ttl)
 	replaced, err := store.Replace(ctx, userID, "version-1", "version-2")
 	require.NoError(t, err)
 	require.True(t, replaced)
@@ -135,6 +138,11 @@ func TestPromptRuntimeAggregatesConfigWorkersQueueRedisEndpointsAndGuardMetrics(
 	metrics.IncAllowReceiptMiss()
 	metrics.IncAllowReceiptWrite()
 	metrics.IncAllowReceiptError()
+	metrics.IncRecoveryRequired(ModeBlocking)
+	metrics.IncRecoveryRequired(ModeAsyncDeep)
+	metrics.IncRecoveryCleared()
+	metrics.IncRecoveryRetained()
+	metrics.IncRecoveryError()
 	service := NewPromptService(
 		config,
 		NewPostgreSQLRepository(db),
@@ -163,6 +171,11 @@ func TestPromptRuntimeAggregatesConfigWorkersQueueRedisEndpointsAndGuardMetrics(
 	require.Equal(t, int64(1), runtime.AllowReceiptMisses)
 	require.Equal(t, int64(1), runtime.AllowReceiptWrites)
 	require.Equal(t, int64(1), runtime.AllowReceiptErrors)
+	require.Equal(t, int64(1), runtime.RecoveryRequiredSync)
+	require.Equal(t, int64(1), runtime.RecoveryRequiredAsync)
+	require.Equal(t, int64(1), runtime.RecoveryCleared)
+	require.Equal(t, int64(1), runtime.RecoveryRetained)
+	require.Equal(t, int64(1), runtime.RecoveryErrors)
 	// The runner has not been started in this integration test, so the honest
 	// process status is degraded rather than a fabricated running heartbeat.
 	require.Equal(t, "degraded", runtime.ProcessStatus)
