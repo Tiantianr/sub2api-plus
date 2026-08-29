@@ -226,8 +226,9 @@ func TestPromptSnapshotStripsClientWrapperBlocksFromUserText(t *testing.T) {
 
 	blocking, err := ExtractBlockingPromptSnapshot(req, false)
 	require.NoError(t, err)
-	require.Equal(t, "继续\n\n你能做什么？", blocking.ScanText)
+	require.Equal(t, "你能做什么？", blocking.ScanText)
 	require.NotContains(t, blocking.ScanText, "environment_context")
+	require.NotContains(t, blocking.ScanText, "继续")
 
 	separated := Request{Protocol: "openai_responses", Body: []byte(`{
 		"input":[
@@ -427,49 +428,36 @@ func TestPromptSnapshotUnknownItemPassesEmptyAndKeepsExtractedSibling(t *testing
 	})
 	require.ErrorIs(t, err, ErrNoPromptText)
 }
-func TestBlockingPromptSnapshotUsesLatestUserAndPreviousOutputWithoutToolSchema(t *testing.T) {
+func TestBlockingPromptSnapshotDoesNotTreatHistoricalUserAsCurrent(t *testing.T) {
 	tests := []struct {
-		name, protocol, body, want string
-		omitted                    []string
+		name, protocol, body string
 	}{
 		{
 			name:     "chat assistant role",
 			protocol: "openai_chat_completions",
 			body:     `{"instructions":"chat instruction","tools":[{"type":"function","function":{"name":"lookup","description":"chat tool policy"}}],"messages":[{"role":"user","content":"older user"},{"role":"assistant","content":"current assistant payload"}]}`,
-			want:     "older user",
-			omitted:  []string{"chat instruction", "chat tool policy", "current assistant payload"},
 		},
 		{
 			name:     "anthropic assistant role",
 			protocol: "anthropic_messages",
 			body:     `{"system":"anthropic instruction","tools":[{"name":"lookup","description":"anthropic tool policy"}],"messages":[{"role":"user","content":"older user"},{"role":"assistant","content":"current assistant payload"}]}`,
-			want:     "older user",
-			omitted:  []string{"anthropic instruction", "anthropic tool policy", "current assistant payload"},
 		},
 		{
 			name:     "responses assistant role",
 			protocol: "openai_responses",
 			body:     `{"instructions":"responses instruction","tools":[{"type":"function","name":"lookup","description":"responses tool policy"}],"input":[{"role":"user","content":"older user"},{"role":"assistant","content":"current assistant payload"}]}`,
-			want:     "older user",
-			omitted:  []string{"responses instruction", "responses tool policy", "current assistant payload"},
 		},
 		{
 			name:     "gemini model role",
 			protocol: "gemini",
 			body:     `{"systemInstruction":{"parts":[{"text":"gemini instruction"}]},"tools":[{"functionDeclarations":[{"name":"lookup","description":"gemini tool policy"}]}],"contents":[{"role":"user","parts":[{"text":"older user"}]},{"role":"model","parts":[{"text":"current model payload"}]}]}`,
-			want:     "older user",
-			omitted:  []string{"gemini instruction", "gemini tool policy", "current model payload"},
 		},
 	}
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			snapshot, err := ExtractBlockingPromptSnapshot(Request{Protocol: test.protocol, Body: []byte(test.body)}, true)
-			require.NoError(t, err)
-			require.Equal(t, test.want, snapshot.ScanText)
-			for _, omitted := range test.omitted {
-				require.NotContains(t, snapshot.ScanText, omitted)
-			}
+			_, err := ExtractBlockingPromptSnapshot(Request{Protocol: test.protocol, Body: []byte(test.body)}, true)
+			require.ErrorIs(t, err, ErrNoPromptText)
 		})
 	}
 }
@@ -735,14 +723,15 @@ func TestPromptSnapshotSelectsConfiguredModulesPerLane(t *testing.T) {
 	for _, expected := range []string{"latest user", "installed skill", "system skill instruction", "assistant history", "reasoning text", "prompt variable", "plugin definition", "tool arguments", "tool output"} {
 		require.Contains(t, blocking.ScanText, expected)
 	}
-	require.NotContains(t, blocking.ScanText, "older user")
+	require.Contains(t, blocking.ScanText, "older user")
 	require.NotContains(t, blocking.ScanText, "private cwd")
 
 	minimal, _, err := extractBlockingPromptSnapshotWithDiagnostics(req, ReviewModules{Reasoning: true})
 	require.NoError(t, err)
 	require.Contains(t, minimal.ScanText, "latest user")
 	require.Contains(t, minimal.ScanText, "reasoning text")
-	for _, omitted := range []string{"installed skill", "system skill instruction", "assistant history", "prompt variable", "plugin definition", "tool arguments", "tool output", "older user"} {
+	require.Contains(t, minimal.ScanText, "older user")
+	for _, omitted := range []string{"installed skill", "system skill instruction", "assistant history", "prompt variable", "plugin definition", "tool arguments", "tool output"} {
 		require.NotContains(t, minimal.ScanText, omitted)
 	}
 

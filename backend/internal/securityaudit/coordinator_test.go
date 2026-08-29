@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strings"
 	"sync/atomic"
 	"testing"
 
@@ -25,24 +26,32 @@ func (f *fakeLegacyEngine) Check(_ context.Context, req Request) (*LegacyDecisio
 }
 
 type fakePromptEngine struct {
-	mode         Mode
-	decision     *PromptDecision
-	err          error
-	enqueues     atomic.Int64
-	deepEnqueues atomic.Int64
-	evaluates    atomic.Int64
-	applies      bool
+	mode           Mode
+	decision       *PromptDecision
+	err            error
+	enqueues       atomic.Int64
+	deepEnqueues   atomic.Int64
+	evaluates      atomic.Int64
+	receiptCommits atomic.Int64
+	applies        bool
+	lastEnqueue    Request
+	lastDeep       Request
 }
 
 func (f *fakePromptEngine) EffectiveMode() Mode          { return f.mode }
 func (f *fakePromptEngine) BlockingApplies(Request) bool { return f.applies }
-func (f *fakePromptEngine) Enqueue(context.Context, Request) error {
+func (f *fakePromptEngine) Enqueue(_ context.Context, req Request) error {
 	f.enqueues.Add(1)
+	f.lastEnqueue = req
 	return f.err
 }
-func (f *fakePromptEngine) EnqueueDeep(context.Context, Request) error {
+func (f *fakePromptEngine) EnqueueDeep(_ context.Context, req Request) error {
 	f.deepEnqueues.Add(1)
+	f.lastDeep = req
 	return f.err
+}
+func (f *fakePromptEngine) commitAllowReceipts(context.Context, *PromptDecision) {
+	f.receiptCommits.Add(1)
 }
 
 func TestCoordinatorMarksLegacyTextAsShadowOnlyWhenPromptCoversRequest(t *testing.T) {
@@ -234,16 +243,41 @@ func TestCoordinatorAsyncEnqueueFailuresNeverChangeResponseOrDownstreamDispatch(
 	}
 }
 
+func TestCoordinatorAsyncReceiptWriteRequiresLegacyAllow(t *testing.T) {
+	for _, testCase := range []struct {
+		name      string
+		legacy    *LegacyDecision
+		wantWrite bool
+	}{
+		{name: "allow", legacy: &LegacyDecision{Allowed: true}, wantWrite: true},
+		{name: "block", legacy: &LegacyDecision{Blocked: true, StatusCode: http.StatusForbidden}},
+		{name: "unavailable", legacy: &LegacyDecision{Blocked: true, StatusCode: http.StatusServiceUnavailable, ErrorCode: "content_moderation_unavailable", Action: "error"}},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			prompt := &fakePromptEngine{mode: ModeAsync}
+			NewCoordinator(&fakeLegacyEngine{decision: testCase.legacy}, prompt).Check(context.Background(), Request{})
+			require.Equal(t, int64(1), prompt.enqueues.Load())
+			require.Equal(t, testCase.wantWrite, prompt.lastEnqueue.AllowReceiptWrite)
+		})
+	}
+}
+
 func TestCoordinatorEnqueuesDeepOnlyAfterCombinedBlockingAllow(t *testing.T) {
-	prompt := &fakePromptEngine{mode: ModeBlocking, decision: &PromptDecision{Kind: DecisionAllow, AllowNextStage: true}}
+	prompt := &fakePromptEngine{mode: ModeBlocking, decision: &PromptDecision{
+		Kind: DecisionAllow, AllowNextStage: true, AllowReceiptKeys: []string{strings.Repeat("a", 64)},
+	}}
 	decision := NewCoordinator(&fakeLegacyEngine{decision: &LegacyDecision{Allowed: true}}, prompt).Check(context.Background(), Request{})
 	require.True(t, decision.AllowNextStage)
 	require.Equal(t, int64(1), prompt.deepEnqueues.Load())
+	require.Equal(t, int64(1), prompt.receiptCommits.Load())
+	require.Equal(t, prompt.decision.AllowReceiptKeys, prompt.lastDeep.AllowReceiptKeys)
+	require.True(t, prompt.lastDeep.AllowReceiptWrite)
 
 	prompt = &fakePromptEngine{mode: ModeBlocking, decision: &PromptDecision{Kind: DecisionAllow, AllowNextStage: true}}
 	decision = NewCoordinator(&fakeLegacyEngine{decision: &LegacyDecision{Blocked: true, StatusCode: http.StatusForbidden}}, prompt).Check(context.Background(), Request{})
 	require.False(t, decision.AllowNextStage)
 	require.Zero(t, prompt.deepEnqueues.Load())
+	require.Zero(t, prompt.receiptCommits.Load())
 
 	prompt = &fakePromptEngine{mode: ModeBlocking, decision: &PromptDecision{Kind: DecisionAllow, AllowNextStage: true, DeepReviewed: true}}
 	decision = NewCoordinator(&fakeLegacyEngine{decision: &LegacyDecision{Allowed: true}}, prompt).Check(context.Background(), Request{})

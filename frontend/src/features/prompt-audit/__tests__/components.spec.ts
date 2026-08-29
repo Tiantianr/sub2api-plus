@@ -42,6 +42,7 @@ describe('Prompt Audit components', () => {
       queue: { staging: 0, queued: 0, processing: 1, retry: 0, done: 5, failed: 0, active: 1 },
       processed_total: 5, failed_total: 0, enqueued_total: 5, dropped_total: 0,
       extraction_attempted: 7, extraction_succeeded: 5, extraction_empty: 1, extraction_failed: 1,
+      allow_receipt_hits: 3, allow_receipt_misses: 2, allow_receipt_writes: 1, allow_receipt_errors: 0,
       last_processed_at: '2026-07-16T00:05:00Z', last_error_at: '2026-07-16T00:01:00Z',
       last_error_code: 'prompt_guard_unavailable', last_error_message: 'Prompt Guard unavailable',
       database_status: 'ok', redis_status: 'ok', endpoints: {},
@@ -58,6 +59,7 @@ describe('Prompt Audit components', () => {
     expect(wrapper.text()).toContain('admin.promptAudit.runtime.lastProcessed')
     expect(wrapper.text()).toContain('admin.promptAudit.runtime.lastError')
     expect(wrapper.text()).toContain('prompt_guard_unavailable')
+    expect(wrapper.text()).toContain('admin.promptAudit.runtime.allowReceiptTotals')
   })
 
   it('edits a saved endpoint with blank-secret keep, explicit clear, replacement, and probe actions', async () => {
@@ -107,6 +109,7 @@ describe('Prompt Audit components', () => {
     const draft: PromptAuditDraft = {
       enabled: true, blocking_enabled: false, blocking_latest_turn_only: false, store_pass_events: false, effective_mode: 'async_audit', strategy: 'priority',
       blocking_review_modules: { ...DEFAULT_BLOCKING_REVIEW_MODULES }, deep_review_modules: { ...DEFAULT_DEEP_REVIEW_MODULES },
+      allow_receipt_ttl_seconds: 3600,
       worker_count: 4, queue_capacity: 100, scanners: SCANNER_CATALOG.map((item) => item.id), all_groups: false, group_ids: [1, 99],
       endpoints: [endpoint()], config_version: 1, updated_at: '', updated_by: 0, change_summary: '',
     }
@@ -121,6 +124,9 @@ describe('Prompt Audit components', () => {
     await wrapper.get('[aria-label="admin.promptAudit.policy.workerCount"]').setValue('6')
     let emitted = wrapper.emitted('update:draft')?.at(-1)?.[0] as PromptAuditDraft
     expect(emitted.worker_count).toBe(6)
+    await wrapper.get('[aria-label="admin.promptAudit.policy.allowReceiptTTL"]').setValue('7200')
+    emitted = wrapper.emitted('update:draft')?.at(-1)?.[0] as PromptAuditDraft
+    expect(emitted.allow_receipt_ttl_seconds).toBe(7200)
     await wrapper.get('[data-test="blocking_review_modules-assistant"]').setValue(true)
     emitted = wrapper.emitted('update:draft')?.at(-1)?.[0] as PromptAuditDraft
     expect(emitted.blocking_review_modules.assistant).toBe(true)

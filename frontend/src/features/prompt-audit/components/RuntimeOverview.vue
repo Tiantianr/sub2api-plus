@@ -59,6 +59,8 @@
             }) }}
             <span class="mx-1.5 text-gray-300 dark:text-dark-600">·</span>
             {{ t('admin.promptAudit.runtime.deliveryTotals', { enqueued: runtime.enqueued_total, dropped: runtime.dropped_total, processed: runtime.processed_total, failed: runtime.failed_total }) }}
+            <span class="mx-1.5 text-gray-300 dark:text-dark-600">·</span>
+            {{ t('admin.promptAudit.runtime.allowReceiptTotals', { hits: runtime.allow_receipt_hits, misses: runtime.allow_receipt_misses, writes: runtime.allow_receipt_writes, errors: runtime.allow_receipt_errors }) }}
           </p>
         </div>
         <div class="rounded-xl border border-gray-100 px-4 py-3 dark:border-dark-700/60 dark:bg-dark-900/20">

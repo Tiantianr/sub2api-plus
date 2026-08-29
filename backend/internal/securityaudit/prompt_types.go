@@ -12,6 +12,7 @@ const (
 	ConfigInvalidationChannel = "sub2api:prompt_guard:config:invalidate"
 	PayloadKeyPrefix          = "sub2api:prompt_audit:payload:"
 	DeepReviewStateKeyPrefix  = "sub2api:prompt_audit:deep_required:user:"
+	AllowReceiptKeyPrefix     = "sub2api:prompt_audit:allow_receipt:user:"
 
 	ErrorCodeBlocked               = "prompt_guard_blocked"
 	ErrorCodeUnavailable           = "prompt_guard_unavailable"
@@ -110,10 +111,13 @@ type Request struct {
 	Stage      string
 
 	PromptTextAuthority bool
+	AllowReceiptKeys    []string
+	AllowReceiptWrite   bool
 }
 
 func (r Request) Clone() Request {
 	r.Body = append([]byte(nil), r.Body...)
+	r.AllowReceiptKeys = append([]string(nil), r.AllowReceiptKeys...)
 	if r.GroupID != nil {
 		id := *r.GroupID
 		r.GroupID = &id
@@ -151,11 +155,28 @@ type PromptSnapshot struct {
 	FullContextHash         string `json:"-"`
 	FullContextBytes        int    `json:"-"`
 	FullContextSegmentCount int    `json:"-"`
+
+	ReviewSegments       []PromptReviewSegment `json:"-"`
+	AllowReceiptKeys     []string              `json:"-"`
+	AllowReceiptHitCount int                   `json:"-"`
+	AllowReceiptWrite    bool                  `json:"-"`
+}
+
+type PromptReviewSegment struct {
+	Source       string
+	Text         string
+	Parts        []string
+	CombineParts bool
+	CurrentUser  bool
+	Count        int
 }
 
 func (s PromptSnapshot) Redacted() PromptSnapshot {
 	s.ScanText = ""
 	s.CompleteContext = ""
+	s.ReviewSegments = nil
+	s.AllowReceiptKeys = nil
+	s.AllowReceiptHitCount = 0
 	return s
 }
 
@@ -181,11 +202,13 @@ type NormalizedResult struct {
 }
 
 type PromptDecision struct {
-	Kind           DecisionKind      `json:"kind"`
-	ErrorCode      string            `json:"error_code,omitempty"`
-	Result         *NormalizedResult `json:"result,omitempty"`
-	AllowNextStage bool              `json:"allow_next_stage"`
-	DeepReviewed   bool              `json:"-"`
+	Kind             DecisionKind      `json:"kind"`
+	ErrorCode        string            `json:"error_code,omitempty"`
+	Result           *NormalizedResult `json:"result,omitempty"`
+	AllowNextStage   bool              `json:"allow_next_stage"`
+	DeepReviewed     bool              `json:"-"`
+	AllowReceiptKeys []string          `json:"-"`
+	allowReceipt     *allowReceiptCommit
 }
 
 type LegacyDecision struct {
@@ -263,6 +286,10 @@ type AuditMetricsSnapshot struct {
 	ExtractionSucceeded int64 `json:"extraction_succeeded"`
 	ExtractionEmpty     int64 `json:"extraction_empty"`
 	ExtractionFailed    int64 `json:"extraction_failed"`
+	AllowReceiptHits    int64 `json:"allow_receipt_hits"`
+	AllowReceiptMisses  int64 `json:"allow_receipt_misses"`
+	AllowReceiptWrites  int64 `json:"allow_receipt_writes"`
+	AllowReceiptErrors  int64 `json:"allow_receipt_errors"`
 }
 
 type ExtractionOutcome string
@@ -303,6 +330,10 @@ type RuntimeSnapshot struct {
 	ExtractionSucceeded   int64                  `json:"extraction_succeeded"`
 	ExtractionEmpty       int64                  `json:"extraction_empty"`
 	ExtractionFailed      int64                  `json:"extraction_failed"`
+	AllowReceiptHits      int64                  `json:"allow_receipt_hits"`
+	AllowReceiptMisses    int64                  `json:"allow_receipt_misses"`
+	AllowReceiptWrites    int64                  `json:"allow_receipt_writes"`
+	AllowReceiptErrors    int64                  `json:"allow_receipt_errors"`
 	LastProcessedAt       *time.Time             `json:"last_processed_at,omitempty"`
 	LastErrorAt           *time.Time             `json:"last_error_at,omitempty"`
 	LastErrorCode         string                 `json:"last_error_code,omitempty"`
@@ -332,6 +363,10 @@ type Metrics interface {
 	IncFailover()
 	IncBulkheadFull()
 	IncRecordFailed()
+	IncAllowReceiptHit()
+	IncAllowReceiptMiss()
+	IncAllowReceiptWrite()
+	IncAllowReceiptError()
 }
 
 type PromptScanner interface {

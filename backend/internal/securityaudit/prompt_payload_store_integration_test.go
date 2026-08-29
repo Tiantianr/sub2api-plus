@@ -71,6 +71,48 @@ func TestRedisDeepReviewStateUsesVersionedCompareAndDelete(t *testing.T) {
 	require.False(t, required)
 }
 
+func TestRedisAllowReceiptTTLAndUserIsolation(t *testing.T) {
+	address := strings.TrimSpace(os.Getenv(promptAuditRedisTestEnv))
+	if address == "" {
+		t.Skip(promptAuditRedisTestEnv + " is not set")
+	}
+	client := redis.NewClient(&redis.Options{Addr: address})
+	t.Cleanup(func() { require.NoError(t, client.Close()) })
+	store := NewRedisPayloadStore(client)
+	ctx := context.Background()
+	const userID int64 = 987654323
+	const otherUserID int64 = 987654324
+	keys := []string{
+		"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+		"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+	}
+	defer func() {
+		_ = client.Del(ctx,
+			allowReceiptRedisKey(userID, keys[0]), allowReceiptRedisKey(userID, keys[1]),
+			allowReceiptRedisKey(otherUserID, keys[0]), allowReceiptRedisKey(otherUserID, keys[1]),
+		).Err()
+	}()
+
+	allowed, err := store.ReceiptsAllowed(ctx, userID, keys)
+	require.NoError(t, err)
+	require.Equal(t, []bool{false, false}, allowed)
+	require.NoError(t, store.StoreAllowReceipts(ctx, userID, keys, 250*time.Millisecond))
+	allowed, err = store.ReceiptsAllowed(ctx, userID, keys)
+	require.NoError(t, err)
+	require.Equal(t, []bool{true, true}, allowed)
+	allowed, err = store.ReceiptsAllowed(ctx, otherUserID, keys)
+	require.NoError(t, err)
+	require.Equal(t, []bool{false, false}, allowed)
+	ttl, err := client.PTTL(ctx, allowReceiptRedisKey(userID, keys[0])).Result()
+	require.NoError(t, err)
+	require.Greater(t, ttl, time.Duration(0))
+	require.LessOrEqual(t, ttl, 250*time.Millisecond)
+	require.Eventually(t, func() bool {
+		allowed, lookupErr := store.ReceiptsAllowed(ctx, userID, keys)
+		return lookupErr == nil && len(allowed) == 2 && !allowed[0] && !allowed[1]
+	}, 2*time.Second, 25*time.Millisecond)
+}
+
 func TestPromptRuntimeAggregatesConfigWorkersQueueRedisEndpointsAndGuardMetrics(t *testing.T) {
 	address := strings.TrimSpace(os.Getenv(promptAuditRedisTestEnv))
 	if address == "" {
@@ -89,6 +131,10 @@ func TestPromptRuntimeAggregatesConfigWorkersQueueRedisEndpointsAndGuardMetrics(
 	metrics.IncFailover()
 	metrics.IncEnqueued()
 	metrics.IncDropped()
+	metrics.IncAllowReceiptHit()
+	metrics.IncAllowReceiptMiss()
+	metrics.IncAllowReceiptWrite()
+	metrics.IncAllowReceiptError()
 	service := NewPromptService(
 		config,
 		NewPostgreSQLRepository(db),
@@ -113,6 +159,10 @@ func TestPromptRuntimeAggregatesConfigWorkersQueueRedisEndpointsAndGuardMetrics(
 	require.Equal(t, int64(25), runtime.GuardMetrics.LatencyP95MS)
 	require.Equal(t, int64(1), runtime.EnqueuedTotal)
 	require.Equal(t, int64(1), runtime.DroppedTotal)
+	require.Equal(t, int64(1), runtime.AllowReceiptHits)
+	require.Equal(t, int64(1), runtime.AllowReceiptMisses)
+	require.Equal(t, int64(1), runtime.AllowReceiptWrites)
+	require.Equal(t, int64(1), runtime.AllowReceiptErrors)
 	// The runner has not been started in this integration test, so the honest
 	// process status is degraded rather than a fabricated running heartbeat.
 	require.Equal(t, "degraded", runtime.ProcessStatus)

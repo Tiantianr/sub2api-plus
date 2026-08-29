@@ -24,6 +24,11 @@ type DeepReviewStateStore interface {
 	Clear(ctx context.Context, userID int64, token string) (bool, error)
 }
 
+type AllowReceiptStore interface {
+	ReceiptsAllowed(ctx context.Context, userID int64, keys []string) ([]bool, error)
+	StoreAllowReceipts(ctx context.Context, userID int64, keys []string, ttl time.Duration) error
+}
+
 type RedisPayloadStore struct {
 	client *redis.Client
 }
@@ -124,10 +129,77 @@ func (s *RedisPayloadStore) Clear(ctx context.Context, userID int64, token strin
 	return result == 1, err
 }
 
+func (s *RedisPayloadStore) ReceiptsAllowed(ctx context.Context, userID int64, keys []string) ([]bool, error) {
+	if s == nil || s.client == nil {
+		return nil, fmt.Errorf("prompt audit allow receipt store unavailable")
+	}
+	redisKeys, ok := allowReceiptRedisKeys(userID, keys)
+	if !ok {
+		return nil, fmt.Errorf("prompt audit allow receipt input invalid")
+	}
+	values, err := s.client.MGet(ctx, redisKeys...).Result()
+	if err != nil {
+		return nil, err
+	}
+	allowed := make([]bool, len(values))
+	for index, value := range values {
+		allowed[index] = value != nil
+	}
+	return allowed, nil
+}
+
+func (s *RedisPayloadStore) StoreAllowReceipts(ctx context.Context, userID int64, keys []string, ttl time.Duration) error {
+	if s == nil || s.client == nil {
+		return fmt.Errorf("prompt audit allow receipt store unavailable")
+	}
+	redisKeys, ok := allowReceiptRedisKeys(userID, keys)
+	if !ok || ttl <= 0 {
+		return fmt.Errorf("prompt audit allow receipt input invalid")
+	}
+	pipe := s.client.Pipeline()
+	for _, key := range redisKeys {
+		pipe.Set(ctx, key, "1", ttl)
+	}
+	_, err := pipe.Exec(ctx)
+	return err
+}
+
 func payloadKey(jobID int64) string {
 	return PayloadKeyPrefix + strconv.FormatInt(jobID, 10)
 }
 
 func deepReviewStateKey(userID int64) string {
 	return DeepReviewStateKeyPrefix + strconv.FormatInt(userID, 10)
+}
+
+func allowReceiptRedisKey(userID int64, key string) string {
+	return AllowReceiptKeyPrefix + strconv.FormatInt(userID, 10) + ":" + key
+}
+
+func allowReceiptRedisKeys(userID int64, keys []string) ([]string, bool) {
+	if userID <= 0 || len(keys) == 0 {
+		return nil, false
+	}
+	result := make([]string, len(keys))
+	for index, key := range keys {
+		if !validAllowReceiptKey(key) {
+			return nil, false
+		}
+		result[index] = allowReceiptRedisKey(userID, key)
+	}
+	return result, true
+}
+
+func validAllowReceiptKey(key string) bool {
+	if len(key) != 64 {
+		return false
+	}
+	for _, char := range key {
+		if char < '0' || char > '9' {
+			if char < 'a' || char > 'f' {
+				return false
+			}
+		}
+	}
+	return true
 }

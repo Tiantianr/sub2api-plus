@@ -10,27 +10,31 @@ import (
 const latencySampleCapacity = 2048
 
 type AtomicMetrics struct {
-	total        atomic.Int64
-	allowed      atomic.Int64
-	flagged      atomic.Int64
-	blocked      atomic.Int64
-	unavailable  atomic.Int64
-	invalid      atomic.Int64
-	timeouts     atomic.Int64
-	failovers    atomic.Int64
-	bulkheadFull atomic.Int64
-	recordFailed atomic.Int64
-	latencyTotal atomic.Int64
-	latencyMax   atomic.Int64
-	enqueued     atomic.Int64
-	dropped      atomic.Int64
-	extractTried atomic.Int64
-	extractOK    atomic.Int64
-	extractEmpty atomic.Int64
-	extractFail  atomic.Int64
-	latencyMu    sync.RWMutex
-	latencies    []int64
-	latencyNext  int
+	total              atomic.Int64
+	allowed            atomic.Int64
+	flagged            atomic.Int64
+	blocked            atomic.Int64
+	unavailable        atomic.Int64
+	invalid            atomic.Int64
+	timeouts           atomic.Int64
+	failovers          atomic.Int64
+	bulkheadFull       atomic.Int64
+	recordFailed       atomic.Int64
+	latencyTotal       atomic.Int64
+	latencyMax         atomic.Int64
+	enqueued           atomic.Int64
+	dropped            atomic.Int64
+	extractTried       atomic.Int64
+	extractOK          atomic.Int64
+	extractEmpty       atomic.Int64
+	extractFail        atomic.Int64
+	allowReceiptHits   atomic.Int64
+	allowReceiptMisses atomic.Int64
+	allowReceiptWrites atomic.Int64
+	allowReceiptErrors atomic.Int64
+	latencyMu          sync.RWMutex
+	latencies          []int64
+	latencyNext        int
 }
 
 func NewAtomicMetrics() *AtomicMetrics { return &AtomicMetrics{} }
@@ -68,6 +72,8 @@ func (m *AtomicMetrics) AuditSnapshot() AuditMetricsSnapshot {
 		Enqueued: m.enqueued.Load(), Dropped: m.dropped.Load(),
 		ExtractionAttempted: m.extractTried.Load(), ExtractionSucceeded: m.extractOK.Load(),
 		ExtractionEmpty: m.extractEmpty.Load(), ExtractionFailed: m.extractFail.Load(),
+		AllowReceiptHits: m.allowReceiptHits.Load(), AllowReceiptMisses: m.allowReceiptMisses.Load(),
+		AllowReceiptWrites: m.allowReceiptWrites.Load(), AllowReceiptErrors: m.allowReceiptErrors.Load(),
 	}
 }
 
@@ -164,5 +170,25 @@ func (m *AtomicMetrics) IncBulkheadFull() {
 func (m *AtomicMetrics) IncRecordFailed() {
 	if m != nil {
 		m.recordFailed.Add(1)
+	}
+}
+func (m *AtomicMetrics) IncAllowReceiptHit() {
+	if m != nil {
+		m.allowReceiptHits.Add(1)
+	}
+}
+func (m *AtomicMetrics) IncAllowReceiptMiss() {
+	if m != nil {
+		m.allowReceiptMisses.Add(1)
+	}
+}
+func (m *AtomicMetrics) IncAllowReceiptWrite() {
+	if m != nil {
+		m.allowReceiptWrites.Add(1)
+	}
+}
+func (m *AtomicMetrics) IncAllowReceiptError() {
+	if m != nil {
+		m.allowReceiptErrors.Add(1)
 	}
 }

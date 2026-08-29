@@ -20,6 +20,7 @@ type PromptService struct {
 	repo      *PostgreSQLRepository
 	payload   PayloadStore
 	state     DeepReviewStateStore
+	receipts  AllowReceiptStore
 	enqueuer  *Enqueuer
 	runner    *Runner
 	evaluator *GuardEvaluator
@@ -44,6 +45,7 @@ func NewPromptService(
 	metrics *AtomicMetrics,
 ) *PromptService {
 	state, _ := payload.(DeepReviewStateStore)
+	receipts, _ := payload.(AllowReceiptStore)
 	var jobRepo JobRepository
 	if repo != nil {
 		jobRepo = repo
@@ -52,7 +54,7 @@ func NewPromptService(
 	evaluator := NewGuardEvaluator(scanner, jobRepo, metrics)
 	runner := NewRunner(config, jobRepo, payload, scanner, metrics)
 	return &PromptService{
-		config: config, repo: repo, payload: payload, state: state, scanner: scanner, metrics: metrics,
+		config: config, repo: repo, payload: payload, state: state, receipts: receipts, scanner: scanner, metrics: metrics,
 		enqueuer: enqueuer, evaluator: evaluator, runner: runner, clock: realClock{},
 		enqueueSlots: make(chan struct{}, 128), probes: map[string]ProbeResult{},
 	}
@@ -262,6 +264,16 @@ func (s *PromptService) Evaluate(ctx context.Context, req Request) (*PromptDecis
 		}
 		return nil, &GuardError{Code: ErrorCodeExtractionFailed, Cause: err}
 	}
+	prepareAllowReceipts(ctx, s.receipts, s.metrics, cfg, &snapshot, req.AllowReceiptKeys, deepRequired)
+	if strings.TrimSpace(snapshot.ScanText) == "" {
+		if s.metrics != nil {
+			s.metrics.ObserveExtraction(ExtractionSucceeded)
+		}
+		if deepRequired {
+			return &PromptDecision{Kind: DecisionBlock, ErrorCode: ErrorCodeDeepReviewRequired, AllowNextStage: false, DeepReviewed: true}, nil
+		}
+		return &PromptDecision{Kind: DecisionAllow, AllowNextStage: true}, nil
+	}
 	ciphertext, err := encryptCompletePromptContext(s.config, snapshot.CompleteContext)
 	if err != nil {
 		logPromptRequestFailure(req, DecisionUnavailable, ErrorCodeEncryptionKeyRequired)
@@ -273,10 +285,28 @@ func (s *PromptService) Evaluate(ctx context.Context, req Request) (*PromptDecis
 		s.metrics.ObserveExtraction(ExtractionSucceeded)
 	}
 	decision, err := s.evaluator.Evaluate(ctx, cfg, snapshot)
+	if err == nil && decision != nil && decision.Kind == DecisionAllow {
+		decision.AllowReceiptKeys = append([]string(nil), snapshot.AllowReceiptKeys...)
+		decision.allowReceipt = &allowReceiptCommit{ConfigVersion: cfg.ConfigVersion, Snapshot: snapshot}
+	}
 	if err != nil || !deepRequired {
 		return decision, err
 	}
 	return s.finishRequiredDeepReview(ctx, req, stateToken, decision)
+}
+
+func (s *PromptService) commitAllowReceipts(ctx context.Context, decision *PromptDecision) {
+	if s == nil || decision == nil || decision.Kind != DecisionAllow || decision.allowReceipt == nil {
+		return
+	}
+	commit := decision.allowReceipt
+	decision.allowReceipt = nil
+	cfg, ok := s.config.Active()
+	if !ok || cfg.ConfigVersion != commit.ConfigVersion {
+		logAllowReceiptFailure(commit.Snapshot, "store", "allow_receipt_config_changed")
+		return
+	}
+	storeAllowReceipts(ctx, s.receipts, s.metrics, cfg, commit.Snapshot)
 }
 
 func (s *PromptService) deepReviewRequired(ctx context.Context, userID int64) (string, bool, error) {
@@ -380,6 +410,10 @@ func (s *PromptService) Runtime(ctx context.Context) RuntimeSnapshot {
 		runtime.ExtractionSucceeded = auditMetrics.ExtractionSucceeded
 		runtime.ExtractionEmpty = auditMetrics.ExtractionEmpty
 		runtime.ExtractionFailed = auditMetrics.ExtractionFailed
+		runtime.AllowReceiptHits = auditMetrics.AllowReceiptHits
+		runtime.AllowReceiptMisses = auditMetrics.AllowReceiptMisses
+		runtime.AllowReceiptWrites = auditMetrics.AllowReceiptWrites
+		runtime.AllowReceiptErrors = auditMetrics.AllowReceiptErrors
 	}
 	runtime.WorkerHeartbeatAt, runtime.LastProcessedAt = heartbeat, lastProcessed
 	if workerCode != "" {
@@ -518,7 +552,7 @@ func (s *PromptService) resolveProbeEndpoint(input UpdateEndpoint) (ActiveEndpoi
 	if limit == 0 {
 		limit = DefaultInputLimit
 	}
-	storage := storageConfig{Enabled: false, Strategy: "priority", WorkerCount: DefaultWorkerCount, QueueCapacity: DefaultQueueCapacity, Scanners: append([]string(nil), AllScannerIDs...), AllGroups: true,
+	storage := storageConfig{Enabled: false, Strategy: "priority", WorkerCount: DefaultWorkerCount, QueueCapacity: DefaultQueueCapacity, AllowReceiptTTLSeconds: DefaultAllowReceiptTTLSeconds, Scanners: append([]string(nil), AllScannerIDs...), AllGroups: true,
 		Endpoints: []StorageEndpoint{{ID: strings.TrimSpace(input.ID), Name: strings.TrimSpace(input.Name), Protocol: "openai_compatible", BaseURL: baseURL, Model: model, TimeoutMS: timeout, InputLimit: limit}}}
 	if storage.Endpoints[0].ID == "" {
 		storage.Endpoints[0].ID = "probe"

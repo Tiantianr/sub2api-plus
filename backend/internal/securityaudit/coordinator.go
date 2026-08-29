@@ -28,6 +28,10 @@ type deepReviewPromptEngine interface {
 	EnqueueDeep(ctx context.Context, req Request) error
 }
 
+type allowReceiptCommitter interface {
+	commitAllowReceipts(ctx context.Context, decision *PromptDecision)
+}
+
 type Coordinator struct {
 	legacy LegacyEngine
 	prompt PromptEngine
@@ -47,11 +51,14 @@ func (c *Coordinator) Check(ctx context.Context, req Request) Decision {
 	}
 	switch mode {
 	case ModeAsync:
-		// Enqueue is deliberately best-effort. The implementation owns a bounded
-		// context and copies request memory before it can outlive the Handler.
-		_ = c.prompt.Enqueue(ctx, req.Clone())
 		legacy, _ := c.checkLegacy(ctx, req)
-		return prioritize(legacy, nil)
+		decision := prioritize(legacy, nil)
+		enqueueReq := req.Clone()
+		enqueueReq.AllowReceiptWrite = decision.AllowNextStage
+		// Enqueue remains best-effort and still records blocked requests. Only a
+		// combined Allow lets the eventual async job create reusable receipts.
+		_ = c.prompt.Enqueue(ctx, enqueueReq)
+		return decision
 	case ModeBlocking:
 		return c.checkBlocking(ctx, req)
 	default:
@@ -97,9 +104,17 @@ func (c *Coordinator) checkBlocking(ctx context.Context, req Request) Decision {
 	}()
 	wg.Wait()
 	decision := prioritize(legacy, prompt)
+	if decision.AllowNextStage {
+		if committer, ok := c.prompt.(allowReceiptCommitter); ok {
+			committer.commitAllowReceipts(ctx, prompt)
+		}
+	}
 	if decision.AllowNextStage && prompt != nil && !prompt.DeepReviewed {
 		if deep, ok := c.prompt.(deepReviewPromptEngine); ok {
-			_ = deep.EnqueueDeep(ctx, req.Clone())
+			deepReq := req.Clone()
+			deepReq.AllowReceiptKeys = append([]string(nil), prompt.AllowReceiptKeys...)
+			deepReq.AllowReceiptWrite = true
+			_ = deep.EnqueueDeep(ctx, deepReq)
 		}
 	}
 	return decision

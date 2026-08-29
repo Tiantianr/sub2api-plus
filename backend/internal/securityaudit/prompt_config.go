@@ -14,17 +14,20 @@ import (
 )
 
 const (
-	DefaultWorkerCount   = 4
-	MaxWorkerCount       = 32
-	DefaultQueueCapacity = 32768
-	MaxQueueCapacity     = 100000
-	DefaultTimeoutMS     = 3000
-	MinTimeoutMS         = 100
-	MaxTimeoutMS         = 30000
-	DefaultInputLimit    = 4000
-	MinInputLimit        = 128
-	MaxInputLimit        = 500000
-	DefaultPayloadTTL    = 30 * time.Minute
+	DefaultWorkerCount            = 4
+	MaxWorkerCount                = 32
+	DefaultQueueCapacity          = 32768
+	MaxQueueCapacity              = 100000
+	DefaultTimeoutMS              = 3000
+	MinTimeoutMS                  = 100
+	MaxTimeoutMS                  = 30000
+	DefaultInputLimit             = 4000
+	MinInputLimit                 = 128
+	MaxInputLimit                 = 500000
+	DefaultPayloadTTL             = 30 * time.Minute
+	DefaultAllowReceiptTTLSeconds = 3600
+	MinAllowReceiptTTLSeconds     = 60
+	MaxAllowReceiptTTLSeconds     = 86400
 )
 
 type SecretEncryptor interface {
@@ -69,6 +72,7 @@ type storageConfig struct {
 	BlockingLatestTurnOnly bool              `json:"blocking_latest_turn_only"`
 	BlockingReviewModules  ReviewModules     `json:"blocking_review_modules"`
 	DeepReviewModules      ReviewModules     `json:"deep_review_modules"`
+	AllowReceiptTTLSeconds int               `json:"allow_receipt_ttl_seconds"`
 	StorePassEvents        bool              `json:"store_pass_events"`
 	Strategy               string            `json:"strategy"`
 	WorkerCount            int               `json:"worker_count"`
@@ -105,10 +109,12 @@ type ActiveConfig struct {
 	Enabled            bool
 	BlockingEnabled    bool
 	// BlockingLatestTurnOnly is retained for rolling-upgrade config/API
-	// compatibility. Blocking always scans the latest user input.
+	// compatibility. Blocking prioritizes current user input and verifies
+	// historical user turns through Allow receipts.
 	BlockingLatestTurnOnly bool
 	BlockingReviewModules  ReviewModules
 	DeepReviewModules      ReviewModules
+	AllowReceiptTTLSeconds int
 	StorePassEvents        bool
 	Strategy               string
 	WorkerCount            int
@@ -142,6 +148,7 @@ type PublicConfig struct {
 	BlockingLatestTurnOnly bool             `json:"blocking_latest_turn_only"`
 	BlockingReviewModules  ReviewModules    `json:"blocking_review_modules"`
 	DeepReviewModules      ReviewModules    `json:"deep_review_modules"`
+	AllowReceiptTTLSeconds int              `json:"allow_receipt_ttl_seconds"`
 	StorePassEvents        bool             `json:"store_pass_events"`
 	EffectiveMode          Mode             `json:"effective_mode"`
 	Strategy               string           `json:"strategy"`
@@ -177,6 +184,7 @@ type UpdateConfigRequest struct {
 	BlockingLatestTurnOnly bool             `json:"blocking_latest_turn_only"`
 	BlockingReviewModules  *ReviewModules   `json:"blocking_review_modules"`
 	DeepReviewModules      *ReviewModules   `json:"deep_review_modules"`
+	AllowReceiptTTLSeconds *int             `json:"allow_receipt_ttl_seconds"`
 	StorePassEvents        bool             `json:"store_pass_events"`
 	Strategy               string           `json:"strategy"`
 	WorkerCount            int              `json:"worker_count"`
@@ -194,6 +202,7 @@ func DefaultStorageConfig() storageConfig {
 		BlockingLatestTurnOnly: false,
 		BlockingReviewModules:  DefaultBlockingReviewModules(),
 		DeepReviewModules:      DefaultDeepReviewModules(),
+		AllowReceiptTTLSeconds: DefaultAllowReceiptTTLSeconds,
 		StorePassEvents:        false,
 		Strategy:               "priority",
 		WorkerCount:            DefaultWorkerCount,
@@ -237,6 +246,9 @@ func normalizeStorageConfig(cfg *storageConfig) {
 	if cfg.QueueCapacity == 0 {
 		cfg.QueueCapacity = DefaultQueueCapacity
 	}
+	if cfg.AllowReceiptTTLSeconds == 0 {
+		cfg.AllowReceiptTTLSeconds = DefaultAllowReceiptTTLSeconds
+	}
 	if len(cfg.Scanners) == 0 {
 		cfg.Scanners = append([]string(nil), AllScannerIDs...)
 	}
@@ -278,6 +290,9 @@ func validateStorageConfig(cfg storageConfig) error {
 	}
 	if cfg.QueueCapacity < 1 || cfg.QueueCapacity > MaxQueueCapacity {
 		return infraerrors.BadRequest("prompt_audit_invalid_queue_capacity", "队列容量超出允许范围")
+	}
+	if cfg.AllowReceiptTTLSeconds < MinAllowReceiptTTLSeconds || cfg.AllowReceiptTTLSeconds > MaxAllowReceiptTTLSeconds {
+		return infraerrors.BadRequest("prompt_audit_invalid_allow_receipt_ttl", "增量 Allow 凭据有效期超出允许范围")
 	}
 	if !cfg.AllGroups && len(cfg.GroupIDs) == 0 {
 		return infraerrors.BadRequest("prompt_audit_groups_required", "指定分组模式至少需要选择一个分组")
@@ -326,6 +341,9 @@ func validateUpdateConfigRequest(req UpdateConfigRequest) error {
 	}
 	if req.QueueCapacity < 1 || req.QueueCapacity > MaxQueueCapacity {
 		return infraerrors.BadRequest("prompt_audit_invalid_queue_capacity", "队列容量超出允许范围")
+	}
+	if req.AllowReceiptTTLSeconds != nil && (*req.AllowReceiptTTLSeconds < MinAllowReceiptTTLSeconds || *req.AllowReceiptTTLSeconds > MaxAllowReceiptTTLSeconds) {
+		return infraerrors.BadRequest("prompt_audit_invalid_allow_receipt_ttl", "增量 Allow 凭据有效期超出允许范围")
 	}
 	if len(req.Scanners) == 0 {
 		return infraerrors.BadRequest("prompt_audit_scanners_required", "至少需要启用一个风险分类")
@@ -426,7 +444,8 @@ func PublicFromStorage(cfg storageConfig, riskControlEnabled bool, invalidTokenE
 	return PublicConfig{
 		Enabled: cfg.Enabled, BlockingEnabled: cfg.BlockingEnabled, BlockingLatestTurnOnly: cfg.BlockingLatestTurnOnly, StorePassEvents: cfg.StorePassEvents,
 		BlockingReviewModules: cfg.BlockingReviewModules, DeepReviewModules: cfg.DeepReviewModules,
-		EffectiveMode: active.EffectiveMode(), Strategy: cfg.Strategy, WorkerCount: cfg.WorkerCount,
+		AllowReceiptTTLSeconds: cfg.AllowReceiptTTLSeconds,
+		EffectiveMode:          active.EffectiveMode(), Strategy: cfg.Strategy, WorkerCount: cfg.WorkerCount,
 		QueueCapacity: cfg.QueueCapacity, Scanners: scanners, AllGroups: cfg.AllGroups,
 		GroupIDs: groupIDs, Endpoints: endpoints, ConfigVersion: cfg.ConfigVersion,
 		UpdatedAt: cfg.UpdatedAt, UpdatedBy: cfg.UpdatedBy, ChangeSummary: cfg.ChangeSummary,
@@ -439,6 +458,7 @@ func ActiveFromStorage(cfg storageConfig, riskControlEnabled bool, encryptor Sec
 		BlockingLatestTurnOnly: cfg.BlockingLatestTurnOnly,
 		BlockingReviewModules:  cfg.BlockingReviewModules,
 		DeepReviewModules:      cfg.DeepReviewModules,
+		AllowReceiptTTLSeconds: cfg.AllowReceiptTTLSeconds,
 		StorePassEvents:        cfg.StorePassEvents, Strategy: cfg.Strategy, WorkerCount: cfg.WorkerCount,
 		QueueCapacity: cfg.QueueCapacity, Scanners: append([]string(nil), cfg.Scanners...), AllGroups: cfg.AllGroups,
 		GroupIDs: append([]int64(nil), cfg.GroupIDs...), ConfigVersion: cfg.ConfigVersion,
@@ -480,13 +500,14 @@ func changeSummary(cfg storageConfig) string {
 		BlockingLatestTurnOnly bool          `json:"blocking_latest_turn_only"`
 		BlockingReviewModules  ReviewModules `json:"blocking_review_modules"`
 		DeepReviewModules      ReviewModules `json:"deep_review_modules"`
+		AllowReceiptTTLSeconds int           `json:"allow_receipt_ttl_seconds"`
 		StorePassEvents        bool          `json:"store_pass_events"`
 		EndpointCount          int           `json:"endpoint_count"`
 		ScannerCount           int           `json:"scanner_count"`
 		AllGroups              bool          `json:"all_groups"`
 		GroupCount             int           `json:"group_count"`
 		GroupHash              string        `json:"group_hash"`
-	}{cfg.Enabled, cfg.BlockingEnabled, cfg.BlockingLatestTurnOnly, cfg.BlockingReviewModules, cfg.DeepReviewModules, cfg.StorePassEvents, len(cfg.Endpoints), len(cfg.Scanners), cfg.AllGroups, len(cfg.GroupIDs), ""}
+	}{cfg.Enabled, cfg.BlockingEnabled, cfg.BlockingLatestTurnOnly, cfg.BlockingReviewModules, cfg.DeepReviewModules, cfg.AllowReceiptTTLSeconds, cfg.StorePassEvents, len(cfg.Endpoints), len(cfg.Scanners), cfg.AllGroups, len(cfg.GroupIDs), ""}
 	rawGroups, _ := json.Marshal(cfg.GroupIDs)
 	digest := sha256.Sum256(rawGroups)
 	summary.GroupHash = hex.EncodeToString(digest[:])

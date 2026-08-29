@@ -20,6 +20,7 @@ const (
 	EventEnqueueSkipped       = "prompt_audit.enqueue_skipped"
 	EventEnqueueDropped       = "prompt_audit.enqueue_dropped"
 	EventExtractionFailed     = "prompt_audit.extraction_failed"
+	EventAllowReceiptFailed   = "prompt_audit.allow_receipt_failed"
 	EventAuditStarted         = "prompt_audit.started"
 	EventProcessingReclaimed  = "prompt_audit.processing_reclaimed"
 	EventProcessed            = "prompt_audit.processed"
@@ -43,7 +44,7 @@ const (
 var knownLogEvents = map[string]struct{}{
 	EventConfigUpdated: {}, EventConfigLoaded: {}, EventConfigReloadDegraded: {}, EventConfigTokenInvalid: {},
 	EventProbeStarted: {}, EventProbeFinished: {}, EventProbeFailed: {},
-	EventJobEnqueued: {}, EventEnqueueSkipped: {}, EventEnqueueDropped: {}, EventExtractionFailed: {},
+	EventJobEnqueued: {}, EventEnqueueSkipped: {}, EventEnqueueDropped: {}, EventExtractionFailed: {}, EventAllowReceiptFailed: {},
 	EventAuditStarted: {}, EventProcessingReclaimed: {}, EventProcessed: {}, EventProcessFailed: {}, EventFindingRecorded: {},
 	EventChunkStarted: {}, EventChunkCompleted: {}, EventChunkFailed: {}, EventChunksAggregated: {},
 	EventEvaluationStarted: {}, EventGuardAllowed: {}, EventGuardBlocked: {}, EventGuardFailed: {}, EventResultRecordFailed: {},
