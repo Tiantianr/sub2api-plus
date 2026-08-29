@@ -107,6 +107,23 @@ describe('Prompt Audit components', () => {
     expect(token.attributes('placeholder')).toContain('admin.promptAudit.pool.reenterSecret')
   })
 
+  it('reorders endpoint priority in the submitted configuration order', async () => {
+    const wrapper = mount(EndpointPool, {
+      props: {
+        endpoints: [endpoint(), { ...endpoint(), id: 'guard-2', name: 'Guard Two' }],
+        probeResults: {},
+        probingIds: [],
+      },
+      global: { stubs: { BaseDialog: DialogStub } },
+    })
+
+    expect(wrapper.get('[aria-label="admin.promptAudit.pool.moveUp"]').attributes()).toHaveProperty('disabled')
+    await wrapper.findAll('[aria-label="admin.promptAudit.pool.moveDown"]')[0].trigger('click')
+
+    const reordered = wrapper.emitted('update:endpoints')?.at(-1)?.[0] as PromptAuditEndpointDraft[]
+    expect(reordered.map((item) => item.id)).toEqual(['guard-2', 'guard-1'])
+  })
+
   it('supports group search, stale configured groups, nine scanners, and bounded worker inputs', async () => {
     const draft: PromptAuditDraft = {
       enabled: true, blocking_enabled: false, blocking_latest_turn_only: false, store_pass_events: false, effective_mode: 'async_audit', strategy: 'priority',

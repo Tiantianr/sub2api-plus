@@ -13,6 +13,15 @@
 | `verify` | Successful workflow | None | Release and immutable assets verified. |
 | `finalize` | Verified Release | Branch, commit, submit-pr | Published status and any generated rollback-doc updates submitted. |
 
+## Timing Contract
+
+The five-minute runner budget belongs only to the tag-triggered `Publish Linux
+image` job after the protected release PR, exact-main Actions, and reusable
+image artifact gates have passed. It is not an end-to-end release deadline.
+When a whole-release deadline conflicts with incomplete prerequisites, list the
+remaining stages and require explicit continuation before any mutating Git or
+publication action. There is no local-worktree or `publish-local` action.
+
 ## Repository Prerequisites
 
 The repository must expose:

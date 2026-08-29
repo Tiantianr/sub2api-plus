@@ -150,7 +150,7 @@ func (r *openAIOAuthUserAccessRepository) ListUsers(ctx context.Context, search,
 		  AND u.deleted_at IS NULL
 		  AND ($1 = '' OR u.email ILIKE '%' || $1 || '%' OR u.id::text = $1)
 		  AND ($2 = '' OR u.status = $2)
-		ORDER BY u.email, u.id
+		ORDER BY u.id DESC
 	`, strings.TrimSpace(search), strings.TrimSpace(status))
 	if err != nil {
 		return nil, err

@@ -1,53 +1,44 @@
-Sub2API Plus v0.1.183+custom.913
+Sub2API Plus v0.1.183+custom.914
 
 ## Highlights
 
-- Accept Responses `agent_message` histories without rejecting extractable
-  requests, while preserving visible text and direct-user attribution.
-- Reuse exact blocking Prompt Audit Allows for repeated fixed current-user
-  prompts, including strict opaque media-hash marker changes.
-- Give each synchronous Guard node and chunk its own timeout so a timed-out
-  priority node can fail over to the next configured node.
+- Show user IDs directly in the order-management user column.
+- Let administrators reorder Prompt Audit nodes; the first enabled node is
+  attempted first and retryable failures continue through the saved order.
+- List OAuth account-authorization users by descending user ID so recent users
+  appear first across filtered pages.
 
 ## Changed
 
-- Classify recognized `agent_message` authors as user, system, developer,
-  assistant, or model; classify other named agents as non-user assistant
-  sources and ignore only known opaque encrypted content and turn metadata.
-- Advance the Allow receipt schema and permit unexpired stored current-user
-  receipts in blocking mode while keeping async-only current input and forced
-  recovery uncached.
-- Clarify the audit-pool timeout as a per-node, per-chunk limit.
-- Show user IDs in the Prompt Audit event identity column and make them
-  clickable user filters.
+- Add accessible priority controls and visible sequence numbers to the Prompt
+  Audit node pool without changing the persisted configuration format.
+- Clarify that the five-minute release budget applies only to the tag-triggered
+  Linux image publication job after protected PR and exact-main checks pass.
+- Require release requests with incompatible end-to-end deadlines to stop
+  before mutating Git or publication state until the remaining stages are
+  explicitly accepted.
 
 ## Fixed
 
-- Stop supported `agent_message` items with visible `input_text` from producing
-  duplicate Prompt Audit and Content Moderation extraction failures and HTTP
-  503 responses.
-- Let a second Guard node receive its own timeout after the first node consumes
-  its configured timeout.
-- Avoid repeated Guard calls for fixed text when only a strict
-  `[images:<hex>]` reference changes.
+- Replace the OAuth authorization user's email-based ordering with stable
+  descending user-ID ordering before access filtering and pagination.
+- Keep order user IDs visible even when an email or username is available.
 
 ## Compatibility and migration
 
-- No database migration or new configuration field is required.
-- Existing Allow receipts are invalidated by receipt schema version 2 and are
-  rebuilt after one successful review.
-- Synchronous worst-case audit latency is now bounded by required chunks times
-  the sum of attempted node timeouts instead of the first node's single shared
-  timeout.
+- No database migration, new configuration field, or API compatibility change
+  is required.
+- Existing Prompt Audit endpoint arrays retain their stored order; saving a
+  reordered draft changes runtime priority immediately after configuration
+  activation.
 - No Compose, port, certificate, proxy, or persistent-volume change is
   required. Personal images and binary archives remain Linux arm64 only.
 
 ## Known issues
 
-- Opaque `agent_message.encrypted_content` is not decrypted or audited; every
-  visible supported sibling remains audited.
-- Unknown future `agent_message` content blocks still fail closed while
-  blocking audit applies.
+- The five-minute budget is not an end-to-end release guarantee; candidate
+  validation, protected merge, asset publication, and verification remain
+  separate stages.
 - Production deployment remains a separate operation and is not part of this
   release publication.
 

@@ -161,6 +161,24 @@ func TestOpenAIOAuthUserAccessRepositoryAppliesRevisionCheckedPolicies(t *testin
 	require.Zero(t, grants)
 }
 
+func TestOpenAIOAuthUserAccessRepositoryListsUsersByIDDescending(t *testing.T) {
+	ctx := context.Background()
+	suffix := time.Now().UnixNano()
+	search := fmt.Sprintf("oauth-order-%d", suffix)
+	olderID := insertOpenAIOAuthAccessTestUser(t, "z-"+search+"@example.com", "user")
+	newerID := insertOpenAIOAuthAccessTestUser(t, "a-"+search+"@example.com", "user")
+	t.Cleanup(func() {
+		_, _ = integrationDB.ExecContext(ctx, "DELETE FROM users WHERE id IN ($1, $2)", olderID, newerID)
+	})
+
+	repo := &openAIOAuthUserAccessRepository{db: integrationDB}
+	users, err := repo.ListUsers(ctx, search, "")
+	require.NoError(t, err)
+	require.Len(t, users, 2)
+	require.Greater(t, newerID, olderID)
+	require.Equal(t, []int64{newerID, olderID}, []int64{users[0].ID, users[1].ID})
+}
+
 func TestOpenAIOAuthUserAccessRepositoryExcludesGhostGroupBindings(t *testing.T) {
 	ctx := context.Background()
 	suffix := time.Now().UnixNano()

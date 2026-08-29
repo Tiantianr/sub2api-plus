@@ -26,6 +26,7 @@ const DataTableStub = {
   template: `
     <div>
       <div v-for="row in data" :key="row.id">
+        <slot name="cell-user_email" :value="row.user_email" :row="row" />
         <slot name="cell-pay_amount" :value="row.pay_amount" :row="row" />
       </div>
     </div>
@@ -103,7 +104,7 @@ describe('admin order currency display', () => {
     const wrapper = mount(OrderTable, {
       props: {
         orders: [
-          orderFactory({ id: 1, currency: 'USD', amount: 100, pay_amount: 108 }),
+          orderFactory({ id: 1, user_id: 10, user_email: 'user@example.com', currency: 'USD', amount: 100, pay_amount: 108 }),
           orderFactory({ id: 2, currency: 'CNY', amount: 100, pay_amount: 108 }),
         ],
         loading: false,
@@ -121,6 +122,7 @@ describe('admin order currency display', () => {
     expect(text).toContain('$108.00')
     expect(text).toContain('¥108.00')
     expect(text).toContain('$100.00')
+    expect(wrapper.get('[data-test="order-user-id"]').text()).toBe('#10')
   })
 
   it('renders payment currency consistently in the admin order table', () => {

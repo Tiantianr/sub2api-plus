@@ -44,13 +44,14 @@ export default {
     },
     metrics: { total: 'Total', allowed: 'Allowed', flagged: 'Flagged', blocked: 'Blocked', unavailable: 'Unavailable', timeouts: 'Timeouts', failovers: 'Failovers', extractionAttempted: 'Attempted', extractionSucceeded: 'Succeeded', extractionEmpty: 'No text', extractionFailed: 'Failed' },
     pool: {
-      title: 'Audit pool', description: 'Enabled OpenAI-compatible nodes are tried in order. Probes run from the server network.',
+      title: 'Audit pool', description: 'Enabled nodes are tried in list order, with the first enabled node taking priority. Probes run from the server network.',
       add: 'Add node', edit: 'Edit node', empty: 'No audit nodes configured.', node: 'Node', model: 'Model', limits: 'Timeout / chunk limit', credential: 'Credential and probe',
       configured: 'API Key configured', missing: 'API Key missing', invalid: 'API Key cannot be decrypted; re-enter it', probe: 'Test connection', probing: 'Probing…',
       probeProgress: 'Config validated ✓ · request sent · awaiting service response…', probeResult: 'Config ✓ · request ✓ · HTTP {http} · {status} · {latency} ms',
       name: 'Node name', id: 'Stable node ID', baseUrl: 'Base URL', apiKey: 'API Key', keepSecret: 'Leave blank to keep the saved API Key', reenterSecret: 'The saved API Key cannot be decrypted (encryption key changed); enter a new one',
       secretHint: 'Plaintext exists only in this editor and is cleared immediately after a successful save.', clearSecret: 'Explicitly clear the saved API Key', timeout: 'Per-node timeout per chunk (ms)', inputLimit: 'Unicode characters per chunk',
       timeoutRange: 'Supported range: {min}–{max} ms.', inputLimitRange: 'Supported range: {min}–{max} Unicode characters.', inputLimitBehavior: 'Synchronous review scans current and historical user receipt misses; async-only current-user input is always reviewed. Oversized text is split at this limit.',
+      priority: 'Priority {value}', moveUp: 'Raise priority of node {name}', moveDown: 'Lower priority of node {name}',
       toggleNode: 'Toggle node {name}', deleteConfirm: 'Remove “{name}” from the draft? It takes effect after saving.',
     },
     policy: {

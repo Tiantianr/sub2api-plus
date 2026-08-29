@@ -120,6 +120,25 @@ class CompressCliTest(unittest.TestCase):
         errors = self.validate_text(changed)
         self.assert_error_contains(errors, "Protected Linux GitHub Actions")
 
+    def test_five_minute_budget_cannot_cover_the_whole_release(self) -> None:
+        changed = self.valid_document.replace(
+            "five-minute budget applies only to the tag-triggered Publish Linux image job",
+            "five-minute budget applies to releases",
+        )
+        errors = self.validate_text(changed)
+        self.assert_error_contains(
+            errors,
+            "five-minute budget applies only to the tag-triggered Publish Linux image job",
+        )
+
+    def test_release_deadline_stops_before_mutating_git(self) -> None:
+        changed = self.valid_document.replace(
+            "before any mutating Git or publication action",
+            "while release work is running",
+        )
+        errors = self.validate_text(changed)
+        self.assert_error_contains(errors, "before any mutating Git or publication action")
+
     def test_unknown_source_path_fails(self) -> None:
         changed = self.valid_document.replace(
             "Go=backend/go.mod",

@@ -8,8 +8,9 @@
     </template>
     <template v-if="showUser" #cell-user_email="{ value, row }">
       <div class="text-sm">
-        <span class="text-gray-900 dark:text-white">{{ value || row.user_name || '#' + row.user_id }}</span>
+        <span class="text-gray-900 dark:text-white">{{ value || row.user_name || '-' }}</span>
         <span v-if="row.user_notes" class="ml-1 text-xs text-gray-400">({{ row.user_notes }})</span>
+        <p class="mt-0.5 font-mono text-xs text-gray-500 dark:text-gray-400" data-test="order-user-id">#{{ row.user_id }}</p>
       </div>
     </template>
     <template #cell-pay_amount="{ value, row }">
