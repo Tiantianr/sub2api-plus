@@ -24,12 +24,13 @@
 
       <div class="divide-y divide-gray-100 dark:divide-dark-800">
         <article
-          v-for="endpoint in endpoints"
+          v-for="(endpoint, index) in endpoints"
           :key="endpoint.id"
           :data-test="`endpoint-${endpoint.id}`"
           class="group grid gap-4 border-l-[3px] border-l-transparent px-4 py-4 transition-[background-color,border-color] duration-200 hover:border-l-primary-500 hover:bg-gray-50/80 dark:hover:bg-dark-800/55 sm:px-5 xl:grid-cols-[minmax(260px,1.45fr)_minmax(210px,1fr)_minmax(190px,.8fr)_minmax(230px,1.15fr)_auto] xl:items-center xl:gap-5"
         >
           <div class="flex min-w-0 items-center gap-3">
+            <span class="w-6 shrink-0 text-center font-mono text-xs text-gray-400" :title="t('admin.promptAudit.pool.priority', { value: index + 1 })">{{ index + 1 }}</span>
             <button
               type="button"
               role="switch"
@@ -82,6 +83,12 @@
           </div>
 
           <div class="flex flex-wrap items-center justify-end gap-1 border-t border-gray-100 pt-3 dark:border-dark-800 xl:flex-nowrap xl:border-0 xl:pt-0">
+            <button type="button" class="btn btn-ghost btn-icon btn-sm" :disabled="index === 0" :aria-label="t('admin.promptAudit.pool.moveUp', { name: endpoint.name })" :title="t('admin.promptAudit.pool.moveUp', { name: endpoint.name })" @click="moveEndpoint(index, -1)">
+              <Icon name="arrowUp" size="sm" />
+            </button>
+            <button type="button" class="btn btn-ghost btn-icon btn-sm" :disabled="index === endpoints.length - 1" :aria-label="t('admin.promptAudit.pool.moveDown', { name: endpoint.name })" :title="t('admin.promptAudit.pool.moveDown', { name: endpoint.name })" @click="moveEndpoint(index, 1)">
+              <Icon name="arrowDown" size="sm" />
+            </button>
             <button type="button" class="btn btn-secondary btn-sm" :disabled="probingIds.includes(endpoint.id)" @click="$emit('probe', endpoint)">
               {{ probingIds.includes(endpoint.id) ? t('admin.promptAudit.pool.probing') : t('admin.promptAudit.pool.probe') }}
             </button>
@@ -145,6 +152,7 @@
 import { ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import BaseDialog from '@/components/common/BaseDialog.vue'
+import Icon from '@/components/icons/Icon.vue'
 import type { PromptAuditEndpointDraft, PromptProbeResult } from '../types'
 import {
   cloneData,
@@ -198,6 +206,13 @@ function formatNumber(value: number): string {
 }
 function toggleEndpoint(id: string) {
   emit('update:endpoints', props.endpoints.map((item) => item.id === id ? { ...item, enabled: !item.enabled } : cloneData(item)))
+}
+function moveEndpoint(index: number, offset: -1 | 1) {
+  const next = props.endpoints.map((item) => cloneData(item))
+  const target = index + offset
+  if (target < 0 || target >= next.length) return
+  ;[next[index], next[target]] = [next[target], next[index]]
+  emit('update:endpoints', next)
 }
 function removeEndpoint(endpoint: PromptAuditEndpointDraft) {
   if (!window.confirm(t('admin.promptAudit.pool.deleteConfirm', { name: endpoint.name }))) return

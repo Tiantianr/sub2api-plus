@@ -16,6 +16,20 @@ Run from the repository root with an explicit custom tag:
     python3 skills/release-cli/scripts/release_cli.py verify --tag vX.Y.Z+custom.NNN
     python3 skills/release-cli/scripts/release_cli.py finalize --tag vX.Y.Z+custom.NNN
 
+## Timing Contract
+
+Never describe the complete release sequence as a five-minute release. The
+five-minute budget applies only to the tag-triggered `Publish Linux image` job
+after the protected PR is merged, exact-main `CI` and `Security Scan` pass, and
+the reusable Linux image artifact exists. Candidate preparation, validation,
+PR checks, merge waiting, tag review, asset publication, and verification are
+outside that budget.
+
+If a requester applies a deadline to the whole flow while any prerequisite is
+missing, report the missing stages and wait for explicit continuation before
+running a mutating Git or publication action. Do not infer a local-worktree
+publication mode: this skill has no `publish-local` action.
+
 ## Release Boundary
 
 The release candidate must first be submitted with `push-cli submit-pr`.

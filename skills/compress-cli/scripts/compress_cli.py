@@ -33,6 +33,7 @@ REQUIRED_CATEGORIES = (
     "Push",
     "Submit PR",
     "Release Promotion",
+    "Release Timing",
     "Release Notes",
     "Release Consistency",
     "Release Flow",
@@ -110,6 +111,12 @@ PROTECTED_FRAGMENTS = {
         "skills/release-cli",
         "without admin bypass",
         "Release metadata validation must not repeat the complete local application matrix",
+    ),
+    "Release Timing": (
+        "five-minute budget applies only to the tag-triggered Publish Linux image job",
+        "never means end-to-end candidate preparation or publication",
+        "before any mutating Git or publication action",
+        "No local publication shortcut exists",
     ),
     "Release Flow": (
         "Never push or commit release changes directly to main",

@@ -5,6 +5,28 @@ releases. Ordinary branch pushes are fast. The final PR submission performs the
 complete local validation matrix once, and release-cli then relies on that exact
 commit proof plus protected GitHub Actions before merging and tagging.
 
+## Time Budget and Request Handling
+
+This process has no five-minute end-to-end guarantee. The five-minute budget
+refers only to the tag-triggered `Publish Linux image` job after all of these
+prerequisites are complete:
+
+- the final candidate was submitted and merged through the protected PR;
+- `CI` and `Security Scan` succeeded for the exact main merge commit; and
+- the matching reusable Linux arm64 image artifact is available.
+
+Candidate preparation, local validation, PR checks, merge waiting, tag review,
+asset publication, and final verification are outside that runner budget. Call
+the bounded step the **five-minute image publication stage**, never a
+five-minute release.
+
+When a request gives the whole release a deadline that cannot include its
+remaining prerequisites, report the unmet stages and stop before committing,
+pushing, submitting or merging a PR, creating or pushing a tag, or publishing
+an image. Continue the formal flow only after the requester explicitly accepts
+the disclosed scope and timing. This repository has no local-worktree or
+`publish-local` release shortcut.
+
 ## Version Format
 
 | Surface | Format |
@@ -201,11 +223,13 @@ The Release workflow does not rerun the application matrix. Its
 `Publish Linux image` job verifies the annotated tag, main ancestry, successful
 `CI` and `Security Scan` push runs for the exact SHA, release metadata, and the
 matching unexpired image artifact. It then enters the checked `release`
-Environment and publishes the immutable Linux arm64 image within a five-minute
-runner execution budget. `Build release assets` starts only after the image is
-available. If either job unexpectedly waits, `monitor` reports policy drift and
-the Actions URL; restore the Environment policy and rerun `monitor`. The CLI
-never approves or bypasses a deployment.
+Environment and runs the five-minute image publication stage. That runner
+budget starts here; it excludes every prerequisite listed in
+[Time Budget and Request Handling](#time-budget-and-request-handling). `Build
+release assets` starts only after the image is available. If either job
+unexpectedly waits, `monitor` reports policy drift and the Actions URL; restore
+the Environment policy and rerun `monitor`. The CLI never approves or bypasses
+a deployment.
 
 After the workflow succeeds, verify the published state:
 
