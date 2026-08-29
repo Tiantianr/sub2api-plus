@@ -706,6 +706,7 @@ func TestPromptSnapshotSelectsConfiguredModulesPerLane(t *testing.T) {
 		"input":[
 			{"type":"message","role":"user","content":"older user"},
 			{"type":"message","role":"assistant","content":"assistant history"},
+			{"type":"agent_message","author":"research_agent","recipient":"assistant","content":[{"type":"input_text","text":"named agent history"},{"type":"encrypted_content","encrypted_content":"opaque agent state"}]},
 			{"type":"reasoning","content":[{"type":"reasoning_text","text":"reasoning text"}]},
 			{"type":"local_shell_call","call_id":"c1","action":{"command":"tool arguments"}},
 			{"type":"local_shell_call_output","call_id":"c1","output":"tool output"},
@@ -720,7 +721,7 @@ func TestPromptSnapshotSelectsConfiguredModulesPerLane(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.False(t, diagnostic.Failed)
-	for _, expected := range []string{"latest user", "installed skill", "system skill instruction", "assistant history", "reasoning text", "prompt variable", "plugin definition", "tool arguments", "tool output"} {
+	for _, expected := range []string{"latest user", "installed skill", "system skill instruction", "assistant history", "named agent history", "reasoning text", "prompt variable", "plugin definition", "tool arguments", "tool output"} {
 		require.Contains(t, blocking.ScanText, expected)
 	}
 	require.Contains(t, blocking.ScanText, "older user")
@@ -731,7 +732,7 @@ func TestPromptSnapshotSelectsConfiguredModulesPerLane(t *testing.T) {
 	require.Contains(t, minimal.ScanText, "latest user")
 	require.Contains(t, minimal.ScanText, "reasoning text")
 	require.Contains(t, minimal.ScanText, "older user")
-	for _, omitted := range []string{"installed skill", "system skill instruction", "assistant history", "prompt variable", "plugin definition", "tool arguments", "tool output"} {
+	for _, omitted := range []string{"installed skill", "system skill instruction", "assistant history", "named agent history", "opaque agent state", "prompt variable", "plugin definition", "tool arguments", "tool output"} {
 		require.NotContains(t, minimal.ScanText, omitted)
 	}
 
@@ -742,6 +743,8 @@ func TestPromptSnapshotSelectsConfiguredModulesPerLane(t *testing.T) {
 	require.Contains(t, deep.ScanText, "tool output")
 	require.NotContains(t, deep.ScanText, "system skill instruction")
 	require.NotContains(t, deep.ScanText, "assistant history")
+	require.NotContains(t, deep.ScanText, "named agent history")
+	require.NotContains(t, deep.ScanText, "opaque agent state")
 }
 
 func TestBuildPromptPreviewWithholdsMajorityOfOrdinaryText(t *testing.T) {

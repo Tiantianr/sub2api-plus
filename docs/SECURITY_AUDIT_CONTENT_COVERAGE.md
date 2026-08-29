@@ -91,8 +91,8 @@ Both engines consume the same canonical document:
 | Engine/mode | Segment selection |
 | --- | --- |
 | Content Moderation | Scans only current direct-user text and images. Chat and Anthropic require an explicit `user` role; Responses, Live, and Gemini also accept their protocol-defined roleless user forms. Direct Alpha Search queries, embedding strings, and media prompts remain eligible. Instructions, system/developer context, reusable prompt variables, assistant/model messages, reasoning, tool definitions/calls/results, approval responses, and tool-produced images are excluded so platform or external content is not attributed to the user. |
-| Prompt Audit async / async-deep | Selects user turns plus configured instructions/system/developer context, assistant/model messages, reasoning, reusable prompt variables, tool definitions, tool-call arguments, and tool outputs. A new current user turn is mandatory unless the same blocking request passes its exact complete Allow in-process. Historical and automatic segments with valid per-segment Allow receipts are omitted from Guard input. |
-| Prompt Audit blocking | Always scans direct user text marked `Current`. Every historical user turn requires a valid receipt; misses are synchronously reviewed so client-controlled role ordering cannot hide unreviewed text. Configuration independently adds the same source modules. `blocking_latest_turn_only` remains a compatibility field and does not override module selection. Any aggregate Block writes user-level deep-review state before returning 403. A user carrying that requirement is synchronously reviewed with the active async-deep module selection and all receipts bypassed, regardless of API key, group, or client session identity. |
+| Prompt Audit async / async-deep | Selects user turns plus configured instructions/system/developer context, assistant/model messages, reasoning, reusable prompt variables, tool definitions, tool-call arguments, and tool outputs. An async-only current user turn is mandatory. Async-deep under blocking may omit current, historical, and automatic segments with valid per-segment Allow receipts, including the same request's trusted handoff. |
+| Prompt Audit blocking | Scans direct user text marked `Current` unless an unexpired blocking Allow receipt certifies the same user, policy, source, and receipt-normalized canonical text. Every historical user turn has the same receipt requirement; misses are synchronously reviewed so client-controlled role ordering cannot hide unreviewed text. Configuration independently adds the same source modules. `blocking_latest_turn_only` remains a compatibility field and does not override module selection. Any aggregate Block writes user-level deep-review state before returning 403. A user carrying that requirement is synchronously reviewed with the active async-deep module selection and all receipts bypassed, regardless of API key, group, or client session identity. |
 
 Sharing a canonical document does not mean that the engines select identical
 segments. Content Moderation preserves the `v0.1.177+custom.003` attribution
@@ -107,23 +107,34 @@ selection. Incomplete canonical extraction is observable. Blocking and forced
 deep review fail closed; async modes evaluate selected siblings and record the
 extraction defect.
 
+Responses `agent_message` items retain visible supported content. Recognized
+authors preserve user/system/developer/assistant/model attribution; other named
+agents are assistant sources so they cannot create direct-user punishment.
+Opaque `encrypted_content`, recipient routing, and bounded turn metadata are
+not persisted or sent to Guard. Other unknown content blocks remain extraction
+failures.
+
 Configurations created before these module maps existed default synchronous
 review to system/instructions, prompt variables, and tool definitions. Deep
 review defaults all optional modules on. Administrators may independently
-disable any optional module. A newly current user turn remains mandatory in its
-first active lane.
+disable any optional module. New or changed current-user text remains mandatory
+in blocking mode; receipt-equivalent repeats may reuse a valid blocking receipt.
 
 Prompt Audit issues per-segment Allow receipts for canonical user turns and
 individually classified optional segments. A receipt is reusable only for the
 same receipt-schema revision, user, config version, enabled Guard
-endpoint/scanner policy, source class, and byte-identical canonical text. Adding
+endpoint/scanner policy, source class, and receipt-normalized canonical text.
+For user segments only, exact `[images:<hex>]` markers with a 32-, 40-, or
+64-character hexadecimal identifier are replaced by `[images]` for the receipt
+key; Guard still reviews the original marker on a miss, marker count remains
+significant, and all other text remains exact. Adding
 one tool result therefore misses only that result instead of invalidating the
 entire tool-output history. Misses are
 concatenated into one Guard input, so a cold request does not make one call per
-segment. A new current user turn ignores old receipts. In blocking mode, the
-exact complete synchronous Allow is handed to the same request's `async_deep`
-enqueue in-process, avoiding a second Guard call without letting client input
-claim a hit. An async-only current user is always reviewed. Only a complete
+segment. In blocking mode, current user text may reuse a stored exact receipt,
+and an exact complete synchronous Allow is handed to the same request's
+`async_deep` enqueue in-process. An async-only current user always ignores
+stored receipts. Only a complete
 aggregate `Allow` from a request permitted by Content Moderation writes every
 submitted receipt. The TTL is
 administrator-configurable and defaults to one hour. A Redis error falls back

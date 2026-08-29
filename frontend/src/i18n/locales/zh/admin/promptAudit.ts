@@ -49,8 +49,8 @@ export default {
       configured: 'API Key 已配置', missing: '未配置 API Key', invalid: 'API Key 无法解密，请重新输入', probe: '连接测试', probing: '探测中…',
       probeProgress: '配置校验 ✓ · 请求已发送 · 等待服务响应…', probeResult: '配置校验 ✓ · 请求 ✓ · HTTP {http} · {status} · {latency} ms',
       name: '节点名称', id: '稳定节点 ID', baseUrl: 'Base URL', apiKey: 'API Key', keepSecret: '留空以保留已保存的 API Key', reenterSecret: '已保存的 API Key 无法解密（加密密钥已变更），请重新输入',
-      secretHint: '明文只在本次编辑内存中存在；保存成功后会立即清除。', clearSecret: '显式清除已保存的 API Key', timeout: '总超时（毫秒）', inputLimit: '单片 Unicode 字符上限',
-      timeoutRange: '支持范围：{min}–{max} 毫秒。', inputLimitRange: '支持范围：{min}–{max} 个 Unicode 字符。', inputLimitBehavior: '同步审计强制检查当前用户输入，并补审无有效凭据的历史 user。异步只提交未命中的历史或新增 segment。超过该值时继续分片。',
+      secretHint: '明文只在本次编辑内存中存在；保存成功后会立即清除。', clearSecret: '显式清除已保存的 API Key', timeout: '单节点单片超时（毫秒）', inputLimit: '单片 Unicode 字符上限',
+      timeoutRange: '支持范围：{min}–{max} 毫秒。', inputLimitRange: '支持范围：{min}–{max} 个 Unicode 字符。', inputLimitBehavior: '同步审计检查无有效 Allow 凭据的当前与历史 user；异步-only 的 current user 始终审核。超过该值时继续分片。',
       toggleNode: '切换节点 {name}', deleteConfirm: '从草稿中删除节点“{name}”？保存配置后生效。',
     },
     policy: {
@@ -58,7 +58,7 @@ export default {
       searchGroups: '搜索分组', noGroups: '没有匹配分组', missingGroups: '配置中包含已删除的分组 ID', selectedCount: '已选择 {count} 个分组',
       scanners: 'Qwen3Guard 输入风险分类', blockingModules: '同步审核附加模块', deepModules: '深度复核附加模块',
       reviewModules: { system: 'System / Instructions', assistant: 'Assistant 历史', reasoning: 'Reasoning', promptVariables: 'Prompt variables', toolDefinitions: '工具 / 插件定义', toolCalls: '工具调用参数', toolOutputs: '工具结果' },
-      workerCount: 'Worker 数量', queueCapacity: '持久队列容量', allowReceiptTTL: '增量 Allow 凭据有效期（秒）', allowReceiptTTLHint: '当前新 user 输入必须先审核；同步 Allow 可供同请求异步复用，历史与自动续轮按 canonical segment 增量审核。范围：60–86400 秒。', strategy: '节点策略', strategyHint: '按配置顺序优先尝试，必要时故障切换。',
+      workerCount: 'Worker 数量', queueCapacity: '持久队列容量', allowReceiptTTL: '增量 Allow 凭据有效期（秒）', allowReceiptTTLHint: '同步模式下，新的或变化的 current user 输入必须先审核；同用户、同策略的固定文本可在有效期内复用 Allow 凭据，严格格式的媒体哈希标识允许变化。异步-only 的 current user 仍会审核。范围：60–86400 秒。', strategy: '节点策略', strategyHint: '按配置顺序优先尝试，必要时故障切换。',
     },
     saveBar: { enabled: '启用提示词审计', blocking: '同步阻止', blockingLatestTurnOnly: '同步阻止优先审当前用户输入', storePass: '保存安全事件', dirty: '有未保存的更改', synced: '配置已同步' },
     blockingConfirm: {
@@ -67,7 +67,7 @@ export default {
       confirm: '理解风险并开启',
     },
     events: {
-      title: '审计事件', description: '按身份、IP、入口、风险、Hash 和时间复核事件，详情中可查看完整送检内容。', decision: '判定', risk: '风险等级', endpoint: '入口', clientIp: '客户端 IP', filterByIp: '筛选 IP {ip}', groupId: '分组 ID', userId: '用户 ID', apiKeyId: 'API Key ID', keyword: '关键词',
+      title: '审计事件', description: '按身份、IP、入口、风险、Hash 和时间复核事件，详情中可查看完整送检内容。', decision: '判定', risk: '风险等级', endpoint: '入口', clientIp: '客户端 IP', filterByIp: '筛选 IP {ip}', groupId: '分组 ID', userId: '用户 ID', filterByUserId: '筛选用户 ID {id}', apiKeyId: 'API Key ID', keyword: '关键词',
       startAt: '开始时间', endAt: '结束时间', deleteSelected: '删除选中项（{count}）', deleteByFilter: '按筛选删除',
       filterDeleteDialogTitle: '按筛选删除审计事件', filterDeleteDialogDesc: '选择删除的时间范围与风险条件后即可执行删除；删除不可恢复。如需提前查看匹配数量，可先获取删除预览。',
       filterTimeRange: '删除时间范围', filterTimeRangeHint: '将删除所选截止时间之前产生的事件；预览后新产生的事件不受影响。',

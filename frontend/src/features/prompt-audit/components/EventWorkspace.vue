@@ -102,6 +102,20 @@
               <span v-else>—</span>
             </td>
             <td class="px-3 py-3">
+              <div class="flex max-w-56 items-center gap-1 text-xs">
+                <span class="w-16 flex-none text-gray-500 dark:text-dark-400">{{ t('admin.promptAudit.events.userId') }}</span>
+                <button
+                  v-if="event.snapshot.user_id > 0"
+                  type="button"
+                  class="min-w-0 flex-1 truncate text-left font-mono text-primary-600 hover:underline dark:text-primary-300"
+                  :title="t('admin.promptAudit.events.filterByUserId', { id: event.snapshot.user_id })"
+                  :aria-label="t('admin.promptAudit.events.filterByUserId', { id: event.snapshot.user_id })"
+                  @click="filterByUserID(event.snapshot.user_id)"
+                >
+                  {{ event.snapshot.user_id }}
+                </button>
+                <span v-else>—</span>
+              </div>
               <CopyLine :label="t('admin.promptAudit.events.user')" :value="event.snapshot.username" />
               <CopyLine :label="t('admin.promptAudit.events.email')" :value="event.snapshot.user_email" />
               <CopyLine :label="t('admin.promptAudit.events.apiKey')" :value="event.snapshot.api_key_name" />
@@ -203,6 +217,10 @@ function resetFilters() {
 }
 function filterByIP(value: string) {
   localFilters.client_ip = value
+  applyFilters()
+}
+function filterByUserID(value: number) {
+  localFilters.user_id = String(value)
   applyFilters()
 }
 function toggleOne(id: number) {

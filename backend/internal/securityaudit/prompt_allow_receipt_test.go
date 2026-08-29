@@ -109,7 +109,7 @@ func allowReceiptTestKey(userID int64, key string) string {
 	return strings.Join([]string{strconv.FormatInt(userID, 10), key}, ":")
 }
 
-func TestCurrentUserAlwaysReviewsAndStableSystemUsesReceipt(t *testing.T) {
+func TestBlockingCurrentUserReusesExactAllowReceipt(t *testing.T) {
 	cfg := allowReceiptTestConfig()
 	config := &fakeConfigStore{active: true, cfg: cfg}
 	cache := newFakeAllowReceiptPayload()
@@ -150,13 +150,55 @@ func TestCurrentUserAlwaysReviewsAndStableSystemUsesReceipt(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, DecisionAllow, decision.Kind)
 	service.commitAllowReceipts(context.Background(), decision)
-	require.Equal(t, 3, cache.writes)
-	require.Equal(t, []string{"first user input"}, scanned)
+	require.Equal(t, 2, cache.writes)
+	require.Empty(t, scanned)
+	repo := &fakeJobRepository{}
+	require.NoError(t, NewEnqueuer(config, repo, cache, metrics).EnqueueDeep(context.Background(), req))
+	require.Nil(t, repo.createJob)
 
 	audit := metrics.AuditSnapshot()
-	require.Equal(t, int64(1), audit.AllowReceiptHits)
-	require.Equal(t, int64(5), audit.AllowReceiptMisses)
-	require.Equal(t, int64(3), audit.AllowReceiptWrites)
+	require.Equal(t, int64(4), audit.AllowReceiptHits)
+	require.Equal(t, int64(4), audit.AllowReceiptMisses)
+	require.Equal(t, int64(2), audit.AllowReceiptWrites)
+}
+
+func TestBlockingCurrentReceiptReusesTextWhenMediaChanges(t *testing.T) {
+	cfg := allowReceiptTestConfig()
+	config := &fakeConfigStore{active: true, cfg: cfg}
+	receipts := newFakeAllowReceiptPayload()
+	scans := 0
+	service := NewPromptService(config, nil, receipts, NewOpenAICompatibleScanner(), NewAtomicMetrics())
+	seen := ""
+	service.evaluator = NewGuardEvaluator(PromptScannerFunc(func(_ context.Context, _ ActiveEndpoint, chunk string, _ []string) (*NormalizedResult, error) {
+		scans++
+		seen = chunk
+		return allowReceiptResult(ActionAllow), nil
+	}), nil, NewAtomicMetrics())
+
+	firstMarker := strings.Repeat("a", 40)
+	decision, err := service.Evaluate(context.Background(), allowReceiptMediaRequest(firstMarker))
+	require.NoError(t, err)
+	require.Equal(t, DecisionAllow, decision.Kind)
+	require.Equal(t, 1, scans)
+	require.Contains(t, seen, "[images:"+firstMarker+"]")
+	service.commitAllowReceipts(context.Background(), decision)
+
+	scans = 0
+	decision, err = service.Evaluate(context.Background(), allowReceiptMediaRequest(strings.Repeat("b", 40)))
+	require.NoError(t, err)
+	require.Equal(t, DecisionAllow, decision.Kind)
+	require.Zero(t, scans)
+}
+
+func TestAllowReceiptKeyNormalizesOnlyOpaqueUserMediaMarkers(t *testing.T) {
+	cfg := allowReceiptTestConfig()
+	first := "fixed instruction [images:" + strings.Repeat("a", 40) + "]"
+	second := "fixed instruction [images:" + strings.Repeat("b", 40) + "]"
+
+	require.Equal(t, buildAllowReceiptKey(cfg, "user", first), buildAllowReceiptKey(cfg, "user", second))
+	require.NotEqual(t, buildAllowReceiptKey(cfg, "user", first), buildAllowReceiptKey(cfg, "user", "changed instruction [images:"+strings.Repeat("b", 40)+"]"))
+	require.NotEqual(t, buildAllowReceiptKey(cfg, "system", first), buildAllowReceiptKey(cfg, "system", second))
+	require.NotEqual(t, buildAllowReceiptKey(cfg, "user", "fixed instruction [images:not-hex]"), buildAllowReceiptKey(cfg, "user", "fixed instruction [images:still-not-hex]"))
 }
 
 func TestAllowReceiptsMissOnUserConfigAndContentChanges(t *testing.T) {
@@ -171,20 +213,27 @@ func TestAllowReceiptsMissOnUserConfigAndContentChanges(t *testing.T) {
 	storeAllowReceipts(context.Background(), cache, metrics, cfg, snapshot)
 
 	for _, testCase := range []struct {
-		name string
-		cfg  ActiveConfig
-		req  Request
+		name        string
+		cfg         ActiveConfig
+		req         Request
+		wantHits    int
+		wantScan    string
+		wantOmitted string
 	}{
-		{name: "other user", cfg: cfg, req: allowReceiptRequest(8, "user input", "stable attachment")},
-		{name: "new config", cfg: func() ActiveConfig { changed := cfg; changed.ConfigVersion++; return changed }(), req: allowReceiptRequest(7, "user input", "stable attachment")},
-		{name: "changed attachment", cfg: cfg, req: allowReceiptRequest(7, "user input", "changed attachment")},
+		{name: "other user", cfg: cfg, req: allowReceiptRequest(8, "user input", "stable attachment"), wantScan: "user input"},
+		{name: "new config", cfg: func() ActiveConfig { changed := cfg; changed.ConfigVersion++; return changed }(), req: allowReceiptRequest(7, "user input", "stable attachment"), wantScan: "user input"},
+		{name: "changed attachment", cfg: cfg, req: allowReceiptRequest(7, "user input", "changed attachment"), wantHits: 1, wantScan: "changed attachment", wantOmitted: "user input"},
+		{name: "changed current user", cfg: cfg, req: allowReceiptRequest(7, "changed user input", "stable attachment"), wantHits: 1, wantScan: "changed user input", wantOmitted: "stable attachment"},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
 			candidate, _, extractErr := extractBlockingPromptSnapshotWithDiagnostics(testCase.req, testCase.cfg.BlockingReviewModules)
 			require.NoError(t, extractErr)
 			prepareAllowReceipts(context.Background(), cache, metrics, testCase.cfg, &candidate, nil, false)
-			require.Zero(t, candidate.AllowReceiptHitCount)
-			require.Contains(t, candidate.ScanText, "attachment")
+			require.Equal(t, testCase.wantHits, candidate.AllowReceiptHitCount)
+			require.Contains(t, candidate.ScanText, testCase.wantScan)
+			if testCase.wantOmitted != "" {
+				require.NotContains(t, candidate.ScanText, testCase.wantOmitted)
+			}
 		})
 	}
 }
@@ -295,10 +344,10 @@ func TestAllowReceiptReusesStableSiblingAndReviewsChangedSegment(t *testing.T) {
 	require.NoError(t, err)
 	prepareAllowReceipts(context.Background(), cache, metrics, cfg, &second, nil, false)
 
-	require.Equal(t, 2, second.AllowReceiptHitCount)
-	require.Len(t, second.AllowReceiptKeys, 2)
-	require.Contains(t, second.ScanText, "current user input")
+	require.Equal(t, 3, second.AllowReceiptHitCount)
+	require.Len(t, second.AllowReceiptKeys, 1)
 	require.Contains(t, second.ScanText, "changed assistant")
+	require.NotContains(t, second.ScanText, "current user input")
 	require.NotContains(t, second.ScanText, "stable system attachment")
 	require.NotContains(t, second.ScanText, "stable assistant")
 }
@@ -542,6 +591,13 @@ func allowReceiptHistoryRequest() Request {
 	return Request{
 		UserID: 7, Protocol: "openai_responses", Endpoint: "/v1/responses",
 		Body: []byte(`{"instructions":"stable async attachment","input":[{"type":"message","role":"user","content":"older async user input"},{"type":"message","role":"assistant","content":"assistant separator"},{"type":"message","role":"user","content":"current async user input"}]}`),
+	}
+}
+
+func allowReceiptMediaRequest(imageID string) Request {
+	return Request{
+		UserID: 7, Protocol: "grok_media", Endpoint: "/v1/images/generations",
+		Body: []byte(`{"prompt":"fixed video-frame instruction [images:` + imageID + `]"}`),
 	}
 }
 

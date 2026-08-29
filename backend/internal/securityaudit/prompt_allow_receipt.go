@@ -5,13 +5,16 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"regexp"
 	"strings"
 	"time"
 	"unicode/utf8"
 )
 
 const allowReceiptOperationTimeout = 75 * time.Millisecond
-const allowReceiptSchemaVersion = 1
+const allowReceiptSchemaVersion = 2
+
+var allowReceiptUserMediaMarker = regexp.MustCompile(`(?i)\[images:([0-9a-f]{32}|[0-9a-f]{40}|[0-9a-f]{64})\]`)
 
 type allowReceiptPolicy struct {
 	SchemaVersion int                    `json:"schema_version"`
@@ -47,6 +50,7 @@ func prepareAllowReceipts(ctx context.Context, store AllowReceiptStore, metrics 
 	hits := make([]bool, len(keys))
 	lookupIndexes := make([]int, 0, len(keys))
 	lookupKeys := make([]string, 0, len(keys))
+	reuseCurrent := cfg.EffectiveMode() == ModeBlocking
 	for index, segment := range snapshot.ReviewSegments {
 		keys[index] = buildAllowReceiptKey(cfg, segment.Source, segment.Text)
 		if bypass || keys[index] == "" || snapshot.UserID <= 0 {
@@ -56,7 +60,7 @@ func prepareAllowReceipts(ctx context.Context, store AllowReceiptStore, metrics 
 			hits[index] = true
 			continue
 		}
-		if segment.CurrentUser || store == nil {
+		if store == nil || (segment.CurrentUser && !reuseCurrent) {
 			continue
 		}
 		lookupIndexes = append(lookupIndexes, index)
@@ -169,12 +173,19 @@ func buildAllowReceiptKey(cfg ActiveConfig, source, text string) string {
 		Policy  allowReceiptPolicy `json:"policy"`
 		Source  string             `json:"source"`
 		Content string             `json:"content"`
-	}{policy, source, text})
+	}{policy, source, normalizeAllowReceiptText(source, text)})
 	if err != nil {
 		return ""
 	}
 	digest := sha256.Sum256(raw)
 	return hex.EncodeToString(digest[:])
+}
+
+func normalizeAllowReceiptText(source, text string) string {
+	if source != "user" {
+		return text
+	}
+	return allowReceiptUserMediaMarker.ReplaceAllString(text, "[images]")
 }
 
 func applyAllowReceiptSelection(snapshot *PromptSnapshot, segments []PromptReviewSegment) {

@@ -683,6 +683,25 @@ func appendResponsesItem(document *Document, value any, current bool) {
 		typeName := normalizedType(typed["type"])
 		role := normalizedRole(typed["role"])
 		switch typeName {
+		case "agent_message":
+			author, authorOK := typed["author"].(string)
+			if !authorOK || strings.TrimSpace(author) == "" {
+				markIncompleteContent(document)
+			}
+			role = responsesAgentMessageRole(author)
+			source := SourceMessage
+			if role == "system" || role == "developer" {
+				source = SourceInstruction
+				current = true
+			}
+			if content, exists := typed["content"]; exists && hasNonEmptyValue(content) {
+				markContentBearing(document, content)
+				appendResponsesAgentMessageContent(document, content, role, source, current)
+			} else {
+				markIncompleteContent(document)
+			}
+			validateResponsesAgentMessageMetadata(document, typed)
+			return
 		case "function_call_output", "custom_tool_call_output", "local_shell_call_output",
 			"shell_call_output", "apply_patch_call_output", "mcp_tool_call_output":
 			output, exists := typed["output"]
@@ -941,6 +960,63 @@ func appendResponsesItem(document *Document, value any, current bool) {
 			markIncompleteContent(document)
 		}
 	}
+}
+
+func responsesAgentMessageRole(value any) string {
+	switch role := normalizedRole(value); role {
+	case "user", "system", "developer", "assistant", "model":
+		return role
+	default:
+		return "assistant"
+	}
+}
+
+func appendResponsesAgentMessageContent(document *Document, value any, role string, source Source, current bool) {
+	switch typed := value.(type) {
+	case []any:
+		for _, item := range typed {
+			appendResponsesAgentMessageContent(document, item, role, source, current)
+		}
+	case map[string]any:
+		if normalizedType(typed["type"]) == "encrypted_content" && hasOnlyAgentMessageFields(typed, "type", "encrypted_content") {
+			return
+		}
+		appendContent(document, typed, role, source, current, true)
+	default:
+		appendContent(document, typed, role, source, current, true)
+	}
+}
+
+func validateResponsesAgentMessageMetadata(document *Document, item map[string]any) {
+	if !hasOnlyAgentMessageFields(item, "type", "id", "author", "recipient", "content", "internal_chat_message_metadata_passthrough") {
+		markIncompleteContent(document)
+	}
+	if recipient, exists := item["recipient"]; exists {
+		if _, ok := recipient.(string); !ok && hasNonEmptyValue(recipient) {
+			markIncompleteContent(document)
+		}
+	}
+	metadata, exists := item["internal_chat_message_metadata_passthrough"]
+	if !exists || !hasNonEmptyValue(metadata) {
+		return
+	}
+	values, ok := metadata.(map[string]any)
+	if !ok || !hasOnlyAgentMessageFields(values, "create_time", "turn_id") {
+		markIncompleteContent(document)
+	}
+}
+
+func hasOnlyAgentMessageFields(values map[string]any, allowed ...string) bool {
+	known := make(map[string]struct{}, len(allowed))
+	for _, key := range allowed {
+		known[key] = struct{}{}
+	}
+	for key, value := range values {
+		if _, ok := known[key]; !ok && hasNonEmptyValue(value) {
+			return false
+		}
+	}
+	return true
 }
 
 func isResponsesToolOutput(value any) bool {
