@@ -218,9 +218,9 @@ func (m *ConfigManager) Active() (ActiveConfig, bool) {
 	return cloneActiveConfig(snapshot.active), true
 }
 
-func (m *ConfigManager) ShouldStorePass(userID int64) bool {
+func (m *ConfigManager) ShouldRetainPassEvidence(userID int64) bool {
 	active, ok := m.Active()
-	return ok && active.ShouldStorePass(userID)
+	return ok && active.ShouldRetainPassEvidence(userID)
 }
 
 func (m *ConfigManager) BlockingActivationDegraded() bool {
@@ -285,11 +285,11 @@ func (m *ConfigManager) Public() (PublicConfig, error) {
 
 func (m *ConfigManager) PublicPassRetention() (PassRetentionConfig, error) {
 	if m == nil {
-		return PassRetentionConfig{}, infraerrors.ServiceUnavailable(ErrorCodeConfigUnavailable, "正常记录留存配置暂不可用")
+		return PassRetentionConfig{}, infraerrors.ServiceUnavailable(ErrorCodeConfigUnavailable, "Pass 完整证据留存配置暂不可用")
 	}
 	snapshot := m.snapshot.Load()
 	if snapshot == nil {
-		return PassRetentionConfig{}, infraerrors.ServiceUnavailable(ErrorCodeConfigUnavailable, "正常记录留存配置暂不可用")
+		return PassRetentionConfig{}, infraerrors.ServiceUnavailable(ErrorCodeConfigUnavailable, "Pass 完整证据留存配置暂不可用")
 	}
 	return publicPassRetention(clonePassRetentionStorage(snapshot.retention), m.currentRetentionLoadError()), nil
 }
@@ -413,7 +413,7 @@ func (m *ConfigManager) SavePassRetention(ctx context.Context, req UpdatePassRet
 		}
 	}
 	if current.Revision != req.ExpectedRevision {
-		return PassRetentionConfig{}, infraerrors.Conflict("prompt_audit_pass_retention_conflict", "正常记录留存配置已被其他管理员更新")
+		return PassRetentionConfig{}, infraerrors.Conflict("prompt_audit_pass_retention_conflict", "Pass 完整证据留存配置已被其他管理员更新")
 	}
 	next := passRetentionStorage{
 		Revision: current.Revision + 1, UserIDs: userIDs,

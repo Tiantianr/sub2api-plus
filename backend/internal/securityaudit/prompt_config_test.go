@@ -226,7 +226,7 @@ func TestConfigManagerInvalidPassRetentionDefaultsEmptyWithoutDisablingAudit(t *
 	require.NoError(t, manager.Reload(context.Background()))
 	active, ok := manager.Active()
 	require.True(t, ok)
-	require.True(t, active.ShouldStorePass(7))
+	require.True(t, active.ShouldRetainPassEvidence(7))
 
 	repository.values[SettingKeyPromptAuditPassRetention] = `{bad-json`
 	require.NoError(t, manager.Reload(context.Background()))
@@ -252,8 +252,8 @@ func TestConfigManagerPassRetentionSnapshotNeverMovesBackward(t *testing.T) {
 
 	active, ok := manager.Active()
 	require.True(t, ok)
-	require.True(t, active.ShouldStorePass(7))
-	require.False(t, active.ShouldStorePass(9))
+	require.True(t, active.ShouldRetainPassEvidence(7))
+	require.False(t, active.ShouldRetainPassEvidence(9))
 	retention, err := manager.PublicPassRetention()
 	require.NoError(t, err)
 	require.Equal(t, int64(3), retention.Revision)

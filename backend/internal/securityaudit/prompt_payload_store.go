@@ -10,6 +10,8 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
+const deepReviewClaimTTL = 30 * time.Minute
+
 type PayloadStore interface {
 	Set(ctx context.Context, jobID int64, scanText string, ttl time.Duration) error
 	Get(ctx context.Context, jobID int64) (string, error)
@@ -20,7 +22,8 @@ type PayloadStore interface {
 type DeepReviewStateStore interface {
 	Required(ctx context.Context, userID int64) (token string, required bool, err error)
 	Require(ctx context.Context, userID int64, token string) error
-	Replace(ctx context.Context, userID int64, oldToken, newToken string) (bool, error)
+	Claim(ctx context.Context, userID int64, token string, ttl time.Duration) (bool, error)
+	ReleaseClaim(ctx context.Context, userID int64, token string) (bool, error)
 	Clear(ctx context.Context, userID int64, token string) (bool, error)
 }
 
@@ -98,19 +101,28 @@ func (s *RedisPayloadStore) Require(ctx context.Context, userID int64, token str
 	return s.client.Set(ctx, deepReviewStateKey(userID), token, 0).Err()
 }
 
-func (s *RedisPayloadStore) Replace(ctx context.Context, userID int64, oldToken, newToken string) (bool, error) {
+func (s *RedisPayloadStore) Claim(ctx context.Context, userID int64, token string, ttl time.Duration) (bool, error) {
 	if s == nil || s.client == nil {
 		return false, fmt.Errorf("prompt audit deep review state unavailable")
 	}
-	if userID <= 0 || strings.TrimSpace(oldToken) == "" || strings.TrimSpace(newToken) == "" {
+	if userID <= 0 || strings.TrimSpace(token) == "" || ttl <= 0 {
+		return false, fmt.Errorf("prompt audit deep review state input invalid")
+	}
+	return s.client.SetNX(ctx, deepReviewClaimKey(userID), token, ttl).Result()
+}
+
+func (s *RedisPayloadStore) ReleaseClaim(ctx context.Context, userID int64, token string) (bool, error) {
+	if s == nil || s.client == nil {
+		return false, fmt.Errorf("prompt audit deep review state unavailable")
+	}
+	if userID <= 0 || strings.TrimSpace(token) == "" {
 		return false, fmt.Errorf("prompt audit deep review state input invalid")
 	}
 	result, err := s.client.Eval(ctx, `
 		if redis.call('GET', KEYS[1]) == ARGV[1] then
-			redis.call('SET', KEYS[1], ARGV[2])
-			return 1
+			return redis.call('DEL', KEYS[1])
 		end
-		return 0`, []string{deepReviewStateKey(userID)}, oldToken, newToken).Int64()
+		return 0`, []string{deepReviewClaimKey(userID)}, token).Int64()
 	return result == 1, err
 }
 
@@ -170,6 +182,10 @@ func payloadKey(jobID int64) string {
 
 func deepReviewStateKey(userID int64) string {
 	return DeepReviewStateKeyPrefix + strconv.FormatInt(userID, 10)
+}
+
+func deepReviewClaimKey(userID int64) string {
+	return DeepReviewClaimKeyPrefix + strconv.FormatInt(userID, 10)
 }
 
 func allowReceiptRedisKey(userID int64, key string) string {

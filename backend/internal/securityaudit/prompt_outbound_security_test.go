@@ -55,15 +55,18 @@ func TestOpenAICompatibleScannerRequestContract(t *testing.T) {
 		require.Equal(t, DefaultGuardModel, payload["model"])
 		require.Equal(t, float64(0), payload["temperature"])
 		require.Equal(t, float64(64), payload["max_tokens"])
-		require.Equal(t, float64(42), payload["seed"])
+		require.NotContains(t, payload, "seed")
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"choices":[{"message":{"content":"Safety: Safe\nCategories: None"}}]}`))
 	}))
 	defer server.Close()
 	scanner := NewOpenAICompatibleScanner()
-	result, err := scanner.Scan(context.Background(), ActiveEndpoint{ID: "one", BaseURL: server.URL, Model: DefaultGuardModel, Token: "token", TimeoutMS: 1000}, "hello", AllScannerIDs)
+	result, err := scanner.Scan(context.Background(), ActiveEndpoint{ID: "one", Name: "Primary Guard", BaseURL: server.URL, Model: DefaultGuardModel, Token: "token", TimeoutMS: 1000}, "hello", AllScannerIDs)
 	require.NoError(t, err)
 	require.Equal(t, EventPass, result.Decision)
+	require.Equal(t, "one", result.GuardEndpointID)
+	require.Equal(t, "Primary Guard", result.GuardEndpointName)
+	require.Equal(t, DefaultGuardModel, result.GuardModel)
 }
 
 func TestOpenAICompatibleScannerFollowsRedirectAndRejectsOversize(t *testing.T) {

@@ -20,8 +20,13 @@ so a session-scoped recovery key would be avoidable by changing the identifier.
   assistant or tool continuation whose currently submitted context is safe.
 - Use one versioned user-level state for synchronous and asynchronous deep
   Blocks so a newer finding cannot be cleared by an older recovery request.
+- Keep the non-expiring finding token separate from a bounded per-user recovery
+  claim lease so concurrent requests cannot steal claims or strand a `review:`
+  token as the recovery requirement.
 - Preserve existing HTTP and WebSocket error contracts for initial Block,
   required recovery, and unavailable dependencies.
+- Distinguish recovery-state dependency failures from Guard unavailability in
+  client messages while preserving the stable error code and 503 mapping.
 - Trigger recovery for a Block from any source deliberately selected by the
   active synchronous Prompt Audit policy without attributing it as user abuse.
 - Keep recovery state non-expiring so waiting cannot bypass the required

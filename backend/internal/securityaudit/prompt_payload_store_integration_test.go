@@ -37,7 +37,7 @@ func TestRedisPayloadStoreRoundTripTTLNamespaceAndDelete(t *testing.T) {
 	require.ErrorIs(t, err, redis.Nil)
 }
 
-func TestRedisDeepReviewStateUsesVersionedCompareAndDelete(t *testing.T) {
+func TestRedisDeepReviewStateSeparatesFindingAndBoundedClaim(t *testing.T) {
 	address := strings.TrimSpace(os.Getenv(promptAuditRedisTestEnv))
 	if address == "" {
 		t.Skip(promptAuditRedisTestEnv + " is not set")
@@ -47,7 +47,7 @@ func TestRedisDeepReviewStateUsesVersionedCompareAndDelete(t *testing.T) {
 	store := NewRedisPayloadStore(client)
 	ctx := context.Background()
 	const userID int64 = 987654322
-	defer func() { _ = client.Del(ctx, deepReviewStateKey(userID)).Err() }()
+	defer func() { _ = client.Del(ctx, deepReviewStateKey(userID), deepReviewClaimKey(userID)).Err() }()
 
 	require.NoError(t, store.Require(ctx, userID, "version-1"))
 	token, required, err := store.Required(ctx, userID)
@@ -57,16 +57,36 @@ func TestRedisDeepReviewStateUsesVersionedCompareAndDelete(t *testing.T) {
 	ttl, err := client.TTL(ctx, deepReviewStateKey(userID)).Result()
 	require.NoError(t, err)
 	require.Equal(t, time.Duration(-1), ttl)
-	replaced, err := store.Replace(ctx, userID, "version-1", "version-2")
+	claimed, err := store.Claim(ctx, userID, "claim-1", 250*time.Millisecond)
 	require.NoError(t, err)
-	require.True(t, replaced)
-	replaced, err = store.Replace(ctx, userID, "version-1", "stale-version")
+	require.True(t, claimed)
+	claimed, err = store.Claim(ctx, userID, "claim-2", 250*time.Millisecond)
 	require.NoError(t, err)
-	require.False(t, replaced)
+	require.False(t, claimed)
+	claimTTL, err := client.PTTL(ctx, deepReviewClaimKey(userID)).Result()
+	require.NoError(t, err)
+	require.Greater(t, claimTTL, time.Duration(0))
+	released, err := store.ReleaseClaim(ctx, userID, "stale-claim")
+	require.NoError(t, err)
+	require.False(t, released)
+	released, err = store.ReleaseClaim(ctx, userID, "claim-1")
+	require.NoError(t, err)
+	require.True(t, released)
+	claimed, err = store.Claim(ctx, userID, "expiring-claim", 50*time.Millisecond)
+	require.NoError(t, err)
+	require.True(t, claimed)
+	require.Eventually(t, func() bool {
+		claimed, claimErr := store.Claim(ctx, userID, "replacement-claim", time.Second)
+		return claimErr == nil && claimed
+	}, time.Second, 20*time.Millisecond)
+	released, err = store.ReleaseClaim(ctx, userID, "replacement-claim")
+	require.NoError(t, err)
+	require.True(t, released)
+	token, required, err = store.Required(ctx, userID)
+	require.NoError(t, err)
+	require.True(t, required)
+	require.Equal(t, "version-1", token)
 	cleared, err := store.Clear(ctx, userID, "version-1")
-	require.NoError(t, err)
-	require.False(t, cleared)
-	cleared, err = store.Clear(ctx, userID, "version-2")
 	require.NoError(t, err)
 	require.True(t, cleared)
 	_, required, err = store.Required(ctx, userID)

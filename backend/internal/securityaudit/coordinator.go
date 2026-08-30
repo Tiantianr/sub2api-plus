@@ -163,7 +163,7 @@ func prioritize(legacy *LegacyDecision, prompt *PromptDecision) Decision {
 			code = ErrorCodeBlocked
 		}
 		return Decision{Kind: DecisionBlock, HTTPStatus: http.StatusForbidden, ErrorCode: code,
-			ClientMessage: "安全审计拒绝了该请求，请移除破限插件等绕过行为，或检查提示词后重试", Legacy: legacy, Prompt: prompt}
+			ClientMessage: promptBlockClientMessage(prompt), Legacy: legacy, Prompt: prompt}
 	}
 	if legacyDecisionUnavailable(legacy) {
 		status := legacy.StatusCode
@@ -196,12 +196,43 @@ func prioritize(legacy *LegacyDecision, prompt *PromptDecision) Decision {
 			code = ErrorCodeUnavailable
 		}
 		return Decision{Kind: DecisionUnavailable, HTTPStatus: http.StatusServiceUnavailable, ErrorCode: code,
-			ClientMessage: "提示词安全审计暂时不可用，请稍后重试", Legacy: legacy, Prompt: prompt}
+			ClientMessage: promptUnavailableClientMessage(code), Legacy: legacy, Prompt: prompt}
 	case DecisionFlag:
 		return Decision{Kind: DecisionFlag, HTTPStatus: http.StatusOK, Legacy: legacy, Prompt: prompt, AllowNextStage: true}
 	default:
 		return allowDecision(legacy, prompt)
 	}
+}
+
+func promptUnavailableClientMessage(code string) string {
+	if code == ErrorCodeDeepReviewState {
+		return "安全审计恢复状态暂时不可用，请稍后重试"
+	}
+	return "提示词安全审计暂时不可用，请稍后重试"
+}
+
+func promptBlockClientMessage(prompt *PromptDecision) string {
+	const fallback = "安全审计拒绝了该请求，请移除破限插件等绕过行为，或检查提示词后重试"
+	if prompt == nil || prompt.Result == nil {
+		return fallback
+	}
+	reasons := make([]string, 0, len(prompt.Result.Categories)+1)
+	seen := make(map[string]struct{}, len(prompt.Result.Categories)+1)
+	for _, summary := range BuildIssueSummaries(*prompt.Result) {
+		title := strings.TrimSpace(summary.Title)
+		if title == "" {
+			continue
+		}
+		if _, exists := seen[title]; exists {
+			continue
+		}
+		seen[title] = struct{}{}
+		reasons = append(reasons, title)
+	}
+	if len(reasons) == 0 {
+		return fallback
+	}
+	return "安全审计拒绝了该请求，命中风险类别：" + strings.Join(reasons, "、") + "。请检查提示词后重试"
 }
 
 func legacyDecisionUnavailable(decision *LegacyDecision) bool {

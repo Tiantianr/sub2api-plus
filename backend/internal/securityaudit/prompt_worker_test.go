@@ -38,8 +38,8 @@ type fakeConfigStore struct {
 func (s *fakeConfigStore) Start(context.Context) error    { return nil }
 func (s *fakeConfigStore) Shutdown(context.Context) error { return nil }
 func (s *fakeConfigStore) Active() (ActiveConfig, bool)   { return cloneActiveConfig(s.cfg), s.active }
-func (s *fakeConfigStore) ShouldStorePass(userID int64) bool {
-	return s.active && s.cfg.ShouldStorePass(userID)
+func (s *fakeConfigStore) ShouldRetainPassEvidence(userID int64) bool {
+	return s.active && s.cfg.ShouldRetainPassEvidence(userID)
 }
 func (s *fakeConfigStore) EffectiveMode() Mode {
 	if s.BlockingActivationDegraded() {
@@ -73,27 +73,27 @@ type fakeJobRepository struct {
 	retryErr    error
 	failErr     error
 
-	createdSnapshot PromptSnapshot
-	markedCode      string
-	completedResult *NormalizedResult
-	completedJob    *Job
-	completedStore  bool
-	completeCount   int
-	eventCount      int
-	retryAt         time.Time
-	retryCode       string
-	retried         int
-	failedCode      string
-	failed          int
-	refreshes       int
+	createdSnapshot             PromptSnapshot
+	markedCode                  string
+	completedResult             *NormalizedResult
+	completedJob                *Job
+	completedRetainPassEvidence bool
+	completeCount               int
+	eventCount                  int
+	retryAt                     time.Time
+	retryCode                   string
+	retried                     int
+	failedCode                  string
+	failed                      int
+	refreshes                   int
 
 	claimQueue []*Job
 
-	recordBlockingCalls    int
-	recordBlockingSnapshot PromptSnapshot
-	recordBlockingResult   *NormalizedResult
-	recordBlockingStore    bool
-	recordBlockingErr      error
+	recordBlockingCalls              int
+	recordBlockingSnapshot           PromptSnapshot
+	recordBlockingResult             *NormalizedResult
+	recordBlockingRetainPassEvidence bool
+	recordBlockingErr                error
 }
 
 func (r *fakeJobRepository) record(value string) {
@@ -146,18 +146,15 @@ func (r *fakeJobRepository) RefreshLease(context.Context, int64, int64, time.Tim
 	r.refreshes++
 	return r.refreshErr
 }
-func (r *fakeJobRepository) Complete(_ context.Context, job *Job, result *NormalizedResult, storePass bool) (*Event, error) {
+func (r *fakeJobRepository) Complete(_ context.Context, job *Job, result *NormalizedResult, retainPassEvidence bool) (*Event, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.record("complete")
 	r.completeCount++
 	r.completedJob = job
-	r.completedResult, r.completedStore = result, storePass
+	r.completedResult, r.completedRetainPassEvidence = result, retainPassEvidence
 	if r.completeErr != nil {
 		return nil, r.completeErr
-	}
-	if result.Decision == EventPass && !storePass {
-		return nil, nil
 	}
 	r.eventCount++
 	return &Event{ID: 99, Decision: result.Decision}, nil
@@ -180,11 +177,11 @@ func (r *fakeJobRepository) ReclaimStale(context.Context, time.Time, time.Time, 
 	return 0, nil
 }
 func (r *fakeJobRepository) QueueStats(context.Context) (QueueStats, error) { return QueueStats{}, nil }
-func (r *fakeJobRepository) RecordBlocking(_ context.Context, snapshot PromptSnapshot, _ int64, result *NormalizedResult, storePass bool) (*Event, error) {
+func (r *fakeJobRepository) RecordBlocking(_ context.Context, snapshot PromptSnapshot, _ int64, result *NormalizedResult, retainPassEvidence bool) (*Event, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.recordBlockingCalls++
-	r.recordBlockingSnapshot, r.recordBlockingResult, r.recordBlockingStore = snapshot, result, storePass
+	r.recordBlockingSnapshot, r.recordBlockingResult, r.recordBlockingRetainPassEvidence = snapshot, result, retainPassEvidence
 	return nil, r.recordBlockingErr
 }
 
@@ -200,6 +197,7 @@ type fakePayloadStore struct {
 	setTTL    time.Duration
 	deleted   []int64
 	states    map[int64]string
+	claims    map[int64]string
 	stateErr  error
 }
 
@@ -265,16 +263,31 @@ func (s *fakePayloadStore) Require(_ context.Context, userID int64, token string
 	s.states[userID] = token
 	return nil
 }
-func (s *fakePayloadStore) Replace(_ context.Context, userID int64, oldToken, newToken string) (bool, error) {
+func (s *fakePayloadStore) Claim(_ context.Context, userID int64, token string, _ time.Duration) (bool, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.stateErr != nil {
 		return false, s.stateErr
 	}
-	if s.states[userID] != oldToken {
+	if s.claims == nil {
+		s.claims = map[int64]string{}
+	}
+	if s.claims[userID] != "" {
 		return false, nil
 	}
-	s.states[userID] = newToken
+	s.claims[userID] = token
+	return true, nil
+}
+func (s *fakePayloadStore) ReleaseClaim(_ context.Context, userID int64, token string) (bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.stateErr != nil {
+		return false, s.stateErr
+	}
+	if s.claims[userID] != token {
+		return false, nil
+	}
+	delete(s.claims, userID)
 	return true, nil
 }
 func (s *fakePayloadStore) Clear(_ context.Context, userID int64, token string) (bool, error) {
@@ -487,7 +500,7 @@ func TestWorkerCompletesPassWithoutEventRefreshesEveryChunkAndDeletesPayload(t *
 	require.Equal(t, 2, repo.refreshes)
 	require.NotNil(t, repo.completedResult)
 	require.Equal(t, EventPass, repo.completedResult.Decision)
-	require.False(t, repo.completedStore)
+	require.False(t, repo.completedRetainPassEvidence)
 	require.Equal(t, []int64{51}, payload.deleted)
 	require.Equal(t, int64(1), metrics.Snapshot().Total)
 	require.Equal(t, int64(1), metrics.Snapshot().Allowed)
@@ -767,11 +780,11 @@ func TestPromptAuditSyntheticAsyncBaseline(t *testing.T) {
 	require.Zero(t, knownBenignFindings)
 	require.Equal(t, 3, knownMaliciousBlocked)
 	require.Equal(t, 98, repo.completeCount)
-	require.Equal(t, 8, repo.eventCount, "default Pass retention only grows events for flag/block fixtures")
+	require.Equal(t, 98, repo.eventCount, "every completed review creates a lightweight event")
 	require.Positive(t, snapshot.LatencyP50MS)
 	require.LessOrEqual(t, snapshot.LatencyP50MS, snapshot.LatencyP95MS)
 	require.LessOrEqual(t, snapshot.LatencyP95MS, snapshot.LatencyP99MS)
-	t.Logf("synthetic async baseline: p50=%dms p95=%dms p99=%dms failure_rate=2%% false_positive_rate=0%% event_growth=8/100", snapshot.LatencyP50MS, snapshot.LatencyP95MS, snapshot.LatencyP99MS)
+	t.Logf("synthetic async baseline: p50=%dms p95=%dms p99=%dms failure_rate=2%% false_positive_rate=0%% event_growth=98/100", snapshot.LatencyP50MS, snapshot.LatencyP95MS, snapshot.LatencyP99MS)
 }
 
 func TestRunnerUsesUserPassRetentionAtCompletion(t *testing.T) {
@@ -782,12 +795,11 @@ func TestRunnerUsesUserPassRetentionAtCompletion(t *testing.T) {
 	})
 
 	for _, testCase := range []struct {
-		userID int64
-		store  bool
-		events int
+		userID         int64
+		retainEvidence bool
 	}{
-		{userID: 42, store: true, events: 1},
-		{userID: 43, store: false, events: 0},
+		{userID: 42, retainEvidence: true},
+		{userID: 43, retainEvidence: false},
 	} {
 		repo := &fakeJobRepository{}
 		payload := &fakePayloadStore{values: map[int64]string{1: "normal input"}}
@@ -795,8 +807,8 @@ func TestRunnerUsesUserPassRetentionAtCompletion(t *testing.T) {
 		job := &Job{ID: 1, ClaimVersion: 1, Attempts: 1, MaxAttempts: 1, ConfigVersion: cfg.ConfigVersion,
 			Snapshot: PromptSnapshot{UserID: testCase.userID, PromptLength: 12}}
 		require.NoError(t, runner.processJob(context.Background(), 0, cfg, job))
-		require.Equal(t, testCase.store, repo.completedStore)
-		require.Equal(t, testCase.events, repo.eventCount)
+		require.Equal(t, testCase.retainEvidence, repo.completedRetainPassEvidence)
+		require.Equal(t, 1, repo.eventCount)
 	}
 }
 
@@ -814,8 +826,8 @@ func TestRunnerReadsLatestPassRetentionAfterScanning(t *testing.T) {
 		Snapshot: PromptSnapshot{UserID: 42, PromptLength: 12}}
 
 	require.NoError(t, runner.processJob(context.Background(), 0, cfg, job))
-	require.False(t, repo.completedStore)
-	require.Zero(t, repo.eventCount)
+	require.False(t, repo.completedRetainPassEvidence)
+	require.Equal(t, 1, repo.eventCount)
 }
 
 func TestAsyncDeepBlockMarksUserBeforeCompletingJob(t *testing.T) {

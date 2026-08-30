@@ -208,7 +208,6 @@ func (s *OpenAICompatibleScanner) Scan(ctx context.Context, endpoint ActiveEndpo
 		"messages":    []map[string]string{{"role": "user", "content": chunk}},
 		"temperature": 0,
 		"max_tokens":  64,
-		"seed":        42,
 	}
 	body, err := json.Marshal(payload)
 	if err != nil {
@@ -253,6 +252,8 @@ func (s *OpenAICompatibleScanner) Scan(ctx context.Context, endpoint ActiveEndpo
 		return nil, err
 	}
 	result.GuardEndpointID = endpoint.ID
+	result.GuardEndpointName = endpoint.Name
+	result.GuardModel = endpoint.Model
 	result.ScannerVersion = endpoint.Model
 	return result, nil
 }

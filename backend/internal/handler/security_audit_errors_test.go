@@ -74,6 +74,7 @@ func TestPromptGuardOpenAIAndClaudeErrorEnvelopesGolden(t *testing.T) {
 			payload := decodeErrorJSON(t, recorder)
 			errorObject := requireObject(t, payload["error"])
 			require.Equal(t, decision.ErrorCode, errorObject["code"])
+			require.Equal(t, decision.ClientMessage, errorObject["message"])
 			if kind == securityaudit.DecisionBlock {
 				require.Equal(t, "permission_error", errorObject["type"])
 			} else {
@@ -90,6 +91,7 @@ func TestPromptGuardOpenAIAndClaudeErrorEnvelopesGolden(t *testing.T) {
 			errorObject := requireObject(t, decodeErrorJSON(t, recorder)["error"])
 			require.Equal(t, decision.ErrorCode, errorObject["code"])
 			require.Equal(t, "api_error", errorObject["type"])
+			require.Equal(t, decision.ClientMessage, errorObject["message"])
 		})
 
 		t.Run("claude_"+string(kind), func(t *testing.T) {
@@ -100,6 +102,7 @@ func TestPromptGuardOpenAIAndClaudeErrorEnvelopesGolden(t *testing.T) {
 			require.Equal(t, "error", payload["type"])
 			errorObject := requireObject(t, payload["error"])
 			require.Equal(t, decision.ErrorCode, errorObject["code"])
+			require.Equal(t, decision.ClientMessage, errorObject["message"])
 			if kind == securityaudit.DecisionBlock {
 				require.Equal(t, "permission_error", errorObject["type"])
 			} else {
@@ -119,6 +122,7 @@ func TestPromptGuardGeminiErrorEnvelopeGolden(t *testing.T) {
 		payload := decodeErrorJSON(t, recorder)
 		errorObject := requireObject(t, payload["error"])
 		require.Equal(t, float64(decision.HTTPStatus), errorObject["code"], "Gemini code must remain numeric")
+		require.Equal(t, decision.ClientMessage, errorObject["message"])
 		if decision.HTTPStatus == http.StatusForbidden {
 			require.Equal(t, "PERMISSION_DENIED", errorObject["status"])
 		} else {

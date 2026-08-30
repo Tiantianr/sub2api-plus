@@ -28,13 +28,13 @@ func TestPassRetentionDefaultsCanonicalizesAndIgnoresLegacyGlobalSwitch(t *testi
 	require.NotContains(t, string(publicJSON), "store_pass_events")
 }
 
-func TestActiveConfigStoresPassOnlyForSelectedUsers(t *testing.T) {
+func TestActiveConfigRetainsFullPassEvidenceOnlyForSelectedUsers(t *testing.T) {
 	cfg := ActiveConfig{PassRetentionUserIDs: []int64{3, 9}}
-	require.False(t, cfg.ShouldStorePass(0))
-	require.False(t, cfg.ShouldStorePass(2))
-	require.True(t, cfg.ShouldStorePass(3))
-	require.True(t, cfg.ShouldStorePass(9))
-	require.False(t, cfg.ShouldStorePass(10))
+	require.False(t, cfg.ShouldRetainPassEvidence(0))
+	require.False(t, cfg.ShouldRetainPassEvidence(2))
+	require.True(t, cfg.ShouldRetainPassEvidence(3))
+	require.True(t, cfg.ShouldRetainPassEvidence(9))
+	require.False(t, cfg.ShouldRetainPassEvidence(10))
 }
 
 func TestPassRetentionUpdateValidation(t *testing.T) {

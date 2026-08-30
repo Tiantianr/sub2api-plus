@@ -14,7 +14,10 @@
         </button>
       </div>
 
-      <div v-if="event.snapshot.full_prompt_truncated" role="alert" class="mt-4 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-900/70 dark:bg-amber-950/30 dark:text-amber-200" data-test="prompt-truncated-warning">
+      <div v-if="isLightweightPass(event)" class="mt-4 rounded-md border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-700 dark:border-dark-700 dark:bg-dark-900 dark:text-dark-200" data-test="lightweight-pass-notice">
+        {{ t('admin.promptAudit.events.passEvidenceNotRetained') }}
+      </div>
+      <div v-else-if="event.snapshot.full_prompt_truncated" role="alert" class="mt-4 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-900/70 dark:bg-amber-950/30 dark:text-amber-200" data-test="prompt-truncated-warning">
         {{ t('admin.promptAudit.events.promptTruncatedWarning') }}
       </div>
 
@@ -74,9 +77,11 @@
         <dl v-show="activeTab === 'technical'" :id="panelId('technical')" class="grid grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-2 text-sm" role="tabpanel" :aria-labelledby="tabId('technical')">
           <dt class="text-gray-500">{{ t('admin.promptAudit.events.requestId') }}</dt><dd class="break-all font-mono">{{ event.snapshot.request_id || '—' }}</dd>
           <dt class="text-gray-500">{{ t('admin.promptAudit.events.promptHash') }}</dt><dd class="break-all font-mono">{{ event.snapshot.prompt_hash }}</dd>
-          <dt class="text-gray-500">{{ t('admin.promptAudit.events.technical.scanner') }}</dt><dd>{{ event.scanner_backend }} · {{ event.scanner_version }}</dd>
+          <dt class="text-gray-500">{{ t('admin.promptAudit.events.technical.scanner') }}</dt><dd>{{ event.scanner_backend }}</dd>
           <dt class="text-gray-500">{{ t('admin.promptAudit.events.technical.policy') }}</dt><dd>{{ event.policy_id }} · v{{ event.policy_version }}</dd>
-          <dt class="text-gray-500">{{ t('admin.promptAudit.events.technical.guardEndpoint') }}</dt><dd>{{ event.guard_endpoint_id }}</dd>
+          <dt class="text-gray-500">{{ t('admin.promptAudit.events.auditNode') }}</dt><dd>{{ event.guard_endpoint_name || event.guard_endpoint_id || '—' }}</dd>
+          <dt class="text-gray-500">{{ t('admin.promptAudit.events.auditModel') }}</dt><dd>{{ event.guard_model || event.scanner_version || '—' }}</dd>
+          <dt class="text-gray-500">{{ t('admin.promptAudit.events.technical.guardEndpoint') }}</dt><dd>{{ event.guard_endpoint_id || '—' }}</dd>
           <dt class="text-gray-500">{{ t('admin.promptAudit.events.technical.config') }}</dt><dd>v{{ event.config_version }}</dd>
           <dt class="text-gray-500">{{ t('admin.promptAudit.events.technical.chunks') }}</dt><dd>{{ event.chunk_total }}</dd>
           <dt class="text-gray-500">{{ t('admin.promptAudit.events.technical.matchedChunk') }}</dt><dd>{{ event.matched_chunk_index ?? '—' }}</dd>
@@ -86,7 +91,7 @@
           <dt class="text-gray-500">{{ t('admin.promptAudit.events.executionMode') }}</dt><dd>{{ formatMode(event.execution_mode) }}</dd>
           <dt class="text-gray-500">{{ t('admin.promptAudit.events.clientIp') }}</dt><dd class="font-mono">{{ event.snapshot.client_ip || '—' }}</dd>
           <dt class="text-gray-500">{{ t('admin.promptAudit.events.promptSize') }}</dt><dd>{{ t('admin.promptAudit.events.promptSizeValue', { chars: formatNumber(event.snapshot.prompt_length), messages: formatNumber(event.snapshot.message_count) }) }}</dd>
-          <dt class="text-gray-500">{{ t('admin.promptAudit.events.contentStatus') }}</dt><dd>{{ event.snapshot.full_prompt_truncated ? t('admin.promptAudit.events.contentTruncated') : t('admin.promptAudit.events.contentComplete') }}</dd>
+          <dt class="text-gray-500">{{ t('admin.promptAudit.events.contentStatus') }}</dt><dd>{{ contentStatus(event) }}</dd>
           <dt class="text-gray-500">{{ t('admin.promptAudit.events.stage') }}</dt><dd>{{ event.snapshot.stage || 'http' }}</dd>
           <dt class="text-gray-500">{{ t('admin.promptAudit.events.technical.protocol') }}</dt><dd>{{ event.snapshot.protocol }} · {{ event.snapshot.endpoint }}</dd>
         </dl>
@@ -132,6 +137,17 @@ const RISK_LEVELS = new Set(['low', 'medium', 'high', 'critical'])
 
 function displayPrompt(event: PromptAuditEvent): string {
   return event.snapshot.full_prompt || event.snapshot.redacted_preview || '—'
+}
+
+function isLightweightPass(event: PromptAuditEvent): boolean {
+  return event.decision === 'pass' && !event.snapshot.full_prompt && !event.full_context_available
+}
+
+function contentStatus(event: PromptAuditEvent): string {
+  if (isLightweightPass(event)) return t('admin.promptAudit.events.contentLightweight')
+  return event.snapshot.full_prompt_truncated
+    ? t('admin.promptAudit.events.contentTruncated')
+    : t('admin.promptAudit.events.contentComplete')
 }
 
 async function downloadContext(event: PromptAuditEvent) {
@@ -204,6 +220,8 @@ function formatGuardReturn(event: PromptAuditEvent): string {
     scanner_backend: event.scanner_backend,
     scanner_version: event.scanner_version,
     guard_endpoint_id: event.guard_endpoint_id,
+    guard_endpoint_name: event.guard_endpoint_name || '',
+    guard_model: event.guard_model || event.scanner_version,
     chunk_total: event.chunk_total,
     matched_chunk_index: event.matched_chunk_index ?? null,
     input_limit: event.input_limit ?? null,

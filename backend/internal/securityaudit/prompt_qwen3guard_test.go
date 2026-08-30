@@ -111,14 +111,16 @@ func TestAggregateRequiresEveryResult(t *testing.T) {
 
 func TestAggregateDeduplicatesFactsAndUsesMostSevereEndpointMetadata(t *testing.T) {
 	result, err := AggregateResults([]*NormalizedResult{
-		{Decision: EventPass, RiskLevel: RiskLow, Action: ActionAllow, Safety: "Safe", Categories: []string{"pii"}, MatchedScanners: []string{"pii"}, ScannerScores: map[string]float64{"pii": 0}, ScannerEvidence: map[string]string{"pii": "first"}, GuardEndpointID: "safe-node", ScannerVersion: "safe-version", PolicyID: "priority", PolicyVersion: 1},
-		{Decision: EventCritical, RiskLevel: RiskCritical, Action: ActionBlock, Safety: "Unsafe", Categories: []string{"pii", "jailbreak"}, MatchedScanners: []string{"pii", "jailbreak"}, ScannerScores: map[string]float64{"pii": 1, "jailbreak": 1}, ScannerEvidence: map[string]string{"pii": "second", "jailbreak": "blocked"}, GuardEndpointID: "block-node", ScannerVersion: "block-version", PolicyID: "priority", PolicyVersion: 2},
+		{Decision: EventPass, RiskLevel: RiskLow, Action: ActionAllow, Safety: "Safe", Categories: []string{"pii"}, MatchedScanners: []string{"pii"}, ScannerScores: map[string]float64{"pii": 0}, ScannerEvidence: map[string]string{"pii": "first"}, GuardEndpointID: "safe-node", GuardEndpointName: "Safe node", GuardModel: "safe-model", ScannerVersion: "safe-version", PolicyID: "priority", PolicyVersion: 1},
+		{Decision: EventCritical, RiskLevel: RiskCritical, Action: ActionBlock, Safety: "Unsafe", Categories: []string{"pii", "jailbreak"}, MatchedScanners: []string{"pii", "jailbreak"}, ScannerScores: map[string]float64{"pii": 1, "jailbreak": 1}, ScannerEvidence: map[string]string{"pii": "second", "jailbreak": "blocked"}, GuardEndpointID: "block-node", GuardEndpointName: "Blocking node", GuardModel: "block-model", ScannerVersion: "block-version", PolicyID: "priority", PolicyVersion: 2},
 	}, 7*time.Millisecond)
 	require.NoError(t, err)
 	require.Equal(t, []string{"pii", "jailbreak"}, result.Categories)
 	require.Equal(t, []string{"pii", "jailbreak"}, result.MatchedScanners)
 	require.Equal(t, "first", result.ScannerEvidence["pii"], "evidence is deterministically first-seen")
 	require.Equal(t, "block-node", result.GuardEndpointID)
+	require.Equal(t, "Blocking node", result.GuardEndpointName)
+	require.Equal(t, "block-model", result.GuardModel)
 	require.Equal(t, "block-version", result.ScannerVersion)
 	require.Equal(t, 2, result.PolicyVersion)
 	require.Equal(t, 7, result.LatencyMS)

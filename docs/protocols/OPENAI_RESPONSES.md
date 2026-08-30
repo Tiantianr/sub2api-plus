@@ -175,7 +175,10 @@ an asynchronous deep Block writes the same state before its job completes.
 Either forces the user's next request through the active configured deep
 selection synchronously with all receipts bypassed before WebSocket or HTTP
 upstream writes can resume. API-key, group, and client session identity changes
-do not avoid recovery; only complete exact Allow clears the claimed version.
+do not avoid recovery; only complete exact Allow clears the observed finding
+version. A separate bounded per-user claim lease serializes recovery without
+replacing the non-expiring finding, so concurrent requests and process failure
+cannot strand a claim as the recovery requirement.
 Coordinator rechecks recovery state before an ordinary combined Allow commits
 receipts, enqueues deep review, or returns to HTTP/WebSocket upstream handling.
 Disabling blocking Prompt Audit pauses this gate without clearing pending state.

@@ -13,9 +13,11 @@ bounded administration load error. This fail-minimized behavior affects only
 optional Pass evidence; it must not make request auditing unavailable.
 
 The active in-memory snapshot exposes a user lookup used when synchronous or
-asynchronous evaluation completes. A Pass event is stored only when its user ID
-is selected at completion time. The repository's existing rule continues to
-store every non-Pass event. Anonymous or invalid user IDs are never selected.
+asynchronous evaluation completes. Every completed Guard result creates an
+event row for list visibility. For an unselected Pass, the row keeps only the
+redacted preview and decision metadata; its `full_prompt` is empty and no
+complete-context row is created. Selected Pass events and every non-Pass event
+retain full evidence. Anonymous or invalid user IDs are never selected.
 
 ## Administration contract
 
@@ -29,8 +31,9 @@ dirty and save state. User search reuses existing administrator user APIs.
 Deleted or otherwise unresolved configured IDs stay visible as stable `#ID`
 entries so administrators can remove them deliberately.
 
-The old global `store_pass_events` UI and update field are removed. Current
-runtime behavior is determined only by the independent selected-user list.
+The old global `store_pass_events` UI and update field are removed. The
+independent selected-user list controls only full Pass evidence, not whether a
+Pass result appears in the event list.
 
 ## Pass-only cleanup
 
@@ -61,4 +64,4 @@ short reload window.
 Existing Pass evidence is not deleted by upgrade. Initial production cleanup
 is a separate authorized operation: preview Pass events, confirm deletion,
 create and verify a new backup, then separately decide whether old backups may
-be deleted.
+be deleted. Lightweight Pass rows continue to use the same manual cleanup flow.

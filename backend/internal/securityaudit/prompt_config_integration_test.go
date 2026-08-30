@@ -139,7 +139,7 @@ func waitForPassRetention(t *testing.T, manager *ConfigManager, userID int64, ti
 	t.Helper()
 	require.Eventually(t, func() bool {
 		active, ok := manager.Active()
-		return ok && active.ShouldStorePass(userID)
+		return ok && active.ShouldRetainPassEvidence(userID)
 	}, timeout, 20*time.Millisecond)
 }
 

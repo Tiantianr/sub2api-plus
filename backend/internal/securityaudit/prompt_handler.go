@@ -73,7 +73,7 @@ func (h *PromptAdminHandler) UpdatePassRetention(c *gin.Context) {
 	var request UpdatePassRetentionRequest
 	if err := c.ShouldBindJSON(&request); err != nil {
 		setPromptAdminAudit(c, "failed", "prompt_audit_pass_retention_invalid_request", nil)
-		response.ErrorFrom(c, infraerrors.BadRequest("prompt_audit_pass_retention_invalid_request", "正常记录留存配置请求无效"))
+		response.ErrorFrom(c, infraerrors.BadRequest("prompt_audit_pass_retention_invalid_request", "Pass 完整证据留存配置请求无效"))
 		return
 	}
 	before, _ := h.service.GetPassRetention()

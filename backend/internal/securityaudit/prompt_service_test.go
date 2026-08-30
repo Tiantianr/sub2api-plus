@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -351,7 +352,8 @@ func TestPromptServiceGuardUnavailablePolicyCannotBypassRequiredRecovery(t *test
 	var guardErr *GuardError
 	require.ErrorAs(t, err, &guardErr)
 	require.Equal(t, ErrorCodeUnavailable, guardErr.Code)
-	require.Equal(t, "review:req-recovery-outage:127000000000", state.states[42])
+	require.Equal(t, "pending-v1", state.states[42])
+	require.Empty(t, state.claims[42])
 	require.Zero(t, metrics.Snapshot().FailureAllowed)
 	require.Equal(t, int64(1), metrics.AuditSnapshot().RecoveryRetained)
 }
@@ -454,6 +456,94 @@ func TestPromptServiceRequiredDeepReviewUsesDeepModulesAndClearsOnlyAllow(t *tes
 	require.Equal(t, int64(1), promptService.metrics.AuditSnapshot().RecoveryCleared)
 }
 
+func TestPromptServiceConcurrentRecoveryCannotStealClaimOrStrandFinding(t *testing.T) {
+	state := &fakePayloadStore{states: map[int64]string{42: "pending-v1"}}
+	metrics := NewAtomicMetrics()
+	entered := make(chan struct{}, 1)
+	release := make(chan struct{})
+	scans := atomic.Int64{}
+	service := &PromptService{
+		config: &fakeConfigStore{active: true, cfg: ActiveConfig{
+			RiskControlEnabled: true, Enabled: true, BlockingEnabled: true, AllGroups: true,
+			Scanners: AllScannerIDs, Endpoints: []ActiveEndpoint{{ID: "guard-1", Enabled: true, TimeoutMS: 1000, InputLimit: 4096}},
+		}},
+		evaluator: newGuardEvaluator(PromptScannerFunc(func(ctx context.Context, _ ActiveEndpoint, _ string, _ []string) (*NormalizedResult, error) {
+			scans.Add(1)
+			select {
+			case entered <- struct{}{}:
+			default:
+			}
+			select {
+			case <-release:
+				return &NormalizedResult{Decision: EventPass, RiskLevel: RiskLow, Action: ActionAllow, ScannerScores: map[string]float64{}, ScannerEvidence: map[string]string{}}, nil
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			}
+		}), nil, metrics, 2, 2),
+		state: state, metrics: metrics, clock: realClock{},
+	}
+	request := func(id string) Request {
+		return Request{RequestID: id, UserID: 42, Protocol: "openai_chat_completions", Body: []byte(`{"messages":[{"role":"user","content":"safe recovery"}]}`)}
+	}
+	type result struct {
+		decision *PromptDecision
+		err      error
+	}
+	first := make(chan result, 1)
+	go func() {
+		decision, err := service.Evaluate(context.Background(), request("first"))
+		first <- result{decision: decision, err: err}
+	}()
+	select {
+	case <-entered:
+	case <-time.After(time.Second):
+		t.Fatal("first recovery did not start")
+	}
+
+	second, err := service.Evaluate(context.Background(), request("second"))
+	require.Nil(t, second)
+	var guardErr *GuardError
+	require.ErrorAs(t, err, &guardErr)
+	require.Equal(t, ErrorCodeDeepReviewState, guardErr.Code)
+	require.Equal(t, int64(1), scans.Load(), "concurrent recovery must not enter Guard")
+	state.mu.Lock()
+	require.Equal(t, "pending-v1", state.states[42], "claim must not replace the finding")
+	require.NotEmpty(t, state.claims[42])
+	state.mu.Unlock()
+
+	close(release)
+	completed := <-first
+	require.NoError(t, completed.err)
+	require.Equal(t, DecisionAllow, completed.decision.Kind)
+	state.mu.Lock()
+	require.Empty(t, state.states[42])
+	require.Empty(t, state.claims[42])
+	state.mu.Unlock()
+}
+
+func TestPromptServiceRecoversHistoricalReviewToken(t *testing.T) {
+	state := &fakePayloadStore{states: map[int64]string{42: "review:legacy-runtime:1"}}
+	metrics := NewAtomicMetrics()
+	service := &PromptService{
+		config: &fakeConfigStore{active: true, cfg: ActiveConfig{
+			RiskControlEnabled: true, Enabled: true, BlockingEnabled: true, AllGroups: true,
+			Scanners: AllScannerIDs, Endpoints: []ActiveEndpoint{{ID: "guard-1", Enabled: true, TimeoutMS: 1000, InputLimit: 4096}},
+		}},
+		evaluator: newGuardEvaluator(PromptScannerFunc(func(context.Context, ActiveEndpoint, string, []string) (*NormalizedResult, error) {
+			return &NormalizedResult{Decision: EventPass, RiskLevel: RiskLow, Action: ActionAllow, ScannerScores: map[string]float64{}, ScannerEvidence: map[string]string{}}, nil
+		}), nil, metrics, 1, 1),
+		state: state, metrics: metrics, clock: realClock{},
+	}
+
+	decision, err := service.Evaluate(context.Background(), Request{
+		RequestID: "legacy-claim", UserID: 42, Protocol: "openai_chat_completions",
+		Body: []byte(`{"messages":[{"role":"user","content":"safe recovery"}]}`),
+	})
+	require.NoError(t, err)
+	require.Equal(t, DecisionAllow, decision.Kind)
+	require.Empty(t, state.states[42])
+}
+
 func TestPromptServiceRequiredDeepReviewWarnBlocksAndRefreshesRequirement(t *testing.T) {
 	state := &fakePayloadStore{states: map[int64]string{42: "pending-v1"}}
 	metrics := NewAtomicMetrics()
@@ -478,7 +568,8 @@ func TestPromptServiceRequiredDeepReviewWarnBlocksAndRefreshesRequirement(t *tes
 	require.Equal(t, ErrorCodeDeepReviewRequired, decision.ErrorCode)
 	require.True(t, decision.DeepReviewed)
 	require.False(t, decision.AllowNextStage)
-	require.Equal(t, "review:req-recheck:123000000000", state.states[42])
+	require.Equal(t, "pending-v1", state.states[42])
+	require.Empty(t, state.claims[42])
 	require.Equal(t, int64(1), promptService.metrics.AuditSnapshot().RecoveryRetained)
 }
 
@@ -535,6 +626,7 @@ func TestPromptServiceRequiredDeepReviewCannotClearNewerFinding(t *testing.T) {
 	require.ErrorAs(t, err, &guardErr)
 	require.Equal(t, ErrorCodeDeepReviewState, guardErr.Code)
 	require.Equal(t, "async:99:2", state.states[42])
+	require.Empty(t, state.claims[42])
 	require.Equal(t, int64(1), metrics.AuditSnapshot().RecoveryErrors)
 }
 
@@ -548,7 +640,10 @@ func (*requireErrorDeepReviewState) Required(context.Context, int64) (string, bo
 func (s *requireErrorDeepReviewState) Require(context.Context, int64, string) error {
 	return s.requireErr
 }
-func (*requireErrorDeepReviewState) Replace(context.Context, int64, string, string) (bool, error) {
+func (*requireErrorDeepReviewState) Claim(context.Context, int64, string, time.Duration) (bool, error) {
+	return false, nil
+}
+func (*requireErrorDeepReviewState) ReleaseClaim(context.Context, int64, string) (bool, error) {
 	return false, nil
 }
 func (*requireErrorDeepReviewState) Clear(context.Context, int64, string) (bool, error) {
@@ -576,7 +671,8 @@ func TestPromptServiceRequiredDeepReviewEmptySelectionCannotRestore(t *testing.T
 	require.NoError(t, err)
 	require.Equal(t, DecisionBlock, decision.Kind)
 	require.Equal(t, ErrorCodeDeepReviewRequired, decision.ErrorCode)
-	require.Equal(t, "review:req-empty:124000000000", state.states[42])
+	require.Equal(t, "pending-v1", state.states[42])
+	require.Empty(t, state.claims[42])
 }
 
 func TestPromptServiceRejectsInvalidDeleteConfirmationClaims(t *testing.T) {

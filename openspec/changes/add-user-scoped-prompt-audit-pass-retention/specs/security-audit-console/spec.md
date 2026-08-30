@@ -3,15 +3,17 @@
 ### Requirement: 开启同步阻止必须有明确的风险确认
 
 页面 SHALL 把 enabled 和 blocking_enabled 作为独立开关，并 SHALL
-在独立的正常记录留存区域管理允许保存 Pass 事件的用户。未选择任何用户时 SHALL
-默认不保存 Pass 事件。关闭 enabled 时 MUST 自动关闭并禁用
+在独立的完整证据留存区域管理允许保存 Pass 完整证据的用户。所有 Pass 判定
+SHALL 显示轻量事件；未选择任何用户时 SHALL 默认不保存 Pass 的完整提示词和
+完整上下文。关闭 enabled 时 MUST 自动关闭并禁用
 blocking_enabled；开启 blocking_enabled 时 MUST 展示二次确认，说明请求延迟、
 Block 和 Guard 不可用的 fail-closed 行为。
 
-#### Scenario: 管理员配置正常记录留存用户
+#### Scenario: 管理员配置 Pass 完整证据留存用户
 
 - **WHEN** 管理员搜索并选择一个用户保存正常记录
 - **THEN** 该名单 SHALL 使用独立版本保存
+- **AND** 页面 SHALL 明确说明所有 Pass 仍显示轻量记录
 - **AND** 页面 SHALL 明确说明 Flag 和 Critical 记录始终保存
 
 ### Requirement: 页面必须提供防误操作的事件删除流程
