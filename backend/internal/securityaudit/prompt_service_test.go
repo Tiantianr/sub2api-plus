@@ -182,10 +182,24 @@ func TestPromptServiceSynchronousBlockRequiresUncachedDeepRecovery(t *testing.T)
 	}
 	seen = seen[:0]
 	groupID := int64(99)
-	recovered, err := service.Evaluate(context.Background(), Request{
+	outOfScopeRequest := Request{
 		RequestID: "req-recover", UserID: 42, APIKeyID: 2, GroupID: &groupID, Protocol: "openai_chat_completions",
 		Body: []byte(`{"messages":[{"role":"user","content":"older user"},{"role":"assistant","content":"assistant history"},{"role":"user","content":"latest user"}]}`),
-	})
+	}
+	skipped, err := service.Evaluate(context.Background(), outOfScopeRequest)
+	require.NoError(t, err)
+	require.Equal(t, DecisionAllow, skipped.Kind)
+	require.False(t, skipped.DeepReviewed)
+	require.NotEmpty(t, state.states[42])
+	require.Empty(t, seen)
+	pending, err := service.pendingRecoveryDecision(context.Background(), outOfScopeRequest)
+	require.NoError(t, err)
+	require.Nil(t, pending)
+
+	inScopeRequest := outOfScopeRequest
+	inScopeRequest.RequestID = "req-recover-in-scope"
+	inScopeRequest.GroupID = &allowedGroupID
+	recovered, err := service.Evaluate(context.Background(), inScopeRequest)
 	require.NoError(t, err)
 	require.Equal(t, DecisionAllow, recovered.Kind)
 	require.True(t, recovered.DeepReviewed)
@@ -194,6 +208,44 @@ func TestPromptServiceSynchronousBlockRequiresUncachedDeepRecovery(t *testing.T)
 	require.Contains(t, strings.Join(seen, "\n"), "latest user")
 	require.Contains(t, strings.Join(seen, "\n"), "assistant history")
 	require.Equal(t, int64(1), metrics.AuditSnapshot().RecoveryCleared)
+}
+
+func TestPromptServiceBlockingExemptUserIsStillReviewedWithoutRecoveryBlock(t *testing.T) {
+	state := newFakeAllowReceiptPayload()
+	state.states[42] = "pending-before-exemption"
+	scans := 0
+	repo := &fakeJobRepository{}
+	guardMetrics := NewAtomicMetrics()
+	cfg := ActiveConfig{
+		RiskControlEnabled: true, Enabled: true, BlockingEnabled: true, AllGroups: true,
+		BlockingExemptUserIDs: []int64{42}, Scanners: AllScannerIDs,
+		Endpoints: []ActiveEndpoint{{ID: "guard-1", Enabled: true, TimeoutMS: 1000, InputLimit: 4096}},
+	}
+	service := &PromptService{
+		config: &fakeConfigStore{active: true, cfg: cfg}, state: state,
+		evaluator: newGuardEvaluator(PromptScannerFunc(func(context.Context, ActiveEndpoint, string, []string) (*NormalizedResult, error) {
+			scans++
+			return &NormalizedResult{Decision: EventCritical, RiskLevel: RiskCritical, Action: ActionBlock, ScannerScores: map[string]float64{"jailbreak": 1}, ScannerEvidence: map[string]string{}}, nil
+		}), repo, guardMetrics, 1, 1),
+	}
+	request := Request{UserID: 42, Protocol: "openai_chat_completions", Body: []byte(`{"messages":[{"role":"user","content":"risky input"}]}`)}
+
+	decision, err := service.Evaluate(context.Background(), request)
+	require.NoError(t, err)
+	require.Equal(t, 1, scans, "blocking exemption must not skip Guard review")
+	require.Equal(t, DecisionFlag, decision.Kind)
+	require.True(t, decision.AllowNextStage)
+	require.Equal(t, EventCritical, decision.Result.Decision)
+	require.Equal(t, ActionBlock, decision.Result.Action)
+	require.Equal(t, 1, repo.recordBlockingCalls)
+	require.Equal(t, EventCritical, repo.recordBlockingResult.Decision)
+	require.Equal(t, ActionBlock, repo.recordBlockingResult.Action)
+	require.Equal(t, int64(1), guardMetrics.Snapshot().Flagged)
+	require.Zero(t, guardMetrics.Snapshot().Blocked)
+	require.Equal(t, "pending-before-exemption", state.states[42], "existing recovery must remain dormant")
+	pending, err := service.pendingRecoveryDecision(context.Background(), request)
+	require.NoError(t, err)
+	require.Nil(t, pending)
 }
 
 func TestPromptServiceSynchronousBlockFailsClosedWhenRecoveryStateCannotBeWritten(t *testing.T) {
@@ -454,7 +506,7 @@ func TestPromptServiceRequiredDeepReviewUsesDeepModulesAndClearsOnlyAllow(t *tes
 	promptService := &PromptService{config: config, evaluator: evaluator, state: state, metrics: metrics, clock: realClock{}}
 
 	decision, err := promptService.Evaluate(context.Background(), Request{
-		UserID: 42, Protocol: "openai_chat_completions",
+		UserID: 42, GroupID: func() *int64 { value := int64(9); return &value }(), Protocol: "openai_chat_completions",
 		Body: []byte(`{"messages":[{"role":"user","content":"older user"},{"role":"assistant","content":"assistant history"},{"role":"user","content":"latest user"}]}`),
 	})
 	require.NoError(t, err)
@@ -536,6 +588,40 @@ func TestPromptServiceConcurrentRecoveryCannotStealClaimOrStrandFinding(t *testi
 	require.Empty(t, state.claims[42])
 	state.mu.Unlock()
 	require.Zero(t, metrics.AuditSnapshot().RecoveryErrors)
+}
+
+func TestPromptServiceConfigChangeDuringRecoveryDoesNotClearFinding(t *testing.T) {
+	for _, testCase := range []struct {
+		name   string
+		change func(*ActiveConfig)
+	}{
+		{name: "user becomes blocking exempt", change: func(cfg *ActiveConfig) { cfg.BlockingExemptUserIDs = []int64{42} }},
+		{name: "group leaves scope", change: func(cfg *ActiveConfig) { cfg.AllGroups = false; cfg.GroupIDs = []int64{9} }},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			state := &fakePayloadStore{states: map[int64]string{42: "pending-v1"}}
+			groupID := int64(7)
+			configStore := &fakeConfigStore{active: true, cfg: ActiveConfig{
+				RiskControlEnabled: true, Enabled: true, BlockingEnabled: true, AllGroups: true,
+				Scanners: AllScannerIDs, Endpoints: []ActiveEndpoint{{ID: "guard-1", Enabled: true, TimeoutMS: 1000, InputLimit: 4096}},
+			}}
+			service := &PromptService{
+				config: configStore, state: state,
+				evaluator: newGuardEvaluator(PromptScannerFunc(func(context.Context, ActiveEndpoint, string, []string) (*NormalizedResult, error) {
+					testCase.change(&configStore.cfg)
+					return &NormalizedResult{Decision: EventPass, RiskLevel: RiskLow, Action: ActionAllow, ScannerScores: map[string]float64{}, ScannerEvidence: map[string]string{}}, nil
+				}), nil, NewAtomicMetrics(), 1, 1),
+			}
+
+			decision, err := service.Evaluate(context.Background(), Request{
+				UserID: 42, GroupID: &groupID, Protocol: "openai_chat_completions",
+				Body: []byte(`{"messages":[{"role":"user","content":"safe recovery"}]}`),
+			})
+			require.NoError(t, err)
+			require.Equal(t, DecisionAllow, decision.Kind)
+			require.Equal(t, "pending-v1", state.states[42])
+		})
+	}
 }
 
 func TestPromptServiceWaitingRecoveryAcquiresClaimWhenOwnerRetainsFinding(t *testing.T) {

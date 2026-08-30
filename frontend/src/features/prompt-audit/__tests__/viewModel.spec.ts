@@ -31,6 +31,7 @@ const config = (): PromptAuditConfig => ({
   scanners: SCANNER_CATALOG.map((item) => item.id),
   all_groups: true,
   group_ids: [],
+  blocking_exempt_user_ids: [],
   endpoints: [{
     id: 'guard-1', name: 'Guard One', protocol: 'openai_compatible', base_url: 'http://127.0.0.1:8000',
     model: 'sileader/qwen3guard:0.6b', timeout_ms: 3000, input_limit: 4000, enabled: true,
@@ -44,8 +45,8 @@ const config = (): PromptAuditConfig => ({
 
 describe('Prompt Audit view model', () => {
   it('normalizes legacy null collections from the public config', () => {
-    const legacy = { ...config(), group_ids: null, scanners: null, endpoints: null } as unknown as PromptAuditConfig
-    expect(configToDraft(legacy)).toMatchObject({ group_ids: [], scanners: [], endpoints: [] })
+    const legacy = { ...config(), group_ids: null, blocking_exempt_user_ids: null, scanners: null, endpoints: null } as unknown as PromptAuditConfig
+    expect(configToDraft(legacy)).toMatchObject({ group_ids: [], blocking_exempt_user_ids: [], scanners: [], endpoints: [] })
   })
 
   it('models all nine official input scanners', () => {
@@ -74,6 +75,12 @@ describe('Prompt Audit view model', () => {
       blocking_review_modules: { assistant: true, tool_outputs: false },
       deep_review_modules: { assistant: true, tool_outputs: false },
     })
+  })
+
+  it('saves blocking-exempt users in canonical order', () => {
+    const draft = configToDraft(config())
+    draft.blocking_exempt_user_ids = [9, 3]
+    expect(buildUpdateRequest(draft).blocking_exempt_user_ids).toEqual([3, 9])
   })
 
   it('defaults and saves the incremental Allow receipt TTL', () => {

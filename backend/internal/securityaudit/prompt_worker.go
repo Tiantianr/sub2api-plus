@@ -137,7 +137,9 @@ func (r *Runner) processSafely(ctx context.Context, workerID int, cfg ActiveConf
 			// Panic values may contain scanner response fragments or prompt data.
 			// Keep only a stable generic message in runtime state and logs.
 			r.setLastError("worker_panic", "worker panic recovered")
-			_ = r.repo.Fail(ctx, job.ID, job.ClaimVersion, "worker_panic", "worker panic recovered")
+			if err := r.repo.Fail(ctx, job.ID, job.ClaimVersion, "worker_panic", "worker panic recovered"); err == nil {
+				r.recordFailureEvent(ctx, job, "worker_panic")
+			}
 			LogError(EventProcessFailed, mergeLogFields(jobLogFields(job), map[string]any{"worker_id": workerID, "status": "failed", "error_code": "worker_panic"}))
 		}
 	}()
@@ -152,6 +154,17 @@ func (r *Runner) processSafely(ctx context.Context, workerID int, cfg ActiveConf
 func (r *Runner) processJob(ctx context.Context, workerID int, cfg ActiveConfig, job *Job) error {
 	baseFields := jobLogFields(job)
 	LogInfo(EventAuditStarted, mergeLogFields(baseFields, map[string]any{"worker_id": workerID, "attempts": job.Attempts, "status": "processing"}))
+	if cfg.ConfigVersion > 0 && !cfg.IncludesGroup(job.Snapshot.GroupID) {
+		if err := r.repo.Fail(ctx, job.ID, job.ClaimVersion, "group_out_of_scope", "prompt audit group out of scope"); err != nil {
+			r.setLastError("job_scope_discard_failed", err.Error())
+			return err
+		}
+		_ = r.payload.Delete(ctx, job.ID)
+		LogInfo(EventEnqueueSkipped, mergeLogFields(baseFields, map[string]any{
+			"worker_id": workerID, "status": "skipped", "error_code": "group_out_of_scope",
+		}))
+		return nil
+	}
 	if job.ConfigVersion != cfg.ConfigVersion {
 		return r.finishFailure(ctx, job, &GuardError{Code: "config_version_changed", Retryable: false})
 	}
@@ -223,7 +236,7 @@ func (r *Runner) processJob(ctx context.Context, workerID int, cfg ActiveConfig,
 		"action": aggregated.Action, "chunk_total": aggregated.ChunkTotal,
 		"latency_ms": aggregated.LatencyMS, "guard_endpoint_id": aggregated.GuardEndpointID, "status": "completed",
 	}))
-	if job.ExecutionMode == ModeAsyncDeep && aggregated.Action == ActionBlock && job.Snapshot.UserID > 0 {
+	if job.ExecutionMode == ModeAsyncDeep && aggregated.Action == ActionBlock && job.Snapshot.UserID > 0 && !cfg.IsBlockingExempt(job.Snapshot.UserID) {
 		token := fmt.Sprintf("async:%d:%d", job.ID, job.ClaimVersion)
 		if err := markDeepReviewRequired(ctx, r.state, r.metrics, job.Snapshot.UserID, token, ModeAsyncDeep, baseFields); err != nil {
 			return r.finishFailure(ctx, job, &GuardError{Code: ErrorCodeDeepReviewState, Retryable: true, Cause: err})
@@ -286,11 +299,8 @@ func decisionKindForResult(result *NormalizedResult) DecisionKind {
 func (r *Runner) finishFailure(ctx context.Context, job *Job, err error) error {
 	baseFields := jobLogFields(job)
 	code := guardErrorCode(err)
-	retryable := false
 	var guardErr *GuardError
-	if errors.As(err, &guardErr) {
-		retryable = guardErr.Retryable
-	}
+	retryable := errors.As(err, &guardErr) && guardErr.Retryable
 	if retryable && job.Attempts < job.MaxAttempts {
 		next := r.clock.Now().Add(retryBackoff(job.Attempts))
 		if updateErr := r.repo.Retry(ctx, job.ID, job.ClaimVersion, next, code, "prompt guard temporarily unavailable"); updateErr != nil {
@@ -311,11 +321,27 @@ func (r *Runner) finishFailure(ctx context.Context, job *Job, err error) error {
 			}))
 			return updateErr
 		}
+		r.recordFailureEvent(ctx, job, code)
 		_ = r.payload.Delete(ctx, job.ID)
 		LogError(EventProcessFailed, mergeLogFields(baseFields, map[string]any{"attempts": job.Attempts, "max_attempts": job.MaxAttempts, "status": "failed", "error_code": code, "retryable": false}))
 	}
 	r.setLastError(code, err.Error())
 	return err
+}
+
+func (r *Runner) recordFailureEvent(ctx context.Context, job *Job, code string) {
+	if r == nil || r.repo == nil || job == nil || ctx.Err() != nil {
+		return
+	}
+	if _, err := r.repo.RecordFailureEvent(ctx, job, code); err == nil {
+		return
+	}
+	if r.metrics != nil {
+		r.metrics.IncRecordFailed()
+	}
+	LogWarn(EventFailureRecordFailed, mergeLogFields(jobLogFields(job), map[string]any{
+		"status": "failed", "error_code": "failure_event_record_failed", "error_kind": "audit_dependency",
+	}))
 }
 
 func (r *Runner) reclaimer(ctx context.Context) {

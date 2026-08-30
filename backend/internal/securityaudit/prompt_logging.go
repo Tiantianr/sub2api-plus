@@ -42,6 +42,7 @@ const (
 	EventGuardFailed          = "prompt_guard.failed"
 	EventGuardFailureAllowed  = "prompt_guard.failure_allowed"
 	EventResultRecordFailed   = "prompt_guard.result_record_failed"
+	EventFailureRecordFailed  = "prompt_audit.failure_record_failed"
 	EventEventDeleted         = "prompt_audit.event_deleted"
 	EventEventsDeleted        = "prompt_audit.events_deleted"
 	EventDeletePreviewed      = "prompt_audit.events_delete_previewed"
@@ -55,7 +56,7 @@ var knownLogEvents = map[string]struct{}{
 	EventRecoveryRequired: {}, EventRecoveryCleared: {}, EventRecoveryRetained: {}, EventRecoveryWaitStarted: {}, EventRecoveryWaitFinished: {}, EventRecoveryStateFailed: {},
 	EventAuditStarted: {}, EventProcessingReclaimed: {}, EventProcessed: {}, EventProcessFailed: {}, EventFindingRecorded: {},
 	EventChunkStarted: {}, EventChunkCompleted: {}, EventChunkFailed: {}, EventChunksAggregated: {},
-	EventEvaluationStarted: {}, EventGuardAllowed: {}, EventGuardBlocked: {}, EventGuardFailed: {}, EventGuardFailureAllowed: {}, EventResultRecordFailed: {},
+	EventEvaluationStarted: {}, EventGuardAllowed: {}, EventGuardBlocked: {}, EventGuardFailed: {}, EventGuardFailureAllowed: {}, EventResultRecordFailed: {}, EventFailureRecordFailed: {},
 	EventEventDeleted: {}, EventEventsDeleted: {}, EventDeletePreviewed: {}, EventEventsFilterDeleted: {},
 }
 

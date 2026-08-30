@@ -119,7 +119,7 @@ func promptAuditUpdateRequest(version int64, workerCount int, token string) Upda
 	return UpdateConfigRequest{
 		ExpectedConfigVersion: version, Enabled: true, BlockingEnabled: true, AllowOnGuardUnavailable: true,
 		Strategy: "priority", WorkerCount: workerCount, QueueCapacity: 64, Scanners: []string{"pii", "jailbreak"},
-		AllGroups: true, Endpoints: []UpdateEndpoint{{
+		AllGroups: true, BlockingExemptUserIDs: &[]int64{17, 9, 17}, Endpoints: []UpdateEndpoint{{
 			ID: "guard-one", Name: "Guard One", Protocol: "openai_compatible",
 			BaseURL: "http://127.0.0.1:18080", Model: "", Token: token,
 			TimeoutMS: 1000, InputLimit: 1024, Enabled: true,
@@ -193,6 +193,7 @@ func TestPromptAuditConfigCASSecretRoundTripInvalidationAndTTL(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, int64(2), public.ConfigVersion)
 	require.True(t, public.AllowOnGuardUnavailable)
+	require.Equal(t, []int64{9, 17}, public.BlockingExemptUserIDs)
 	require.True(t, public.Endpoints[0].HasToken)
 	publicJSON, err := json.Marshal(public)
 	require.NoError(t, err)
@@ -201,12 +202,14 @@ func TestPromptAuditConfigCASSecretRoundTripInvalidationAndTTL(t *testing.T) {
 	activeOnSecond, ok := managerTwo.Active()
 	require.True(t, ok)
 	require.True(t, activeOnSecond.AllowOnGuardUnavailable)
+	require.True(t, activeOnSecond.IsBlockingExempt(17))
 
 	raw, err := settingRepo.GetValue(context.Background(), SettingKeyPromptAuditConfig)
 	require.NoError(t, err)
 	require.NotContains(t, raw, canary)
 	stored, err := ParseStorageConfig(raw)
 	require.NoError(t, err)
+	require.Equal(t, []int64{9, 17}, stored.BlockingExemptUserIDs)
 	require.NotEmpty(t, stored.Endpoints[0].TokenCiphertext)
 	plain, err := encryptor.Decrypt(stored.Endpoints[0].TokenCiphertext)
 	require.NoError(t, err)

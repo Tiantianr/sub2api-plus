@@ -132,7 +132,11 @@ func (g *GuardEvaluator) Evaluate(ctx context.Context, cfg ActiveConfig, snapsho
 		kind = DecisionFlag
 	}
 	if aggregated.Action == ActionBlock {
-		kind = DecisionBlock
+		if cfg.IsBlockingExempt(snapshot.UserID) {
+			kind = DecisionFlag
+		} else {
+			kind = DecisionBlock
+		}
 	}
 	decision := &PromptDecision{Kind: kind, Result: aggregated, AllowNextStage: kind == DecisionAllow || kind == DecisionFlag}
 	if kind == DecisionBlock {

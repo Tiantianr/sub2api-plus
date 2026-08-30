@@ -134,11 +134,12 @@ describe('Prompt Audit components', () => {
       enabled: true, blocking_enabled: false, allow_on_guard_unavailable: false, blocking_latest_turn_only: false, effective_mode: 'async_audit', strategy: 'priority',
       blocking_review_modules: { ...DEFAULT_BLOCKING_REVIEW_MODULES }, deep_review_modules: { ...DEFAULT_DEEP_REVIEW_MODULES },
       allow_receipt_ttl_seconds: 3600,
-      worker_count: 4, queue_capacity: 100, scanners: SCANNER_CATALOG.map((item) => item.id), all_groups: false, group_ids: [1, 99],
+      worker_count: 4, queue_capacity: 100, scanners: SCANNER_CATALOG.map((item) => item.id), all_groups: false, group_ids: [1, 99], blocking_exempt_user_ids: [7],
       endpoints: [endpoint()], config_version: 1, updated_at: '', updated_by: 0, change_summary: '',
     }
     const wrapper = mount(PolicyPanel, {
       props: { draft, groups: [{ id: 1, name: 'Alpha', platform: 'openai', status: 'active' }, { id: 2, name: 'Beta', platform: 'claude', status: 'inactive' }] },
+      global: { stubs: { OpenAIFastPolicyUserSelector: UserSelectorStub } },
     })
     expect(wrapper.text()).toContain('99')
     expect(wrapper.findAll('input[type="checkbox"]').filter((input) => SCANNER_CATALOG.some((scanner) => input.attributes('aria-label') === `admin.promptAudit.scanners.${scanner.id}`))).toHaveLength(9)
@@ -155,6 +156,9 @@ describe('Prompt Audit components', () => {
     emitted = wrapper.emitted('update:draft')?.at(-1)?.[0] as PromptAuditDraft
     expect(emitted.blocking_review_modules.assistant).toBe(true)
     expect(emitted.deep_review_modules.assistant).toBe(true)
+    await wrapper.get('[data-test="pick-user"]').trigger('click')
+    emitted = wrapper.emitted('update:draft')?.at(-1)?.[0] as PromptAuditDraft
+    expect(emitted.blocking_exempt_user_ids).toEqual([42])
   })
 
   it('keeps identity fields separate, supports selection, and opens filter deletion from the toolbar', async () => {
@@ -190,6 +194,32 @@ describe('Prompt Audit components', () => {
     expect((wrapper.emitted('search')?.at(-1)?.[0] as PromptEventFilters).user_id).toBe('1')
     await wrapper.get('[aria-label="admin.promptAudit.events.executionMode"]').setValue('async_deep')
     expect((wrapper.emitted('filters-change')?.at(-1)?.[0] as PromptEventFilters).execution_mode).toBe('async_deep')
+  })
+
+  it('shows failed audit events with a safe reason and error code', async () => {
+    const event: PromptAuditEvent = {
+      id: 8, job_id: 9, execution_mode: 'blocking', decision: 'failed', risk_level: 'unknown', action: 'Error',
+      error_code: 'prompt_guard_unavailable', error_message: 'Prompt Guard endpoint timed out',
+      categories: [], matched_scanners: [], scanner_scores: {}, scanner_evidence: {},
+      scanner_backend: 'qwen3guard-openai', scanner_version: 'guard-model', guard_endpoint_id: 'guard-1',
+      guard_endpoint_name: 'Primary Guard', guard_model: 'guard-model', policy_id: 'priority', policy_version: 0,
+      config_version: 7, chunk_total: 3, queue_delay_ms: 0, input_limit: 200000, matched_chunk_index: null,
+      latency_ms: 15000, issue_summaries: [], created_at: '2026-08-30T15:45:42Z', full_context_available: false,
+      snapshot: {
+        request_id: 'failed-request', client_ip: '203.0.113.42', user_id: 7, username: 'alice',
+        user_email: 'alice@example.test', api_key_id: 8, api_key_name: 'alice-key', group_id: 5,
+        group_name: 'Primary', provider: 'openai', endpoint: '/v1/responses', protocol: 'openai_responses',
+        model: 'gpt-test', prompt_hash: 'f'.repeat(64), redacted_preview: 'redacted failure preview',
+        full_prompt: 'FULL_PROMPT_MUST_NOT_RENDER', full_prompt_truncated: true, prompt_length: 20,
+        message_count: 1, stage: 'http',
+      },
+    }
+    const workspace = mount(EventWorkspace, {
+      props: { events: [event], total: 1, page: 1, pageSize: 20, filters: emptyEventFilters(), selectedIds: [], loading: false, error: '' },
+      global: { stubs: { Pagination: PaginationStub } },
+    })
+    expect(workspace.get('[data-test="event-8"]').text()).toContain('Prompt Guard endpoint timed out')
+    expect(workspace.get('[data-test="event-8"]').text()).toContain('prompt_guard_unavailable')
   })
 
   it('resolves delete range presets to an epoch start and a cutoff end', () => {

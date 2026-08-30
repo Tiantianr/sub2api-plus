@@ -42,6 +42,15 @@
           <p class="mt-2 text-xs text-gray-500 dark:text-dark-400">{{ t('admin.promptAudit.policy.selectedCount', { count: draft.group_ids.length }) }}</p>
         </div>
 
+        <div class="mt-5 border-t border-gray-100 pt-5 dark:border-dark-800">
+          <h3 class="text-sm font-medium text-gray-900 dark:text-white">{{ t('admin.promptAudit.policy.blockingExemptUsers') }}</h3>
+          <p class="mt-1 text-xs text-gray-500 dark:text-dark-400">{{ t('admin.promptAudit.policy.blockingExemptUsersHint') }}</p>
+          <div class="mt-3">
+            <OpenAIFastPolicyUserSelector :model-value="draft.blocking_exempt_user_ids" @update:model-value="updateBlockingExemptUsers" />
+          </div>
+          <p class="mt-2 text-xs text-gray-500 dark:text-dark-400">{{ t('admin.promptAudit.policy.blockingExemptUserCount', { count: draft.blocking_exempt_user_ids.length }) }}</p>
+        </div>
+
         <fieldset class="mt-5 border-t border-gray-100 pt-5 dark:border-dark-800">
           <legend class="text-sm font-medium text-gray-900 dark:text-white">{{ t('admin.promptAudit.policy.scanners') }}</legend>
           <div class="mt-3 grid gap-2 sm:grid-cols-2">
@@ -93,6 +102,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
+import OpenAIFastPolicyUserSelector from '@/views/admin/settings/OpenAIFastPolicyUserSelector.vue'
 import type { PromptAuditDraft, PromptAuditGroup, PromptAuditReviewModules } from '../types'
 import { cloneData, DEFAULT_BLOCKING_REVIEW_MODULES, DEFAULT_DEEP_REVIEW_MODULES, SCANNER_CATALOG } from '../viewModel'
 
@@ -144,6 +154,9 @@ function toggleScanner(id: string) {
   if (selected.has(id)) selected.delete(id)
   else selected.add(id)
   patch({ scanners: SCANNER_CATALOG.map((item) => item.id).filter((item) => selected.has(item)) })
+}
+function updateBlockingExemptUsers(userIDs: number[]) {
+  patch({ blocking_exempt_user_ids: [...new Set(userIDs.filter((id) => Number.isInteger(id) && id > 0))].sort((a, b) => a - b) })
 }
 function scannerLabel(id: string): string {
   return t(`admin.promptAudit.scanners.${id}`)

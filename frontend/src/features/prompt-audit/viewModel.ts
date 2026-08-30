@@ -60,6 +60,7 @@ export function configToDraft(config: PromptAuditConfig): PromptAuditDraft {
     deep_review_modules: { ...DEFAULT_DEEP_REVIEW_MODULES, ...(config.deep_review_modules ?? {}) },
     allow_receipt_ttl_seconds: config.allow_receipt_ttl_seconds ?? DEFAULT_ALLOW_RECEIPT_TTL_SECONDS,
     group_ids: [...(config.group_ids ?? [])],
+    blocking_exempt_user_ids: [...(config.blocking_exempt_user_ids ?? [])],
     scanners: [...(config.scanners ?? [])],
     endpoints: (config.endpoints ?? []).map((endpoint) => ({
       ...endpoint,
@@ -102,6 +103,7 @@ export function buildUpdateRequest(draft: PromptAuditDraft): PromptAuditUpdateRe
     scanners: [...draft.scanners],
     all_groups: draft.all_groups,
     group_ids: draft.all_groups ? [] : [...draft.group_ids].sort((a, b) => a - b),
+    blocking_exempt_user_ids: [...draft.blocking_exempt_user_ids].sort((a, b) => a - b),
     endpoints: draft.endpoints.map((endpoint) => ({
       id: endpoint.id.trim(),
       name: endpoint.name.trim(),
