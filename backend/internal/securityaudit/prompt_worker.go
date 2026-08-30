@@ -174,6 +174,7 @@ func (r *Runner) processJob(ctx context.Context, workerID int, cfg ActiveConfig,
 	job.Snapshot.FullPromptTruncated = utf8.RuneCountInString(job.Snapshot.FullPrompt) < job.Snapshot.PromptLength
 	endpoints := cfg.EnabledEndpoints()
 	if len(endpoints) == 0 {
+		observeGuardOutcome(r.metrics, DecisionUnavailable, 0, true)
 		return r.finishFailure(ctx, job, &GuardError{Code: "no_enabled_endpoint", Retryable: true})
 	}
 	inputLimit := minimumInputLimit(endpoints)
@@ -189,16 +190,16 @@ func (r *Runner) processJob(ctx context.Context, workerID int, cfg ActiveConfig,
 			return err
 		}
 		chunkStarted := r.clock.Now()
-		LogInfo(EventChunkStarted, mergeLogFields(baseFields, map[string]any{"worker_id": workerID, "chunk_index": index + 1, "chunk_total": len(chunks), "chunk_chars": len([]rune(chunk)), "input_chars": job.Snapshot.PromptLength, "input_limit": inputLimit, "status": "started"}))
+		LogInfo(EventChunkStarted, mergeLogFields(baseFields, map[string]any{"worker_id": workerID, "chunk_index": index + 1, "chunk_total": len(chunks), "chunk_chars": utf8.RuneCountInString(chunk), "input_chars": job.Snapshot.PromptLength, "input_limit": inputLimit, "status": "started"}))
 		result, scanErr := scanWithFailover(ctx, r.scanner, cfg.Scanners, endpoints, chunk, r.metrics)
 		if scanErr != nil {
 			LogWarn(EventChunkFailed, mergeLogFields(baseFields, map[string]any{
 				"worker_id": workerID, "chunk_index": index + 1, "chunk_total": len(chunks),
-				"chunk_chars": len([]rune(chunk)), "input_chars": job.Snapshot.PromptLength,
+				"chunk_chars": utf8.RuneCountInString(chunk), "input_chars": job.Snapshot.PromptLength,
 				"input_limit": inputLimit, "latency_ms": r.clock.Now().Sub(chunkStarted).Milliseconds(),
 				"error_code": guardErrorCode(scanErr), "status": "failed",
 			}))
-			r.observeAsyncFailure(scanErr, r.clock.Now().Sub(started))
+			r.observeAsyncFailure(ctx, scanErr, r.clock.Now().Sub(started))
 			return r.finishFailure(ctx, job, scanErr)
 		}
 		result.InputLimit = inputLimit
@@ -211,16 +212,12 @@ func (r *Runner) processJob(ctx context.Context, workerID int, cfg ActiveConfig,
 	}
 	aggregated, err := AggregateResults(results, r.clock.Now().Sub(started))
 	if err != nil {
-		if r.metrics != nil {
-			r.metrics.Observe(DecisionInvalid, r.clock.Now().Sub(started))
-		}
+		observeGuardOutcome(r.metrics, DecisionInvalid, r.clock.Now().Sub(started), true)
 		return r.finishFailure(ctx, job, &GuardError{Code: ErrorCodeInvalidResponse, Cause: err})
 	}
 	aggregated.InputLimit = inputLimit
 	aggregated.ChunkTotal = len(chunks)
-	if r.metrics != nil {
-		r.metrics.Observe(decisionKindForResult(aggregated), r.clock.Now().Sub(started))
-	}
+	observeGuardOutcome(r.metrics, decisionKindForResult(aggregated), r.clock.Now().Sub(started), true)
 	LogInfo(EventChunksAggregated, mergeLogFields(baseFields, map[string]any{
 		"worker_id": workerID, "decision": aggregated.Decision, "risk_level": aggregated.RiskLevel,
 		"action": aggregated.Action, "chunk_total": aggregated.ChunkTotal,
@@ -257,7 +254,7 @@ func (r *Runner) processJob(ctx context.Context, workerID int, cfg ActiveConfig,
 	return nil
 }
 
-func (r *Runner) observeAsyncFailure(err error, latency time.Duration) {
+func (r *Runner) observeAsyncFailure(ctx context.Context, err error, latency time.Duration) {
 	if r == nil || r.metrics == nil {
 		return
 	}
@@ -265,7 +262,7 @@ func (r *Runner) observeAsyncFailure(err error, latency time.Duration) {
 	if guardErrorCode(err) == ErrorCodeInvalidResponse {
 		kind = DecisionInvalid
 	}
-	r.metrics.Observe(kind, latency)
+	observeGuardOutcome(r.metrics, kind, latency, ctx.Err() == nil)
 	var guardErr *GuardError
 	if errors.As(err, &guardErr) && guardErr.Timeout {
 		r.metrics.IncTimeout()

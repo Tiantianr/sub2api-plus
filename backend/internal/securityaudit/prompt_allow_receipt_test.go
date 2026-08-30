@@ -62,14 +62,18 @@ func (s *fakeAllowReceiptPayload) Require(_ context.Context, userID int64, token
 	s.states[userID] = token
 	return nil
 }
-func (s *fakeAllowReceiptPayload) Claim(_ context.Context, userID int64, token string, _ time.Duration) (bool, error) {
+func (s *fakeAllowReceiptPayload) Claim(_ context.Context, userID int64, token string, _ time.Duration) (string, DeepReviewClaimStatus, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	finding := s.states[userID]
+	if finding == "" {
+		return "", DeepReviewClaimMissing, nil
+	}
 	if s.claims[userID] != "" {
-		return false, nil
+		return "", DeepReviewClaimBusy, nil
 	}
 	s.claims[userID] = token
-	return true, nil
+	return finding, DeepReviewClaimAcquired, nil
 }
 func (s *fakeAllowReceiptPayload) ReleaseClaim(_ context.Context, userID int64, token string) (bool, error) {
 	s.mu.Lock()
@@ -80,10 +84,10 @@ func (s *fakeAllowReceiptPayload) ReleaseClaim(_ context.Context, userID int64, 
 	delete(s.claims, userID)
 	return true, nil
 }
-func (s *fakeAllowReceiptPayload) Clear(_ context.Context, userID int64, token string) (bool, error) {
+func (s *fakeAllowReceiptPayload) ClearClaimed(_ context.Context, userID int64, finding, claim string) (bool, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.states[userID] != token {
+	if s.states[userID] != finding || s.claims[userID] != claim {
 		return false, nil
 	}
 	delete(s.states, userID)

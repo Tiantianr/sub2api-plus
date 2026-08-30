@@ -446,13 +446,15 @@ func (handlerPromptAuditStore) Required(context.Context, int64) (string, bool, e
 	return "", false, nil
 }
 func (handlerPromptAuditStore) Require(context.Context, int64, string) error { return nil }
-func (handlerPromptAuditStore) Claim(context.Context, int64, string, time.Duration) (bool, error) {
-	return true, nil
+func (handlerPromptAuditStore) Claim(context.Context, int64, string, time.Duration) (string, securityaudit.DeepReviewClaimStatus, error) {
+	return "", securityaudit.DeepReviewClaimMissing, nil
 }
 func (handlerPromptAuditStore) ReleaseClaim(context.Context, int64, string) (bool, error) {
 	return true, nil
 }
-func (handlerPromptAuditStore) Clear(context.Context, int64, string) (bool, error) { return true, nil }
+func (handlerPromptAuditStore) ClearClaimed(context.Context, int64, string, string) (bool, error) {
+	return true, nil
+}
 
 func testPromptAuditRedisStore(*testing.T) handlerPromptAuditStore { return handlerPromptAuditStore{} }
 

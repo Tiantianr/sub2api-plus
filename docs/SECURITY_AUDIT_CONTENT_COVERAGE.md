@@ -231,6 +231,13 @@ Unavailable and timeout counters still record the underlying failure.
 Recovery-state failures remain fail closed and use their stable
 `prompt_guard_deep_review_state_unavailable` code plus a recovery-specific
 client message; they are not reported as ordinary Guard outages.
+An occupied recovery claim is not a recovery-state failure: concurrent requests
+wait within their request context and never replace the owner or finding token.
+Only the current claim owner may compare-and-delete its exact finding token;
+an expired or replaced owner fails closed and cannot clear a newer recovery.
+Eligible Guard outages are limited to network/read failures, timeout/capacity,
+401/403, 429, and 5xx. Deterministic request/configuration 4xx responses such as
+400 or 404 remain fail closed and cannot enter failure-allow.
 Every extraction, evaluation, or audit-dependency exception emits a structured
 log containing request ID, endpoint, protocol, stage, a stable error
 code/reason, available byte counts, and bounded incomplete reasons. Extraction

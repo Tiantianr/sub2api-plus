@@ -20,7 +20,7 @@ func promptGuardDecision(kind securityaudit.DecisionKind) *securityaudit.Decisio
 	case securityaudit.DecisionBlock:
 		decision.HTTPStatus = http.StatusForbidden
 		decision.ErrorCode = securityaudit.ErrorCodeBlocked
-		decision.ClientMessage = "安全审计拒绝了该请求，请移除破限插件等绕过行为，或检查提示词后重试"
+		decision.ClientMessage = "安全审计拒绝了本次请求。风险内容可能来自当前输入、会话上下文、系统指令或插件/工具内容，请检查并移除相关内容后重试"
 	case securityaudit.DecisionInvalid:
 		decision.HTTPStatus = http.StatusServiceUnavailable
 		decision.ErrorCode = securityaudit.ErrorCodeInvalidResponse

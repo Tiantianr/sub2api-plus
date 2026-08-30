@@ -14,13 +14,16 @@ func SplitRunes(value string, limit int) []string {
 	segments := strings.Split(value, promptAuditPrioritySeparator)
 	chunks := make([]string, 0, len(segments))
 	for _, segment := range segments {
-		runes := []rune(segment)
-		for start := 0; start < len(runes); start += limit {
-			end := start + limit
-			if end > len(runes) {
-				end = len(runes)
+		start, count := 0, 0
+		for index := range segment {
+			if count == limit {
+				chunks = append(chunks, segment[start:index])
+				start, count = index, 0
 			}
-			chunks = append(chunks, string(runes[start:end]))
+			count++
+		}
+		if count > 0 {
+			chunks = append(chunks, segment[start:])
 		}
 	}
 	return chunks

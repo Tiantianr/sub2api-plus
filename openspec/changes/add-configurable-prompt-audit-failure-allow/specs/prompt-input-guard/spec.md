@@ -54,6 +54,12 @@
 - **THEN** 请求 MUST 返回 `prompt_guard_invalid_response`
 - **AND** `allow_on_guard_unavailable` MUST NOT 放行该请求
 
+#### Scenario: Guard 返回确定性客户端错误
+
+- **WHEN** Guard 返回不属于 401/403 或 429 的其他 4xx 状态
+- **THEN** 请求 MUST fail-closed
+- **AND** `allow_on_guard_unavailable` MUST NOT 放行该请求
+
 #### Scenario: 节点凭据无法解密
 
 - **WHEN** 配置的节点凭据无法解密或没有可执行 Guard 节点

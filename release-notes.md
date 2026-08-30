@@ -1,63 +1,65 @@
-Sub2API Plus v0.1.183+custom.917
+Sub2API Plus v0.1.183+custom.918
 
 ## Highlights
 
-- Restore lightweight Pass rows in the Prompt Audit event list for every
-  completed review without restoring large full-context storage by default.
-- Snapshot and display the actual Guard pool node name, node ID, and model that
-  produced each event decision, including after endpoint failover.
-- Fix concurrent Block-recovery requests overwriting one another and returning
-  503 after every Guard chunk had already completed with Allow.
+- Wait for an in-progress Prompt Audit recovery instead of returning an
+  immediate recovery-state 503 to concurrent requests.
+- Send a rate-limited P0 Ops email after five consecutive Prompt Audit pool
+  failures, with successful pool outcomes resetting the streak.
+- Reduce Prompt Audit hot-path memory and CPU cost for large request bodies and
+  UTF-8 Guard chunks without reducing audited content.
 
 ## Changed
 
-- Treat the selected-user list as full Pass-evidence retention only. Every Pass
-  keeps a lightweight redacted event; selected users additionally retain the
-  full Guard prompt and encrypted canonical context.
-- Add an Audit node column and explicit node/model fields to event details.
-  Historical events fall back to their stored endpoint ID and scanner model.
-- Separate the non-expiring recovery finding from a bounded per-user Redis
-  claim lease. Claim expiry or process failure cannot clear the finding.
-- Return a recovery-state-specific message for
-  `prompt_guard_deep_review_state_unavailable` instead of reporting it as an
-  ordinary Guard outage.
-- Include redacted localized risk-category labels in Prompt Audit Block
-  responses without exposing raw Guard evidence or prompt content.
+- Recovery claim acquisition now uses one atomic Redis operation with
+  exponential waiting backoff. The exact current claim owner must match the
+  exact finding version before recovery can clear.
+- Only network/read failures, timeout/capacity, 401/403, 429, and 5xx remain
+  eligible for configured Guard failure allowance. Deterministic 400/404-class
+  errors stay fail closed.
+- Prompt Audit pool alerts reuse the existing Ops recipients, templates,
+  severity filtering, silencing, and hourly email limiter. Client cancellation
+  and service shutdown do not count as pool failures.
+- Synchronous Content Moderation and Prompt Audit share the frozen request body
+  read-only; the asynchronous boundary retains the only deep copy.
+- UTF-8 chunking now slices at rune boundaries without building a full rune
+  array or copying every chunk.
 
 ## Fixed
 
-- Prevent unselected Pass results from disappearing entirely from the event
-  list; their `full_prompt` stays empty and no context artifact is created.
-- Prevent a later recovery request from replacing an in-progress request's
-  claim and stranding an immortal `review:` token in the finding key.
-- Preserve newer synchronous or asynchronous Block findings when an older
-  recovery completes with Allow.
-- Allow `.916` historical `review:` state tokens to complete one full recovery
-  review and clear safely after upgrade.
-- Keep ordinary eligible Guard network/API/timeout/capacity failures subject to
-  the default-on failure allowance while recovery, extraction, invalid response,
-  configuration, finding, and Content Moderation boundaries remain fail closed.
+- Prevent claim contention from being reported as unavailable recovery state.
+- Prevent an expired or replaced recovery owner from clearing a finding owned
+  by another request.
+- Prevent deterministic Guard client/configuration errors from silently
+  bypassing Prompt Audit through failure allowance.
+- Prevent caller cancellation from producing false consecutive-pool-failure
+  email alerts.
+- Clarify Prompt Audit Block responses without exposing raw Guard evidence,
+  prompt content, tool values, or recovery tokens.
 
 ## Compatibility and migration
 
-- `v0.1.183+custom.915` is invalid and must not be deployed; use `.916` for the
-  previous rollback target or `.917` for the corrected event and recovery flow.
-- Migration `242_prompt_audit_guard_node_snapshot.sql` adds only non-secret
-  `guard_endpoint_name` and `guard_model` event snapshot columns. It does not
-  rewrite historical rows or touch encrypted context data.
-- The recovery claim uses a new Redis key namespace. Existing finding keys,
-  including historical `review:` values, remain enforceable and recoverable.
+- **Before upgrading production, manually disable Prompt Audit synchronous
+  blocking.** New and missing configurations already default to
+  `blocking_enabled=false`, but this release intentionally does not overwrite
+  an existing persisted `true` value.
+- Asynchronous Prompt Audit may remain enabled while synchronous blocking is
+  off. Pending recovery findings are retained and resume if blocking is enabled
+  again.
+- No SQL migration is added. Existing finding and claim Redis keys remain
+  compatible; claim operations become atomic after the binary upgrade.
+- Roll back to `v0.1.183+custom.917` if required. Its published assets and image
+  remain immutable.
 - No Compose, port, certificate, proxy, or persistent-volume change is
   required. Personal images and binary archives remain Linux arm64 only.
 
 ## Known issues
 
-- Pass decisions omitted entirely while `.915`/`.916` retention behavior was
-  active cannot be reconstructed retroactively.
-- Historical events cannot recover an old configured node name and therefore
-  display their stable endpoint ID instead.
+- Publishing this release does not change production Prompt Audit settings.
+  Upgrading while the existing synchronous-blocking toggle remains on preserves
+  that enabled intent and its fail-closed dependency behavior.
 - Existing full Pass evidence and historical backups are not deleted
-  automatically. Cleanup still requires an explicit preview and confirmation.
+  automatically; cleanup still requires explicit preview and confirmation.
 - Production deployment and configuration changes remain separate operations
   and are not part of release publication.
 

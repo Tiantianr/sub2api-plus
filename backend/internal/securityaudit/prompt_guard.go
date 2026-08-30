@@ -5,6 +5,7 @@ import (
 	"errors"
 	"sync"
 	"time"
+	"unicode/utf8"
 )
 
 type GuardEvaluator struct {
@@ -42,7 +43,7 @@ func newGuardEvaluator(scanner PromptScanner, repo JobRepository, metrics Metric
 func (g *GuardEvaluator) Evaluate(ctx context.Context, cfg ActiveConfig, snapshot PromptSnapshot) (*PromptDecision, error) {
 	if g == nil || g.scanner == nil {
 		if g != nil && g.metrics != nil {
-			g.metrics.Observe(DecisionUnavailable, 0)
+			observeGuardOutcome(g.metrics, DecisionUnavailable, 0, true)
 		}
 		logGuardFailure(snapshot, cfg, DecisionUnavailable, ErrorCodeUnavailable, "", 0)
 		return nil, &GuardError{Code: ErrorCodeUnavailable}
@@ -52,9 +53,7 @@ func (g *GuardEvaluator) Evaluate(ctx context.Context, cfg ActiveConfig, snapsho
 	baseFields["config_version"] = cfg.ConfigVersion
 	endpoints := cfg.EnabledEndpoints()
 	if len(endpoints) == 0 {
-		if g.metrics != nil {
-			g.metrics.Observe(DecisionUnavailable, g.clock.Now().Sub(start))
-		}
+		observeGuardOutcome(g.metrics, DecisionUnavailable, g.clock.Now().Sub(start), true)
 		logGuardFailure(snapshot, cfg, DecisionUnavailable, ErrorCodeUnavailable, "", g.clock.Now().Sub(start))
 		return nil, &GuardError{Code: ErrorCodeUnavailable}
 	}
@@ -64,17 +63,15 @@ func (g *GuardEvaluator) Evaluate(ctx context.Context, cfg ActiveConfig, snapsho
 	default:
 		if g.metrics != nil {
 			g.metrics.IncBulkheadFull()
-			g.metrics.Observe(DecisionUnavailable, g.clock.Now().Sub(start))
 		}
+		observeGuardOutcome(g.metrics, DecisionUnavailable, g.clock.Now().Sub(start), true)
 		logGuardFailure(snapshot, cfg, DecisionUnavailable, ErrorCodeUnavailable, "", g.clock.Now().Sub(start))
 		return nil, &GuardError{Code: ErrorCodeUnavailable, FailureAllowEligible: true}
 	}
 	inputLimit := minimumInputLimit(endpoints)
 	chunks := SplitRunes(snapshot.ScanText, inputLimit)
 	if len(chunks) == 0 {
-		if g.metrics != nil {
-			g.metrics.Observe(DecisionAllow, g.clock.Now().Sub(start))
-		}
+		observeGuardOutcome(g.metrics, DecisionAllow, g.clock.Now().Sub(start), false)
 		return &PromptDecision{Kind: DecisionAllow, AllowNextStage: true}, nil
 	}
 	LogInfo(EventEvaluationStarted, mergeLogFields(baseFields, map[string]any{"chunk_total": len(chunks), "status": "started"}))
@@ -83,7 +80,7 @@ func (g *GuardEvaluator) Evaluate(ctx context.Context, cfg ActiveConfig, snapsho
 		chunkStarted := g.clock.Now()
 		LogInfo(EventChunkStarted, mergeLogFields(baseFields, map[string]any{
 			"chunk_index": index + 1, "chunk_total": len(chunks),
-			"chunk_chars": len([]rune(chunk)), "input_chars": snapshot.PromptLength, "input_limit": inputLimit,
+			"chunk_chars": utf8.RuneCountInString(chunk), "input_chars": snapshot.PromptLength, "input_limit": inputLimit,
 			"status": "started",
 		}))
 		result, err := g.scanChunk(ctx, cfg, endpoints, chunk)
@@ -91,7 +88,7 @@ func (g *GuardEvaluator) Evaluate(ctx context.Context, cfg ActiveConfig, snapsho
 			code := guardErrorCode(err)
 			LogWarn(EventChunkFailed, mergeLogFields(baseFields, map[string]any{
 				"chunk_index": index + 1, "chunk_total": len(chunks),
-				"chunk_chars": len([]rune(chunk)), "input_chars": snapshot.PromptLength, "input_limit": inputLimit,
+				"chunk_chars": utf8.RuneCountInString(chunk), "input_chars": snapshot.PromptLength, "input_limit": inputLimit,
 				"latency_ms": g.clock.Now().Sub(chunkStarted).Milliseconds(), "error_code": code, "status": "failed",
 			}))
 			kind := DecisionUnavailable
@@ -99,7 +96,7 @@ func (g *GuardEvaluator) Evaluate(ctx context.Context, cfg ActiveConfig, snapsho
 				kind = DecisionInvalid
 			}
 			if g.metrics != nil {
-				g.metrics.Observe(kind, g.clock.Now().Sub(start))
+				observeGuardOutcome(g.metrics, kind, g.clock.Now().Sub(start), ctx.Err() == nil)
 				var guardErr *GuardError
 				if errors.As(err, &guardErr) && guardErr.Timeout {
 					g.metrics.IncTimeout()
@@ -114,7 +111,7 @@ func (g *GuardEvaluator) Evaluate(ctx context.Context, cfg ActiveConfig, snapsho
 		results = append(results, result)
 		LogInfo(EventChunkCompleted, mergeLogFields(baseFields, map[string]any{
 			"chunk_index": index + 1, "chunk_total": len(chunks),
-			"chunk_chars": len([]rune(chunk)), "input_chars": snapshot.PromptLength, "input_limit": inputLimit,
+			"chunk_chars": utf8.RuneCountInString(chunk), "input_chars": snapshot.PromptLength, "input_limit": inputLimit,
 			"guard_endpoint_id": result.GuardEndpointID, "action": result.Action,
 			"latency_ms": g.clock.Now().Sub(chunkStarted).Milliseconds(), "status": "completed",
 		}))
@@ -124,9 +121,7 @@ func (g *GuardEvaluator) Evaluate(ctx context.Context, cfg ActiveConfig, snapsho
 	}
 	aggregated, err := AggregateResults(results, g.clock.Now().Sub(start))
 	if err != nil {
-		if g.metrics != nil {
-			g.metrics.Observe(DecisionInvalid, g.clock.Now().Sub(start))
-		}
+		observeGuardOutcome(g.metrics, DecisionInvalid, g.clock.Now().Sub(start), true)
 		logGuardFailure(snapshot, cfg, DecisionInvalid, ErrorCodeInvalidResponse, "", g.clock.Now().Sub(start))
 		return nil, &GuardError{Code: ErrorCodeInvalidResponse, Cause: err}
 	}
@@ -143,9 +138,7 @@ func (g *GuardEvaluator) Evaluate(ctx context.Context, cfg ActiveConfig, snapsho
 	if kind == DecisionBlock {
 		decision.ErrorCode = ErrorCodeBlocked
 	}
-	if g.metrics != nil {
-		g.metrics.Observe(kind, g.clock.Now().Sub(start))
-	}
+	observeGuardOutcome(g.metrics, kind, g.clock.Now().Sub(start), true)
 	LogInfo(EventChunksAggregated, mergeLogFields(baseFields, map[string]any{
 		"decision":   kind,
 		"risk_level": aggregated.RiskLevel, "action": aggregated.Action, "chunk_total": aggregated.ChunkTotal,
@@ -182,6 +175,16 @@ func (g *GuardEvaluator) Evaluate(ctx context.Context, cfg ActiveConfig, snapsho
 		}))
 	}
 	return decision, nil
+}
+
+func observeGuardOutcome(metrics Metrics, kind DecisionKind, latency time.Duration, notify bool) {
+	if metrics == nil {
+		return
+	}
+	metrics.Observe(kind, latency)
+	if notify {
+		metrics.ObservePoolOutcome(kind)
+	}
 }
 
 func logGuardFailure(snapshot PromptSnapshot, cfg ActiveConfig, kind DecisionKind, code, guardEndpointID string, latency time.Duration) {

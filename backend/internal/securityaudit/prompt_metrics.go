@@ -10,6 +10,7 @@ import (
 const latencySampleCapacity = 2048
 
 type AtomicMetrics struct {
+	outcomeObserver       func(DecisionKind)
 	total                 atomic.Int64
 	allowed               atomic.Int64
 	flagged               atomic.Int64
@@ -44,6 +45,12 @@ type AtomicMetrics struct {
 }
 
 func NewAtomicMetrics() *AtomicMetrics { return &AtomicMetrics{} }
+
+func (m *AtomicMetrics) SetOutcomeObserver(observer func(DecisionKind)) {
+	if m != nil {
+		m.outcomeObserver = observer
+	}
+}
 
 func (m *AtomicMetrics) Snapshot() GuardMetricsSnapshot {
 	if m == nil {
@@ -118,6 +125,12 @@ func (m *AtomicMetrics) Observe(kind DecisionKind, latency time.Duration) {
 		m.invalid.Add(1)
 	default:
 		m.allowed.Add(1)
+	}
+}
+
+func (m *AtomicMetrics) ObservePoolOutcome(kind DecisionKind) {
+	if m != nil && m.outcomeObserver != nil {
+		m.outcomeObserver(kind)
 	}
 }
 

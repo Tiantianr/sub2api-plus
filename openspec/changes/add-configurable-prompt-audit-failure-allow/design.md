@@ -21,6 +21,9 @@ configuration enables failure allow, the error is classified as an eligible
 remote API/timeout/capacity failure, and the request is not a required recovery
 review. Missing usable nodes, undecryptable credentials, local client
 construction failures, and scanner wiring failures are ineligible.
+Eligible HTTP responses are limited to 401/403, 429, and 5xx. Other 4xx
+responses are deterministic request or endpoint-contract failures and remain
+fail closed.
 
 The conversion occurs after canonical extraction and context encryption. It
 therefore cannot bypass extraction failures, invalid Guard responses, missing

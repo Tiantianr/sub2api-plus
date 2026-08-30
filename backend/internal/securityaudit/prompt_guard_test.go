@@ -312,6 +312,28 @@ func TestGuardEvaluatorFlagFailoverTimeoutAndContextCancel(t *testing.T) {
 	})
 }
 
+func TestGuardEvaluatorPoolOutcomeObserverIgnoresParentCancellation(t *testing.T) {
+	metrics := NewAtomicMetrics()
+	var outcomes []DecisionKind
+	metrics.SetOutcomeObserver(func(kind DecisionKind) { outcomes = append(outcomes, kind) })
+	canceled, cancel := context.WithCancel(context.Background())
+	cancel()
+	evaluator := newGuardEvaluator(PromptScannerFunc(func(context.Context, ActiveEndpoint, string, []string) (*NormalizedResult, error) {
+		t.Fatal("canceled parent must stop before Guard")
+		return nil, nil
+	}), nil, metrics, 1, 1)
+	_, err := evaluator.Evaluate(canceled, guardConfig(ActiveEndpoint{ID: "one", Enabled: true, TimeoutMS: 1000, InputLimit: 100}), PromptSnapshot{ScanText: "input", PromptLength: 5})
+	require.Error(t, err)
+	require.Empty(t, outcomes)
+
+	evaluator = newGuardEvaluator(PromptScannerFunc(func(context.Context, ActiveEndpoint, string, []string) (*NormalizedResult, error) {
+		return nil, &GuardError{Code: ErrorCodeUnavailable, Retryable: true, FailureAllowEligible: true}
+	}), nil, metrics, 1, 1)
+	_, err = evaluator.Evaluate(context.Background(), guardConfig(ActiveEndpoint{ID: "one", Enabled: true, TimeoutMS: 1000, InputLimit: 100}), PromptSnapshot{ScanText: "input", PromptLength: 5})
+	require.Error(t, err)
+	require.Equal(t, []DecisionKind{DecisionUnavailable}, outcomes)
+}
+
 func TestGuardEvaluatorRecordsExistingResultOnceAndRecordFailureDoesNotChangeDecision(t *testing.T) {
 	for _, recordErr := range []error{nil, errors.New("database unavailable")} {
 		repo := &fakeJobRepository{recordBlockingErr: recordErr}

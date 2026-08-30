@@ -719,13 +719,17 @@ func (s *OpsAlertEvaluatorService) maybeSendAlertEmail(ctx context.Context, runt
 		if !s.emailLimiter.Allow(time.Now().UTC()) {
 			continue
 		}
+		sourceType, sourceID := "ops_alert", fmt.Sprintf("%d", event.ID)
+		if event.ID <= 0 {
+			sourceType, sourceID = "", ""
+		}
 		if s.emailService.notificationEmailService != nil {
 			if err := s.emailService.notificationEmailService.Send(ctx, NotificationEmailSendInput{
 				Event:          NotificationEmailEventOpsAlert,
 				RecipientEmail: addr,
 				RecipientName:  emailRecipientName(addr),
-				SourceType:     "ops_alert",
-				SourceID:       fmt.Sprintf("%d", event.ID),
+				SourceType:     sourceType,
+				SourceID:       sourceID,
 				Variables:      opsAlertEmailVariables(rule, event),
 			}); err == nil {
 				anySent = true
@@ -741,10 +745,36 @@ func (s *OpsAlertEvaluatorService) maybeSendAlertEmail(ctx context.Context, runt
 		anySent = true
 	}
 
-	if anySent {
+	if anySent && event.ID > 0 {
 		_ = s.opsRepo.UpdateAlertEventEmailSent(context.Background(), event.ID, true)
 	}
 	return anySent
+}
+
+func (s *OpsAlertEvaluatorService) SendPromptAuditPoolFailureEmail(ctx context.Context, count int, outcome string) bool {
+	if s == nil || s.opsService == nil || count < 1 {
+		return false
+	}
+	switch outcome {
+	case "unavailable", "invalid":
+	default:
+		outcome = "unknown"
+	}
+	runtimeCfg, err := s.opsService.GetOpsAlertRuntimeSettings(ctx)
+	if err != nil {
+		runtimeCfg = defaultOpsAlertRuntimeSettings()
+	}
+	value, threshold := float64(count), float64(5)
+	now := time.Now().UTC()
+	rule := &OpsAlertRule{
+		Name: "Prompt Audit guard pool consecutive failures", Description: "Prompt Audit guard pool failed consecutive evaluations; latest outcome: " + outcome,
+		Enabled: true, Severity: "P0", MetricType: "consecutive_failures", Operator: ">=", Threshold: threshold, NotifyEmail: true,
+	}
+	event := &OpsAlertEvent{
+		Severity: "P0", Status: OpsAlertStatusFiring, Title: rule.Name, Description: rule.Description,
+		MetricValue: &value, ThresholdValue: &threshold, FiredAt: now,
+	}
+	return s.maybeSendAlertEmail(ctx, runtimeCfg, rule, event)
 }
 
 func opsAlertEmailVariables(rule *OpsAlertRule, event *OpsAlertEvent) map[string]string {
