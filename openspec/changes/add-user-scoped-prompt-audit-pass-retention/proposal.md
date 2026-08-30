@@ -14,10 +14,10 @@ Allow receipts and making already queued jobs stale for a storage-only change.
 
 ## Proposal
 
-- Replace global Pass-event storage with an independently versioned list of
-  users whose Pass events should be retained.
-- Default to an empty list, so users without an explicit selection do not
-  retain Pass events or complete contexts.
+- Replace global Pass-evidence storage with an independently versioned list of
+  users whose Pass events should retain full prompts and complete contexts.
+- Keep a lightweight event for every Pass result so the audit list remains
+  complete, while defaulting the full-evidence selection to an empty list.
 - Continue storing every Flag and Critical event for every audited user.
 - Keep review, blocking, metrics, deep recovery, and Allow receipts independent
   from the evidence-retention choice.
@@ -38,5 +38,6 @@ Allow receipts and making already queued jobs stale for a storage-only change.
 The change adds one settings-backed administration resource and a data-only
 forward migration that removes the obsolete global field without changing the
 SQL schema. Existing Pass events remain until an administrator explicitly
-cleans them. The old global value does not opt any user into the new retention
-list and cannot reactivate global persistence after rollback.
+cleans them. New unselected Pass results retain only list metadata and a
+redacted preview. The old global value does not opt any user into full evidence
+retention and cannot reactivate global persistence after rollback.

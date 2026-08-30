@@ -173,14 +173,22 @@ or partial hit, `guard_input`, event prompt metadata, hashes, and chunk counts
 describe only the receipt misses; every selected canonical source segment
 remains in encrypted context for review.
 
-Pass evidence retention is independently selected by authenticated user ID and
-defaults to an empty selection. An unselected user's Pass result still
-completes review, metrics, deep-review scheduling, and applicable Allow receipt
-work, but it creates no event or complete-context artifact. Flag and Critical
-events always retain the same encrypted evidence regardless of this optional
-Pass-retention setting. Changing the retention list has its own revision and
-does not change Guard policy identity, invalidate receipts, or make queued jobs
-stale.
+Full Pass evidence retention is independently selected by authenticated user
+ID and defaults to an empty selection. Every completed Pass result still
+creates a lightweight list event containing its redacted preview and decision
+metadata. For an unselected user, `full_prompt` remains empty and no encrypted
+complete-context artifact is created. Flag and Critical events always retain
+the same full encrypted evidence regardless of this optional Pass-retention
+setting. Changing the retention list has its own revision and does not change
+Guard policy identity, invalidate receipts, or make queued jobs stale.
+
+Each event also snapshots the deciding Guard endpoint ID, configured node name,
+and model. These fields identify the actual successful node after failover and
+remain stable if the current pool configuration changes. They never include the
+node URL, token, decrypted credential state, request content, or raw response.
+Historical events without a name fall back to endpoint ID; their model is
+displayed from the already stored Qwen3Guard scanner version without rewriting
+historical rows.
 
 The administration cleanup shortcut is fixed to Pass events and requires a
 displayed server preview with an explicit time range, snapshot high water,
@@ -194,11 +202,16 @@ Moderation and Prompt Guard both permit the request. A synchronous aggregate
 Block writes a versioned per-user Redis requirement before returning 403; an
 asynchronous deep Block writes the same state before its job completes. The
 next request uses the active configured deep modules synchronously, bypasses
-all receipts, and may clear only the exact version it claimed after complete
-Allow. Flag, Block, empty selection, dependency failure, and a newer concurrent
-finding keep the non-expiring requirement and prevent upstream access. The
-state is independent of API key, group, and client session identity. It does
-not create a Content Moderation hash, violation count, or automatic penalty.
+all receipts, and may clear only the exact finding version it observed after
+complete Allow. The non-expiring finding token is never replaced by an
+in-progress request. A separate per-user Redis claim lease prevents concurrent
+recovery requests from stealing ownership; lease expiry after a process failure
+does not clear the finding. Flag, Block, empty selection, dependency failure,
+and a newer concurrent finding keep the non-expiring requirement and prevent
+upstream access. Historical `review:` requirement tokens from older runtimes
+remain recoverable as finding versions. The state is independent of API key,
+group, and client session identity. It does not create a Content Moderation
+hash, violation count, or automatic penalty.
 Coordinator performs a final state fence before an ordinary combined Allow can
 persist receipts, enqueue deep review, or return to the upstream path. Explicit
 administrator disabling of risk control, Prompt Audit, or blocking mode pauses
@@ -215,6 +228,9 @@ counters. Blocking Guard failures additionally expose `failure_allowed` when
 the active, default-on `allow_on_guard_unavailable` policy lets an ordinary
 request continue after all Guard nodes end in `prompt_guard_unavailable`.
 Unavailable and timeout counters still record the underlying failure.
+Recovery-state failures remain fail closed and use their stable
+`prompt_guard_deep_review_state_unavailable` code plus a recovery-specific
+client message; they are not reported as ordinary Guard outages.
 Every extraction, evaluation, or audit-dependency exception emits a structured
 log containing request ID, endpoint, protocol, stage, a stable error
 code/reason, available byte counts, and bounded incomplete reasons. Extraction

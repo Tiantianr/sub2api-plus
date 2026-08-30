@@ -185,6 +185,48 @@ func TestCoordinatorPromptPolicyBlockWinsLegacyUnavailable(t *testing.T) {
 	require.False(t, decision.AllowNextStage)
 }
 
+func TestCoordinatorPromptBlockMessageUsesRedactedCategoryLabels(t *testing.T) {
+	tests := []struct {
+		name       string
+		result     *NormalizedResult
+		want       string
+		notContain string
+	}{
+		{
+			name: "known categories",
+			result: &NormalizedResult{
+				Categories: []string{"pii", "jailbreak", "pii"},
+			},
+			want: "安全审计拒绝了该请求，命中风险类别：个人敏感信息、越狱攻击。请检查提示词后重试",
+		},
+		{
+			name: "unknown category",
+			result: &NormalizedResult{
+				UnknownCategories: []string{unknownCategoryID("future raw category")},
+			},
+			want:       "安全审计拒绝了该请求，命中风险类别：未知高风险分类。请检查提示词后重试",
+			notContain: "unknown:",
+		},
+		{
+			name:   "missing result",
+			result: nil,
+			want:   "安全审计拒绝了该请求，请移除破限插件等绕过行为，或检查提示词后重试",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			decision := NewCoordinator(
+				&fakeLegacyEngine{decision: &LegacyDecision{Allowed: true}},
+				&fakePromptEngine{mode: ModeBlocking, decision: &PromptDecision{Kind: DecisionBlock, Result: tt.result}},
+			).Check(context.Background(), Request{})
+			require.Equal(t, tt.want, decision.ClientMessage)
+			if tt.notContain != "" {
+				require.NotContains(t, decision.ClientMessage, tt.notContain)
+			}
+		})
+	}
+}
+
 func TestCoordinatorDoesNotMutateRequestBody(t *testing.T) {
 	body := []byte(`{"messages":[{"role":"user","content":"hello"}]}`)
 	original := append([]byte(nil), body...)
@@ -263,6 +305,7 @@ func TestCoordinatorPreservesIndependentEngineFactsAndMapsOnlyGatewayOutcome(t *
 	require.Equal(t, "legacy finding", decision.Legacy.Message)
 	require.Equal(t, []string{"pii"}, decision.Prompt.Result.Categories)
 	require.Equal(t, ErrorCodeBlocked, decision.ErrorCode)
+	require.Equal(t, "安全审计拒绝了该请求，命中风险类别：个人敏感信息。请检查提示词后重试", decision.ClientMessage)
 }
 
 func TestCoordinatorAsyncEnqueueFailuresNeverChangeResponseOrDownstreamDispatch(t *testing.T) {
@@ -346,4 +389,14 @@ func TestCoordinatorPreservesDeepReviewRequiredBlockCode(t *testing.T) {
 	require.Equal(t, DecisionBlock, decision.Kind)
 	require.Equal(t, ErrorCodeDeepReviewRequired, decision.ErrorCode)
 	require.False(t, decision.AllowNextStage)
+}
+
+func TestCoordinatorDistinguishesRecoveryStateUnavailableMessage(t *testing.T) {
+	decision := prioritize(nil, unavailablePromptDecision(ErrorCodeDeepReviewState))
+	require.Equal(t, DecisionUnavailable, decision.Kind)
+	require.Equal(t, ErrorCodeDeepReviewState, decision.ErrorCode)
+	require.Equal(t, "安全审计恢复状态暂时不可用，请稍后重试", decision.ClientMessage)
+
+	guard := prioritize(nil, unavailablePromptDecision(ErrorCodeUnavailable))
+	require.Equal(t, "提示词安全审计暂时不可用，请稍后重试", guard.ClientMessage)
 }

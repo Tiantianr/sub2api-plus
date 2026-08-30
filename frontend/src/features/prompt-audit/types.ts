@@ -220,6 +220,8 @@ export interface PromptAuditEvent {
   scanner_backend: string
   scanner_version: string
   guard_endpoint_id: string
+  guard_endpoint_name?: string
+  guard_model?: string
   policy_id: string
   policy_version: number
   config_version: number

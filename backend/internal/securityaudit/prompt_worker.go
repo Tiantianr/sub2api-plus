@@ -232,11 +232,11 @@ func (r *Runner) processJob(ctx context.Context, workerID int, cfg ActiveConfig,
 			return r.finishFailure(ctx, job, &GuardError{Code: ErrorCodeDeepReviewState, Retryable: true, Cause: err})
 		}
 	}
-	storePass := cfg.ShouldStorePass(job.Snapshot.UserID)
-	if retention, ok := r.config.(passRetentionDecider); ok {
-		storePass = retention.ShouldStorePass(job.Snapshot.UserID)
+	retainPassEvidence := cfg.ShouldRetainPassEvidence(job.Snapshot.UserID)
+	if retention, ok := r.config.(passEvidenceRetentionDecider); ok {
+		retainPassEvidence = retention.ShouldRetainPassEvidence(job.Snapshot.UserID)
 	}
-	event, err := r.repo.Complete(ctx, job, aggregated, storePass)
+	event, err := r.repo.Complete(ctx, job, aggregated, retainPassEvidence)
 	if err != nil {
 		r.setLastError("job_complete_failed", err.Error())
 		LogWarn(EventProcessFailed, mergeLogFields(baseFields, map[string]any{

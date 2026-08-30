@@ -2,22 +2,28 @@
 
 ### Requirement: Pass evidence retention is selected per user
 
-Prompt Audit SHALL retain Pass events and their complete encrypted context only
-for explicitly selected authenticated user IDs. An absent, empty, or invalid
-retention configuration SHALL select no users. Flag and Critical events SHALL
-be retained regardless of the user's Pass-retention selection.
+Prompt Audit SHALL create a lightweight event for every Pass result. It SHALL
+retain the Pass event's full prompt and complete encrypted context only for
+explicitly selected authenticated user IDs. An absent, empty, or invalid
+retention configuration SHALL select no users for full evidence. Flag and
+Critical events SHALL retain full evidence regardless of the user's
+Pass-retention selection.
 
 #### Scenario: Unselected user passes review
 
 - **WHEN** Prompt Audit returns Pass for a user absent from the active retention
   list
 - **THEN** the review, metrics, and applicable Allow receipt SHALL complete
-- **AND** no Pass event or complete event context SHALL be created
+- **AND** a lightweight Pass event with redacted preview and decision metadata
+  SHALL be created
+- **AND** its full prompt SHALL be empty and no complete event context SHALL be
+  created
 
 #### Scenario: Selected user passes review
 
 - **WHEN** Prompt Audit returns Pass for a user in the active retention list
-- **THEN** the system SHALL store the Pass event and encrypted complete context
+- **THEN** the system SHALL store the Pass event, full prompt, and encrypted
+  complete context
 
 #### Scenario: Unselected user has a finding
 
@@ -41,7 +47,8 @@ receipt, make a queued job stale, or alter blocking and recovery decisions.
 #### Scenario: Retention storage is unavailable or corrupt
 
 - **WHEN** the retention snapshot cannot be loaded
-- **THEN** no user SHALL retain new Pass evidence
+- **THEN** no user SHALL retain new full Pass evidence
+- **AND** lightweight Pass events SHALL still be created
 - **AND** Prompt Audit review and blocking SHALL continue with their active
   Guard policy
 

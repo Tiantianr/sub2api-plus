@@ -12,7 +12,7 @@ type GuardEvaluator struct {
 	repo      JobRepository
 	metrics   Metrics
 	clock     Clock
-	retention passRetentionDecider
+	retention passEvidenceRetentionDecider
 
 	global       chan struct{}
 	perNodeLimit int
@@ -20,7 +20,7 @@ type GuardEvaluator struct {
 	nodes        map[string]chan struct{}
 }
 
-func NewGuardEvaluator(scanner PromptScanner, repo JobRepository, metrics Metrics, retention ...passRetentionDecider) *GuardEvaluator {
+func NewGuardEvaluator(scanner PromptScanner, repo JobRepository, metrics Metrics, retention ...passEvidenceRetentionDecider) *GuardEvaluator {
 	evaluator := newGuardEvaluator(scanner, repo, metrics, 64, 16)
 	if len(retention) > 0 {
 		evaluator.retention = retention[0]
@@ -153,11 +153,11 @@ func (g *GuardEvaluator) Evaluate(ctx context.Context, cfg ActiveConfig, snapsho
 		"status": "completed",
 	}))
 	if g.repo != nil {
-		storePass := cfg.ShouldStorePass(snapshot.UserID)
+		retainPassEvidence := cfg.ShouldRetainPassEvidence(snapshot.UserID)
 		if g.retention != nil {
-			storePass = g.retention.ShouldStorePass(snapshot.UserID)
+			retainPassEvidence = g.retention.ShouldRetainPassEvidence(snapshot.UserID)
 		}
-		if _, recordErr := g.repo.RecordBlocking(ctx, snapshot.Redacted(), cfg.ConfigVersion, aggregated, storePass); recordErr != nil {
+		if _, recordErr := g.repo.RecordBlocking(ctx, snapshot.Redacted(), cfg.ConfigVersion, aggregated, retainPassEvidence); recordErr != nil {
 			if g.metrics != nil {
 				g.metrics.IncRecordFailed()
 			}

@@ -14,6 +14,8 @@
 
 - [x] 2.1 Persist and enforce user-scoped single-use recovery state.
 - [x] 2.2 Add bounded recovery logs and runtime counters.
+- [x] 2.3 Separate the non-expiring finding token from the bounded recovery
+  claim lease and release claims with token ownership checks.
 
 ## 3. Verification
 
@@ -21,3 +23,5 @@
   pre-upstream side-effect ordering.
 - [x] 3.2 Update protocol and security coverage documentation.
 - [x] 3.3 Pass focused backend, race, lint, docs, and strict OpenSpec checks.
+- [x] 3.4 Cover concurrent claim ownership, claim expiry without finding expiry,
+  newer findings, rolling compatibility, and recovery-specific error messages.

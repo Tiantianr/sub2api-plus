@@ -446,7 +446,10 @@ func (handlerPromptAuditStore) Required(context.Context, int64) (string, bool, e
 	return "", false, nil
 }
 func (handlerPromptAuditStore) Require(context.Context, int64, string) error { return nil }
-func (handlerPromptAuditStore) Replace(context.Context, int64, string, string) (bool, error) {
+func (handlerPromptAuditStore) Claim(context.Context, int64, string, time.Duration) (bool, error) {
+	return true, nil
+}
+func (handlerPromptAuditStore) ReleaseClaim(context.Context, int64, string) (bool, error) {
 	return true, nil
 }
 func (handlerPromptAuditStore) Clear(context.Context, int64, string) (bool, error) { return true, nil }

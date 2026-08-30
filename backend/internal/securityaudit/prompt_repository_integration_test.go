@@ -43,7 +43,7 @@ func openPromptAuditIntegrationDB(t *testing.T) *sql.DB {
 		);
 	`)
 	require.NoError(t, err)
-	for _, name := range []string{"181_prompt_audit.sql", "182_prompt_audit_full_prompt.sql", "234_prompt_audit_observability.sql", "235_prompt_audit_client_ip_index_notx.sql", "238_prompt_audit_event_contexts.sql", "239_prompt_audit_deep_review.sql", "240_prompt_audit_events_mode_index_notx.sql"} {
+	for _, name := range []string{"181_prompt_audit.sql", "182_prompt_audit_full_prompt.sql", "234_prompt_audit_observability.sql", "235_prompt_audit_client_ip_index_notx.sql", "238_prompt_audit_event_contexts.sql", "239_prompt_audit_deep_review.sql", "240_prompt_audit_events_mode_index_notx.sql", "242_prompt_audit_guard_node_snapshot.sql"} {
 		migration, err := os.ReadFile(filepath.Join("..", "..", "migrations", name))
 		require.NoError(t, err)
 		// The migration runner can retry an interrupted deployment; the migration
@@ -117,7 +117,7 @@ func integrationResult(decision EventDecision) *NormalizedResult {
 		Decision: decision, RiskLevel: RiskLow, Action: ActionAllow, Safety: "Safe",
 		Categories: []string{}, MatchedScanners: []string{}, ScannerScores: map[string]float64{},
 		ScannerEvidence: map[string]string{}, ScannerBackend: "qwen3guard-openai",
-		ScannerVersion: "test", GuardEndpointID: "guard-1", PolicyID: "priority",
+		ScannerVersion: "test", GuardEndpointID: "guard-1", GuardEndpointName: "Primary Guard", GuardModel: "guard-model", PolicyID: "priority",
 		PolicyVersion: 1, ChunkTotal: 1, InputLimit: 500000, LatencyMS: 2,
 	}
 	if decision != EventPass {
@@ -163,6 +163,8 @@ func TestPromptAuditMigrationSchemaAndLeakageGate(t *testing.T) {
 		"prompt_audit_events.input_limit",
 		"prompt_audit_events.matched_chunk_index",
 		"prompt_audit_events.full_prompt_truncated",
+		"prompt_audit_events.guard_endpoint_name",
+		"prompt_audit_events.guard_model",
 	} {
 		require.Truef(t, columns[column], "missing column %s", column)
 	}
@@ -197,6 +199,29 @@ func TestPromptAuditMigrationSchemaAndLeakageGate(t *testing.T) {
 	require.NoError(t, db.QueryRowContext(ctx, `INSERT INTO prompt_audit_jobs DEFAULT VALUES RETURNING id`).Scan(&jobID))
 	_, err = db.ExecContext(ctx, `INSERT INTO prompt_audit_events(job_id,chunk_total) VALUES ($1,-1)`, jobID)
 	require.Error(t, err)
+}
+
+func TestPromptAuditGuardNodeMigrationLeavesLegacyModelForAPIFallback(t *testing.T) {
+	db := openPromptAuditIntegrationDB(t)
+	ctx := context.Background()
+	var jobID int64
+	require.NoError(t, db.QueryRowContext(ctx, `INSERT INTO prompt_audit_jobs DEFAULT VALUES RETURNING id`).Scan(&jobID))
+	var eventID int64
+	require.NoError(t, db.QueryRowContext(ctx, `
+		INSERT INTO prompt_audit_events(job_id,scanner_backend,scanner_version,guard_endpoint_id)
+		VALUES ($1,'qwen3guard-openai','legacy-guard-model','legacy-node') RETURNING id`, jobID).Scan(&eventID))
+
+	migration, err := os.ReadFile(filepath.Join("..", "..", "migrations", "242_prompt_audit_guard_node_snapshot.sql"))
+	require.NoError(t, err)
+	_, err = db.ExecContext(ctx, string(migration))
+	require.NoError(t, err)
+
+	var name, model, scannerVersion string
+	require.NoError(t, db.QueryRowContext(ctx, `
+		SELECT guard_endpoint_name,guard_model,scanner_version FROM prompt_audit_events WHERE id=$1`, eventID).Scan(&name, &model, &scannerVersion))
+	require.Empty(t, name)
+	require.Empty(t, model)
+	require.Equal(t, "legacy-guard-model", scannerVersion)
 }
 
 func TestPromptAuditObservabilityMigrationBackfillsHistoricalTruncation(t *testing.T) {
@@ -237,6 +262,52 @@ func TestPromptAuditObservabilityMigrationBackfillsHistoricalTruncation(t *testi
 	require.True(t, truncated)
 }
 
+func TestPromptAuditDatabaseKeepsLightweightPassWithoutFullEvidence(t *testing.T) {
+	db := openPromptAuditIntegrationDB(t)
+	repo := NewPostgreSQLRepository(db)
+	ctx := context.Background()
+
+	lightweight := integrationSnapshot("lightweight")
+	lightweight.FullPrompt = "unselected full prompt must not persist"
+	lightweight.PromptLength = len([]rune(lightweight.FullPrompt))
+	lightweight.FullContextCiphertext = "unselected encrypted context must not persist"
+	lightweight.FullContextHash = strings.Repeat("a", 64)
+	lightweight.FullContextBytes = 99
+	lightweight.FullContextSegmentCount = 2
+	event, err := repo.RecordBlocking(ctx, lightweight.Redacted(), 1, integrationResult(EventPass), false)
+	require.NoError(t, err)
+	require.NotNil(t, event)
+	require.Equal(t, EventPass, event.Decision)
+	require.Empty(t, event.Snapshot.FullPrompt)
+	require.True(t, event.Snapshot.FullPromptTruncated)
+	require.False(t, event.FullContextAvailable)
+
+	detail, err := repo.GetEvent(ctx, event.ID)
+	require.NoError(t, err)
+	require.Equal(t, lightweight.RedactedPreview, detail.Snapshot.RedactedPreview)
+	require.Empty(t, detail.Snapshot.FullPrompt)
+	require.True(t, detail.Snapshot.FullPromptTruncated)
+	require.False(t, detail.FullContextAvailable)
+	_, err = repo.GetEventContext(ctx, event.ID)
+	require.ErrorIs(t, err, ErrEventContextNotFound)
+
+	selected := integrationSnapshot("selected")
+	selected.FullPrompt = "selected full prompt"
+	selected.PromptLength = len([]rune(selected.FullPrompt))
+	selected.FullContextCiphertext = "selected encrypted context"
+	selected.FullContextHash = strings.Repeat("b", 64)
+	selected.FullContextBytes = 88
+	selected.FullContextSegmentCount = 1
+	selectedEvent, err := repo.RecordBlocking(ctx, selected.Redacted(), 1, integrationResult(EventPass), true)
+	require.NoError(t, err)
+	require.Equal(t, selected.FullPrompt, selectedEvent.Snapshot.FullPrompt)
+	require.True(t, selectedEvent.FullContextAvailable)
+
+	page, err := repo.ListEvents(ctx, EventFilter{}, 1, 20)
+	require.NoError(t, err)
+	require.Equal(t, int64(2), page.Total)
+}
+
 func TestPromptAuditDatabasePersistsFullPromptOnEventsOnly(t *testing.T) {
 	db := openPromptAuditIntegrationDB(t)
 	repo := NewPostgreSQLRepository(db)
@@ -275,6 +346,8 @@ func TestPromptAuditDatabasePersistsFullPromptOnEventsOnly(t *testing.T) {
 	require.Equal(t, 500000, *event.InputLimit)
 	require.NotNil(t, event.MatchedChunkIndex)
 	require.Equal(t, 1, *event.MatchedChunkIndex)
+	require.Equal(t, "Primary Guard", event.GuardEndpointName)
+	require.Equal(t, "guard-model", event.GuardModel)
 	require.False(t, event.Snapshot.FullPromptTruncated)
 	require.True(t, event.FullContextAvailable)
 

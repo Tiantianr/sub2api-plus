@@ -17,6 +17,7 @@ type fakeAllowReceiptPayload struct {
 	values    map[string]bool
 	payloads  map[int64]string
 	states    map[int64]string
+	claims    map[int64]string
 	lookupErr error
 	storeErr  error
 	lastTTL   time.Duration
@@ -24,7 +25,7 @@ type fakeAllowReceiptPayload struct {
 }
 
 func newFakeAllowReceiptPayload() *fakeAllowReceiptPayload {
-	return &fakeAllowReceiptPayload{values: map[string]bool{}, payloads: map[int64]string{}, states: map[int64]string{}}
+	return &fakeAllowReceiptPayload{values: map[string]bool{}, payloads: map[int64]string{}, states: map[int64]string{}, claims: map[int64]string{}}
 }
 
 func (s *fakeAllowReceiptPayload) Set(_ context.Context, jobID int64, value string, _ time.Duration) error {
@@ -61,13 +62,22 @@ func (s *fakeAllowReceiptPayload) Require(_ context.Context, userID int64, token
 	s.states[userID] = token
 	return nil
 }
-func (s *fakeAllowReceiptPayload) Replace(_ context.Context, userID int64, oldToken, newToken string) (bool, error) {
+func (s *fakeAllowReceiptPayload) Claim(_ context.Context, userID int64, token string, _ time.Duration) (bool, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.states[userID] != oldToken {
+	if s.claims[userID] != "" {
 		return false, nil
 	}
-	s.states[userID] = newToken
+	s.claims[userID] = token
+	return true, nil
+}
+func (s *fakeAllowReceiptPayload) ReleaseClaim(_ context.Context, userID int64, token string) (bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.claims[userID] != token {
+		return false, nil
+	}
+	delete(s.claims, userID)
 	return true, nil
 }
 func (s *fakeAllowReceiptPayload) Clear(_ context.Context, userID int64, token string) (bool, error) {

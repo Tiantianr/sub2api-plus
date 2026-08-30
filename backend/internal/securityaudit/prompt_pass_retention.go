@@ -14,8 +14,8 @@ import (
 // ponytail: selected users are exception policy; add a batch user resolver before raising this cap.
 const maxPassRetentionUsers = 100
 
-type passRetentionDecider interface {
-	ShouldStorePass(userID int64) bool
+type passEvidenceRetentionDecider interface {
+	ShouldRetainPassEvidence(userID int64) bool
 }
 
 type passRetentionStorage struct {
@@ -67,14 +67,14 @@ func parsePassRetentionStorage(raw string) (passRetentionStorage, error) {
 
 func validatePassRetentionUpdate(req UpdatePassRetentionRequest) ([]int64, error) {
 	if req.ExpectedRevision < 1 {
-		return nil, infraerrors.BadRequest("prompt_audit_pass_retention_expected_revision_required", "必须提供有效的正常记录留存版本")
+		return nil, infraerrors.BadRequest("prompt_audit_pass_retention_expected_revision_required", "必须提供有效的 Pass 完整证据留存版本")
 	}
 	if len(req.UserIDs) > maxPassRetentionUsers {
-		return nil, infraerrors.BadRequest("prompt_audit_pass_retention_user_limit", "正常记录留存用户数量超出限制")
+		return nil, infraerrors.BadRequest("prompt_audit_pass_retention_user_limit", "Pass 完整证据留存用户数量超出限制")
 	}
 	for _, userID := range req.UserIDs {
 		if userID <= 0 {
-			return nil, infraerrors.BadRequest("prompt_audit_pass_retention_invalid_user", "正常记录留存用户 ID 无效")
+			return nil, infraerrors.BadRequest("prompt_audit_pass_retention_invalid_user", "Pass 完整证据留存用户 ID 无效")
 		}
 	}
 	return canonicalInt64s(req.UserIDs), nil
@@ -93,7 +93,7 @@ func passRetentionDigest(userIDs []int64) string {
 	return hex.EncodeToString(digest[:])
 }
 
-func (cfg ActiveConfig) ShouldStorePass(userID int64) bool {
+func (cfg ActiveConfig) ShouldRetainPassEvidence(userID int64) bool {
 	if userID <= 0 {
 		return false
 	}

@@ -46,7 +46,8 @@ time of the recovery request.
 The system SHALL clear recovery for any content-bearing request type when its
 currently submitted canonical context completes uncached deep review with exact
 Allow. No other result may clear or bypass the recovery state. Removed prior
-content SHALL NOT be reattached to the recovery input.
+content SHALL NOT be reattached to the recovery input. The non-expiring finding
+token MUST remain separate from the bounded in-progress recovery claim.
 
 #### Scenario: Automatic tool continuation recovers
 
@@ -67,6 +68,21 @@ content SHALL NOT be reattached to the recovery input.
 Synchronous Prompt Audit Block and asynchronous deep Block SHALL write the same
 user-level versioned recovery state. A recovery request MUST clear only the
 exact state version it claimed.
+
+#### Scenario: Concurrent recovery requests
+
+- **WHEN** one request holds the bounded per-user recovery claim
+- **AND** another request observes the same pending finding
+- **THEN** the later request MUST NOT replace the first request's claim or the
+  pending finding token
+- **AND** an exact Allow from the claim owner MAY clear the unchanged finding
+
+#### Scenario: Recovery process stops before completion
+
+- **WHEN** a process stops while holding the bounded recovery claim
+- **THEN** the claim lease MAY expire
+- **AND** the underlying non-expiring finding MUST remain required
+- **AND** a later request MAY acquire a new claim and perform complete recovery
 
 #### Scenario: Synchronous Block creates recovery
 
@@ -127,6 +143,8 @@ dependencies.
   state is unavailable
 - **THEN** HTTP ingress SHALL return 503 with the existing stable error code
 - **THEN** WebSocket ingress SHALL use the existing 1013 unavailable mapping
+- **AND** a recovery-state failure message SHALL be distinguishable from
+  ordinary Guard unavailability
 
 ### Requirement: Every selected synchronous Block must trigger recovery
 

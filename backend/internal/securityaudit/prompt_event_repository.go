@@ -366,7 +366,7 @@ func eventColumns(alias string) string {
 		%[1]s.provider,%[1]s.endpoint,%[1]s.protocol,%[1]s.model,%[1]s.prompt_hash,%[1]s.redacted_preview,
 		%[1]s.stage,%[1]s.decision,%[1]s.risk_level,%[1]s.action,%[1]s.categories,%[1]s.matched_scanners,
 		%[1]s.scanner_scores,%[1]s.scanner_evidence,%[1]s.scanner_backend,%[1]s.scanner_version,
-		%[1]s.guard_endpoint_id,%[1]s.policy_id,%[1]s.policy_version,%[1]s.config_version,
+			%[1]s.guard_endpoint_id,%[1]s.guard_endpoint_name,%[1]s.guard_model,%[1]s.policy_id,%[1]s.policy_version,%[1]s.config_version,
 		%[1]s.chunk_total,%[1]s.latency_ms,%[1]s.created_at,%[1]s.client_ip,%[1]s.prompt_length,
 		%[1]s.message_count,%[1]s.execution_mode,%[1]s.queue_delay_ms,%[1]s.input_limit,
 		%[1]s.matched_chunk_index,%[1]s.full_prompt_truncated`, alias)
@@ -389,7 +389,7 @@ func scanEvent(row rowScanner, withFullPrompt ...bool) (*Event, error) {
 		&event.Snapshot.Provider, &event.Snapshot.Endpoint, &event.Snapshot.Protocol, &event.Snapshot.Model,
 		&event.Snapshot.PromptHash, &event.Snapshot.RedactedPreview, &event.Snapshot.Stage, &event.Decision,
 		&event.RiskLevel, &event.Action, &categories, &matched, &scores, &evidence, &event.ScannerBackend,
-		&event.ScannerVersion, &event.GuardEndpointID, &event.PolicyID, &event.PolicyVersion,
+		&event.ScannerVersion, &event.GuardEndpointID, &event.GuardEndpointName, &event.GuardModel, &event.PolicyID, &event.PolicyVersion,
 		&event.ConfigVersion, &event.ChunkTotal, &event.LatencyMS, &event.CreatedAt, &event.Snapshot.ClientIP,
 		&event.Snapshot.PromptLength, &event.Snapshot.MessageCount, &event.ExecutionMode, &queueDelayMS,
 		&inputLimit, &matchedChunkIndex, &event.Snapshot.FullPromptTruncated}

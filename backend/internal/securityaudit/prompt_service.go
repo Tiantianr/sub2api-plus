@@ -58,8 +58,8 @@ func NewPromptService(
 		jobRepo = repo
 	}
 	enqueuer := NewEnqueuer(config, jobRepo, payload, metrics)
-	var retention passRetentionDecider
-	if configured, ok := config.(passRetentionDecider); ok {
+	var retention passEvidenceRetentionDecider
+	if configured, ok := config.(passEvidenceRetentionDecider); ok {
 		retention = configured
 	}
 	evaluator := NewGuardEvaluator(scanner, jobRepo, metrics, retention)
@@ -234,12 +234,14 @@ func (s *PromptService) Evaluate(ctx context.Context, req Request) (*PromptDecis
 		return &PromptDecision{Kind: DecisionAllow, AllowNextStage: true}, nil
 	}
 	if deepRequired {
-		stateToken, stateErr = s.claimRequiredDeepReview(ctx, req, stateToken)
+		claimToken, claimErr := s.claimRequiredDeepReview(ctx, req)
+		stateErr = claimErr
 		if stateErr != nil {
 			s.observeRecoveryStateFailure(req, ErrorCodeDeepReviewState)
 			logPromptRequestFailure(req, DecisionUnavailable, ErrorCodeDeepReviewState)
 			return nil, &GuardError{Code: ErrorCodeDeepReviewState, Cause: stateErr}
 		}
+		defer s.releaseRequiredDeepReviewClaim(req, claimToken)
 	}
 	var snapshot PromptSnapshot
 	var diagnostic promptExtractionDiagnostic
@@ -389,16 +391,29 @@ func (s *PromptService) pendingRecoveryDecision(ctx context.Context, req Request
 	}, nil
 }
 
-func (s *PromptService) claimRequiredDeepReview(ctx context.Context, req Request, token string) (string, error) {
+func (s *PromptService) claimRequiredDeepReview(ctx context.Context, req Request) (string, error) {
 	claim := fmt.Sprintf("review:%s:%d", req.RequestID, s.clock.Now().UnixNano())
-	replaced, err := s.state.Replace(ctx, req.UserID, token, claim)
+	claimed, err := s.state.Claim(ctx, req.UserID, claim, deepReviewClaimTTL)
 	if err != nil {
 		return "", err
 	}
-	if !replaced {
-		return "", errors.New("prompt audit deep review state changed")
+	if !claimed {
+		return "", errors.New("prompt audit deep review already in progress")
 	}
 	return claim, nil
+}
+
+func (s *PromptService) releaseRequiredDeepReviewClaim(req Request, claim string) {
+	if s == nil || s.state == nil || strings.TrimSpace(claim) == "" {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), allowReceiptOperationTimeout)
+	defer cancel()
+	released, err := s.state.ReleaseClaim(ctx, req.UserID, claim)
+	if err == nil && released {
+		return
+	}
+	s.observeRecoveryStateFailure(req, ErrorCodeDeepReviewState)
 }
 
 func (s *PromptService) finishRequiredDeepReview(ctx context.Context, req Request, stateToken string, decision *PromptDecision) (*PromptDecision, error) {
@@ -490,7 +505,7 @@ func (s *PromptService) GetConfig() (PublicConfig, error) { return s.config.Publ
 func (s *PromptService) GetPassRetention() (PassRetentionConfig, error) {
 	store, ok := s.config.(passRetentionConfigStore)
 	if !ok {
-		return PassRetentionConfig{}, infraerrors.ServiceUnavailable(ErrorCodeConfigUnavailable, "正常记录留存配置暂不可用")
+		return PassRetentionConfig{}, infraerrors.ServiceUnavailable(ErrorCodeConfigUnavailable, "Pass 完整证据留存配置暂不可用")
 	}
 	return store.PublicPassRetention()
 }
@@ -502,7 +517,7 @@ func (s *PromptService) SaveConfig(ctx context.Context, req UpdateConfigRequest,
 func (s *PromptService) SavePassRetention(ctx context.Context, req UpdatePassRetentionRequest, actorID int64) (PassRetentionConfig, error) {
 	store, ok := s.config.(passRetentionConfigStore)
 	if !ok {
-		return PassRetentionConfig{}, infraerrors.ServiceUnavailable(ErrorCodeConfigUnavailable, "正常记录留存配置暂不可用")
+		return PassRetentionConfig{}, infraerrors.ServiceUnavailable(ErrorCodeConfigUnavailable, "Pass 完整证据留存配置暂不可用")
 	}
 	return store.SavePassRetention(ctx, req, actorID)
 }

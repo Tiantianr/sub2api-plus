@@ -14,6 +14,7 @@ const (
 	PassRetentionInvalidationChannel = "sub2api:prompt_audit:pass_retention:invalidate"
 	PayloadKeyPrefix                 = "sub2api:prompt_audit:payload:"
 	DeepReviewStateKeyPrefix         = "sub2api:prompt_audit:deep_required:user:"
+	DeepReviewClaimKeyPrefix         = "sub2api:prompt_audit:deep_claim:user:"
 	AllowReceiptKeyPrefix            = "sub2api:prompt_audit:allow_receipt:user:"
 
 	ErrorCodeBlocked               = "prompt_guard_blocked"
@@ -195,6 +196,8 @@ type NormalizedResult struct {
 	ScannerBackend    string             `json:"scanner_backend"`
 	ScannerVersion    string             `json:"scanner_version"`
 	GuardEndpointID   string             `json:"guard_endpoint_id"`
+	GuardEndpointName string             `json:"guard_endpoint_name"`
+	GuardModel        string             `json:"guard_model"`
 	PolicyID          string             `json:"policy_id"`
 	PolicyVersion     int                `json:"policy_version"`
 	ChunkTotal        int                `json:"chunk_total"`

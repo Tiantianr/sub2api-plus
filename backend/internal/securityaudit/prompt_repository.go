@@ -57,6 +57,8 @@ type Event struct {
 	ScannerBackend       string             `json:"scanner_backend"`
 	ScannerVersion       string             `json:"scanner_version"`
 	GuardEndpointID      string             `json:"guard_endpoint_id"`
+	GuardEndpointName    string             `json:"guard_endpoint_name"`
+	GuardModel           string             `json:"guard_model"`
 	PolicyID             string             `json:"policy_id"`
 	PolicyVersion        int                `json:"policy_version"`
 	ConfigVersion        int64              `json:"config_version"`
@@ -76,12 +78,12 @@ type JobRepository interface {
 	MarkStagingFailed(ctx context.Context, jobID int64, code, message string) error
 	ClaimNextJob(ctx context.Context, now time.Time) (*Job, bool, error)
 	RefreshLease(ctx context.Context, jobID, claimVersion int64, now time.Time) error
-	Complete(ctx context.Context, job *Job, result *NormalizedResult, storePassEvents bool) (*Event, error)
+	Complete(ctx context.Context, job *Job, result *NormalizedResult, retainPassEvidence bool) (*Event, error)
 	Retry(ctx context.Context, jobID, claimVersion int64, next time.Time, code, message string) error
 	Fail(ctx context.Context, jobID, claimVersion int64, code, message string) error
 	ReclaimStale(ctx context.Context, stagingBefore, processingBefore time.Time, limit int) (int64, error)
 	QueueStats(ctx context.Context) (QueueStats, error)
-	RecordBlocking(ctx context.Context, snapshot PromptSnapshot, configVersion int64, result *NormalizedResult, storePassEvents bool) (*Event, error)
+	RecordBlocking(ctx context.Context, snapshot PromptSnapshot, configVersion int64, result *NormalizedResult, retainPassEvidence bool) (*Event, error)
 }
 
 type PostgreSQLRepository struct {
@@ -179,7 +181,7 @@ func (r *PostgreSQLRepository) RefreshLease(ctx context.Context, jobID, claimVer
 	return requireOneRow(result, err, ErrLeaseLost)
 }
 
-func (r *PostgreSQLRepository) Complete(ctx context.Context, job *Job, result *NormalizedResult, storePassEvents bool) (*Event, error) {
+func (r *PostgreSQLRepository) Complete(ctx context.Context, job *Job, result *NormalizedResult, retainPassEvidence bool) (*Event, error) {
 	if job == nil || result == nil {
 		return nil, errors.New("prompt audit completion requires job and result")
 	}
@@ -195,12 +197,10 @@ func (r *PostgreSQLRepository) Complete(ctx context.Context, job *Job, result *N
 	if err := requireOneRow(updateResult, err, ErrLeaseLost); err != nil {
 		return nil, err
 	}
-	var event *Event
-	if shouldStorePromptAuditEvent(result.Decision, storePassEvents) {
-		event, err = insertEvent(ctx, tx, job.ID, job.Snapshot.Redacted(), job.ExecutionMode, job.ConfigVersion, queueDelayMilliseconds(job), result)
-		if err != nil {
-			return nil, err
-		}
+	event, err := insertEvent(ctx, tx, job.ID, job.Snapshot.Redacted(), job.ExecutionMode, job.ConfigVersion,
+		queueDelayMilliseconds(job), result, shouldRetainPromptAuditEvidence(result.Decision, retainPassEvidence))
+	if err != nil {
+		return nil, err
 	}
 	if err := tx.Commit(); err != nil {
 		return nil, err
@@ -288,7 +288,7 @@ func (r *PostgreSQLRepository) QueueStats(ctx context.Context) (QueueStats, erro
 	return stats, rows.Err()
 }
 
-func (r *PostgreSQLRepository) RecordBlocking(ctx context.Context, snapshot PromptSnapshot, configVersion int64, result *NormalizedResult, storePassEvents bool) (*Event, error) {
+func (r *PostgreSQLRepository) RecordBlocking(ctx context.Context, snapshot PromptSnapshot, configVersion int64, result *NormalizedResult, retainPassEvidence bool) (*Event, error) {
 	if result == nil {
 		return nil, errors.New("prompt guard result required")
 	}
@@ -301,12 +301,10 @@ func (r *PostgreSQLRepository) RecordBlocking(ctx context.Context, snapshot Prom
 	if err != nil {
 		return nil, err
 	}
-	var event *Event
-	if shouldStorePromptAuditEvent(result.Decision, storePassEvents) {
-		event, err = insertEvent(ctx, tx, job.ID, snapshot.Redacted(), ModeBlocking, configVersion, 0, result)
-		if err != nil {
-			return nil, err
-		}
+	event, err := insertEvent(ctx, tx, job.ID, snapshot.Redacted(), ModeBlocking, configVersion, 0, result,
+		shouldRetainPromptAuditEvidence(result.Decision, retainPassEvidence))
+	if err != nil {
+		return nil, err
 	}
 	if err := tx.Commit(); err != nil {
 		return nil, err
@@ -314,10 +312,9 @@ func (r *PostgreSQLRepository) RecordBlocking(ctx context.Context, snapshot Prom
 	return event, nil
 }
 
-// shouldStorePromptAuditEvent keeps optional storage scoped to safe results.
-// Risk events are always persisted while prompt auditing itself is enabled.
-func shouldStorePromptAuditEvent(decision EventDecision, storePassEvents bool) bool {
-	return decision != EventPass || storePassEvents
+// Risk evidence is mandatory; Pass evidence follows the user retention policy.
+func shouldRetainPromptAuditEvidence(decision EventDecision, retainPassEvidence bool) bool {
+	return decision != EventPass || retainPassEvidence
 }
 
 func queueDelayMilliseconds(job *Job) int {
@@ -352,7 +349,7 @@ func insertJob(ctx context.Context, queryer sqlQueryer, snapshot PromptSnapshot,
 	return scanJob(row)
 }
 
-func insertEvent(ctx context.Context, queryer sqlQueryer, jobID int64, snapshot PromptSnapshot, executionMode Mode, configVersion int64, queueDelayMS int, result *NormalizedResult) (*Event, error) {
+func insertEvent(ctx context.Context, queryer sqlQueryer, jobID int64, snapshot PromptSnapshot, executionMode Mode, configVersion int64, queueDelayMS int, result *NormalizedResult, retainEvidence bool) (*Event, error) {
 	categories, _ := json.Marshal(result.Categories)
 	matched, _ := json.Marshal(result.MatchedScanners)
 	scores, _ := json.Marshal(result.ScannerScores)
@@ -361,6 +358,12 @@ func insertEvent(ctx context.Context, queryer sqlQueryer, jobID int64, snapshot 
 		evidence[key] = RedactPreview(value, 160)
 	}
 	evidenceJSON, _ := json.Marshal(evidence)
+	fullPrompt := ""
+	fullPromptTruncated := snapshot.PromptLength > 0
+	if retainEvidence {
+		fullPrompt = snapshot.FullPrompt
+		fullPromptTruncated = snapshot.FullPromptTruncated
+	}
 	row := queryer.QueryRowContext(ctx, `
 		INSERT INTO prompt_audit_events (
 			job_id,request_id,user_id,username_snapshot,user_email_snapshot,api_key_id,api_key_name_snapshot,
@@ -368,10 +371,10 @@ func insertEvent(ctx context.Context, queryer sqlQueryer, jobID int64, snapshot 
 			decision,risk_level,action,categories,matched_scanners,scanner_scores,scanner_evidence,
 			scanner_backend,scanner_version,guard_endpoint_id,policy_id,policy_version,config_version,chunk_total,latency_ms,
 			full_prompt,client_ip,prompt_length,message_count,execution_mode,queue_delay_ms,input_limit,matched_chunk_index,
-			full_prompt_truncated
+			full_prompt_truncated,guard_endpoint_name,guard_model
 		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,
 			$20::jsonb,$21::jsonb,$22::jsonb,$23::jsonb,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35,
-			$36,$37,$38,$39,$40)
+			$36,$37,$38,$39,$40,$41,$42)
 		RETURNING `+eventDetailColumns("prompt_audit_events"),
 		jobID, snapshot.RequestID, nullableID(snapshot.UserID), snapshot.UsernameSnapshot, snapshot.UserEmailSnapshot,
 		nullableID(snapshot.APIKeyID), snapshot.APIKeyNameSnapshot, snapshot.GroupID, snapshot.GroupName,
@@ -379,13 +382,14 @@ func insertEvent(ctx context.Context, queryer sqlQueryer, jobID int64, snapshot 
 		snapshot.RedactedPreview, normalizeStage(snapshot.Stage), string(result.Decision), string(result.RiskLevel),
 		string(result.Action), categories, matched, scores, evidenceJSON, result.ScannerBackend, result.ScannerVersion,
 		result.GuardEndpointID, result.PolicyID, result.PolicyVersion, configVersion, result.ChunkTotal, result.LatencyMS,
-		snapshot.FullPrompt, snapshot.ClientIP, snapshot.PromptLength, snapshot.MessageCount, string(executionMode), queueDelayMS,
-		nullablePositiveInt(result.InputLimit), nullablePositiveInt(result.MatchedChunkIndex), snapshot.FullPromptTruncated)
+		fullPrompt, snapshot.ClientIP, snapshot.PromptLength, snapshot.MessageCount, string(executionMode), queueDelayMS,
+		nullablePositiveInt(result.InputLimit), nullablePositiveInt(result.MatchedChunkIndex), fullPromptTruncated,
+		result.GuardEndpointName, result.GuardModel)
 	event, err := scanEvent(row, true)
 	if err != nil {
 		return nil, err
 	}
-	if snapshot.FullContextCiphertext != "" {
+	if retainEvidence && snapshot.FullContextCiphertext != "" {
 		if _, err := queryer.ExecContext(ctx, `
 			INSERT INTO prompt_audit_event_contexts (
 				event_id,context_ciphertext,context_sha256,context_bytes,segment_count

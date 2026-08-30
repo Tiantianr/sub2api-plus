@@ -18,9 +18,11 @@ type scriptedScanner struct {
 	entered chan<- struct{}
 }
 
-type passRetentionDeciderFunc func(int64) bool
+type passEvidenceRetentionDeciderFunc func(int64) bool
 
-func (f passRetentionDeciderFunc) ShouldStorePass(userID int64) bool { return f(userID) }
+func (f passEvidenceRetentionDeciderFunc) ShouldRetainPassEvidence(userID int64) bool {
+	return f(userID)
+}
 
 func (s *scriptedScanner) Scan(ctx context.Context, endpoint ActiveEndpoint, _ string, _ []string) (*NormalizedResult, error) {
 	s.mu.Lock()
@@ -85,16 +87,16 @@ func TestGuardEvaluatorUsesUserPassRetentionWhenRecording(t *testing.T) {
 
 	_, err := evaluator.Evaluate(context.Background(), cfg, PromptSnapshot{UserID: 42, ScanText: "selected", PromptLength: 8})
 	require.NoError(t, err)
-	require.True(t, repo.recordBlockingStore)
+	require.True(t, repo.recordBlockingRetainPassEvidence)
 	_, err = evaluator.Evaluate(context.Background(), cfg, PromptSnapshot{UserID: 43, ScanText: "default", PromptLength: 7})
 	require.NoError(t, err)
-	require.False(t, repo.recordBlockingStore)
+	require.False(t, repo.recordBlockingRetainPassEvidence)
 
 	latestRepo := &fakeJobRepository{}
-	latest := NewGuardEvaluator(&scriptedScanner{}, latestRepo, NewAtomicMetrics(), passRetentionDeciderFunc(func(int64) bool { return false }))
+	latest := NewGuardEvaluator(&scriptedScanner{}, latestRepo, NewAtomicMetrics(), passEvidenceRetentionDeciderFunc(func(int64) bool { return false }))
 	_, err = latest.Evaluate(context.Background(), cfg, PromptSnapshot{UserID: 42, ScanText: "removed", PromptLength: 7})
 	require.NoError(t, err)
-	require.False(t, latestRepo.recordBlockingStore, "completion must use the latest retention snapshot")
+	require.False(t, latestRepo.recordBlockingRetainPassEvidence, "completion must use the latest retention snapshot")
 }
 
 func TestGuardEvaluatorGlobalBulkheadIsNonBlocking(t *testing.T) {
@@ -271,7 +273,7 @@ func TestGuardEvaluatorFlagFailoverTimeoutAndContextCancel(t *testing.T) {
 			}
 			select {
 			case <-time.After(20 * time.Millisecond):
-				return &NormalizedResult{Decision: EventPass, RiskLevel: RiskLow, Action: ActionAllow, GuardEndpointID: endpoint.ID}, nil
+				return &NormalizedResult{Decision: EventPass, RiskLevel: RiskLow, Action: ActionAllow, GuardEndpointID: endpoint.ID, GuardEndpointName: endpoint.Name, GuardModel: endpoint.Model}, nil
 			case <-ctx.Done():
 				return nil, &GuardError{Code: ErrorCodeUnavailable, Retryable: true, Timeout: true, Cause: ctx.Err()}
 			}
@@ -279,12 +281,14 @@ func TestGuardEvaluatorFlagFailoverTimeoutAndContextCancel(t *testing.T) {
 		metrics := NewAtomicMetrics()
 		evaluator := newGuardEvaluator(scanner, nil, metrics, 2, 2)
 		decision, err := evaluator.Evaluate(context.Background(), guardConfig(
-			ActiveEndpoint{ID: "first", Enabled: true, TimeoutMS: 40, InputLimit: 100},
-			ActiveEndpoint{ID: "second", Enabled: true, TimeoutMS: 200, InputLimit: 100},
+			ActiveEndpoint{ID: "first", Name: "First node", Model: "first-model", Enabled: true, TimeoutMS: 40, InputLimit: 100},
+			ActiveEndpoint{ID: "second", Name: "Second node", Model: "second-model", Enabled: true, TimeoutMS: 200, InputLimit: 100},
 		), PromptSnapshot{ScanText: "deadline", PromptLength: 8})
 		require.NoError(t, err)
 		require.Equal(t, DecisionAllow, decision.Kind)
 		require.Equal(t, "second", decision.Result.GuardEndpointID)
+		require.Equal(t, "Second node", decision.Result.GuardEndpointName)
+		require.Equal(t, "second-model", decision.Result.GuardModel)
 		require.Equal(t, 2, calls)
 		require.Equal(t, int64(1), metrics.Snapshot().Failovers)
 	})
