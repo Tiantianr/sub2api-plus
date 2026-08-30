@@ -82,7 +82,7 @@ func validatePassRetentionUpdate(req UpdatePassRetentionRequest) ([]int64, error
 
 func publicPassRetention(stored passRetentionStorage, loadError string) PassRetentionConfig {
 	return PassRetentionConfig{
-		Revision: stored.Revision, UserIDs: append([]int64(nil), stored.UserIDs...),
+		Revision: stored.Revision, UserIDs: append([]int64{}, stored.UserIDs...),
 		UpdatedAt: stored.UpdatedAt, UpdatedBy: stored.UpdatedBy, LoadError: loadError,
 	}
 }

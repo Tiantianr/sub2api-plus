@@ -18,6 +18,10 @@ import { eventFilterPayload, eventQueryParams } from './viewModel'
 
 const basePath = '/admin/prompt-audit'
 
+function normalizePassRetention(config: PromptPassRetentionConfig): PromptPassRetentionConfig {
+  return { ...config, user_ids: Array.isArray(config.user_ids) ? config.user_ids : [] }
+}
+
 export async function getConfig(): Promise<PromptAuditConfig> {
   const { data } = await apiClient.get<PromptAuditConfig>(`${basePath}/config`)
   return data
@@ -30,12 +34,12 @@ export async function updateConfig(payload: PromptAuditUpdateRequest): Promise<P
 
 export async function getPassRetention(): Promise<PromptPassRetentionConfig> {
   const { data } = await apiClient.get<PromptPassRetentionConfig>(`${basePath}/pass-retention`)
-  return data
+  return normalizePassRetention(data)
 }
 
 export async function updatePassRetention(payload: PromptPassRetentionUpdateRequest): Promise<PromptPassRetentionConfig> {
   const { data } = await apiClient.put<PromptPassRetentionConfig>(`${basePath}/pass-retention`, payload)
-  return data
+  return normalizePassRetention(data)
 }
 
 export async function probeEndpoint(endpoint: PromptAuditEndpointDraft): Promise<PromptProbeResult> {

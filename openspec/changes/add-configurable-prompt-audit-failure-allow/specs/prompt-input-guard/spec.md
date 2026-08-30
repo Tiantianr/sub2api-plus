@@ -2,7 +2,7 @@
 
 ### Requirement: 同步分片必须使用节点级预算并完整覆盖
 
-系统 SHALL 将每个启用节点的 timeout 应用于该节点对一个分片的一次调用。不同分片与不同节点尝试 MUST 获得各自的节点预算；父请求取消 MUST 立即终止剩余尝试。任一必要分片返回严格解析失败或无合法结果时 MUST fail-closed。任一必要分片仅因节点耗尽、连接失败、429、5xx、401/403、容量饱和或超时而不可用时，系统 MUST 根据当前 `allow_on_guard_unavailable` 配置决定 fail-closed 或 failure-allow，且 MUST NOT 将已完成的部分结果当作完整 Safe 结果。
+系统 SHALL 将每个启用节点的 timeout 应用于该节点对一个分片的一次调用。不同分片与不同节点尝试 MUST 获得各自的节点预算；父请求取消 MUST 立即终止剩余尝试。任一必要分片返回严格解析失败或无合法结果时 MUST fail-closed。任一必要分片仅因节点耗尽、连接失败、429、5xx、401/403、容量饱和或超时而不可用时，系统 MUST 根据当前 `allow_on_guard_unavailable` 配置决定 fail-closed 或 failure-allow；该字段缺失时 MUST 默认 failure-allow，且 MUST NOT 将已完成的部分结果当作完整 Safe 结果。
 
 #### Scenario: 所有分片均为安全
 
@@ -18,20 +18,20 @@
 #### Scenario: 最后一个必要分片技术失败且开关关闭
 
 - **WHEN** 前面分片安全但最后一个必要分片耗尽节点为 unavailable
-- **AND** `allow_on_guard_unavailable` 为 false 或缺失
+- **AND** `allow_on_guard_unavailable` 被显式设为 false
 - **THEN** 系统 MUST 返回 `prompt_guard_unavailable`
 - **THEN** 系统 MUST NOT 根据部分结果放行
 
 #### Scenario: 最后一个必要分片技术失败且开关开启
 
 - **WHEN** 前面分片未产生 Block 且最后一个必要分片耗尽节点为 unavailable
-- **AND** `allow_on_guard_unavailable` 为 true
+- **AND** `allow_on_guard_unavailable` 为 true 或字段缺失
 - **THEN** 普通同步请求 MAY 进入下一阶段
 - **AND** 系统 MUST NOT 将该请求记录为 Safe 或创建 Allow receipt
 
 ### Requirement: 同步节点故障切换必须有序且显式决定失败行为
 
-系统 SHALL 按配置顺序尝试启用节点。连接失败、429、5xx 和节点超时 MUST 在父请求仍有效且存在后续节点时切换到下一节点，后续节点 MUST 获得自己的完整配置超时。严格解析失败 MUST 结束为非法响应并 fail-closed。耗尽节点后的 unavailable MUST 默认 fail-closed，并且只有显式启用 `allow_on_guard_unavailable` 的普通同步请求 MAY failure-allow。该配置 MUST NOT 影响 Content Moderation、内容提取、配置可信度、加密、深度恢复状态或已知风险判定。
+系统 SHALL 按配置顺序尝试启用节点。连接失败、429、5xx 和节点超时 MUST 在父请求仍有效且存在后续节点时切换到下一节点，后续节点 MUST 获得自己的完整配置超时。严格解析失败 MUST 结束为非法响应并 fail-closed。耗尽节点后的 eligible unavailable MUST 默认 failure-allow；只有管理员显式关闭 `allow_on_guard_unavailable` 时普通同步请求才 fail-closed。该配置 MUST NOT 影响 Content Moderation、内容提取、配置可信度、加密、深度恢复状态或已知风险判定。
 
 #### Scenario: 首节点耗尽自身超时而次节点成功
 
@@ -43,7 +43,7 @@
 #### Scenario: 所有节点不可用且显式放行
 
 - **WHEN** 所有节点最终返回 `prompt_guard_unavailable`
-- **AND** 普通同步请求的活动配置启用了 `allow_on_guard_unavailable`
+- **AND** 普通同步请求未显式关闭 `allow_on_guard_unavailable`
 - **THEN** 请求 MUST 可继续到后续独立安全检查或业务阶段
 - **AND** failure-allowed 日志与指标 MUST 增加
 - **AND** 请求 MUST NOT 创建 Allow receipt
@@ -81,6 +81,6 @@
 #### Scenario: 所有节点容量饱和且开关关闭
 
 - **WHEN** 全局或每节点 bulkhead 均无法接受 evaluation
-- **AND** `allow_on_guard_unavailable` 为 false 或缺失
+- **AND** `allow_on_guard_unavailable` 被显式设为 false
 - **THEN** 系统 MUST 快速返回 `prompt_guard_unavailable`
 - **THEN** 系统 MUST 不无限排队

@@ -34,7 +34,7 @@ func TestDefaultConfigIsOff(t *testing.T) {
 	storage, err := ParseStorageConfig("")
 	require.NoError(t, err)
 	require.False(t, storage.Enabled)
-	require.False(t, storage.AllowOnGuardUnavailable)
+	require.True(t, storage.AllowOnGuardUnavailable)
 	require.False(t, storage.BlockingLatestTurnOnly)
 	require.Equal(t, DefaultBlockingReviewModules(), storage.BlockingReviewModules)
 	require.Equal(t, DefaultDeepReviewModules(), storage.DeepReviewModules)
@@ -47,6 +47,10 @@ func TestDefaultConfigIsOff(t *testing.T) {
 	require.NoError(t, err)
 	require.Contains(t, string(publicJSON), `"group_ids":[]`)
 	require.Contains(t, string(publicJSON), `"endpoints":[]`)
+
+	explicitClosed, err := ParseStorageConfig(`{"allow_on_guard_unavailable":false}`)
+	require.NoError(t, err)
+	require.False(t, explicitClosed.AllowOnGuardUnavailable)
 }
 
 func TestReviewModuleConfigRoundTrip(t *testing.T) {
@@ -94,6 +98,7 @@ func TestModuleAllowCacheTTLDefaultsForOldConfigAndRejectsInvalidUpdate(t *testi
 	storage, err := ParseStorageConfig(`{"enabled":false,"worker_count":1,"queue_capacity":10,"all_groups":true,"scanners":["pii"],"config_version":7}`)
 	require.NoError(t, err)
 	require.Equal(t, DefaultAllowReceiptTTLSeconds, storage.AllowReceiptTTLSeconds)
+	require.True(t, storage.AllowOnGuardUnavailable, "configurations that predate the field must default to failure allow")
 
 	manager := &ConfigManager{encryptor: prefixEncryptor{}, encryptionKeyConfigured: true}
 	invalid := MinAllowReceiptTTLSeconds - 1

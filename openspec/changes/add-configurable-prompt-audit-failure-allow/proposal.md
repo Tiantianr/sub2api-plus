@@ -8,7 +8,7 @@ make the gateway unavailable to every user in the configured scope.
 
 ## Proposal
 
-- Add an explicit, default-off `allow_on_guard_unavailable` policy to the main
+- Add an explicit, default-on `allow_on_guard_unavailable` policy to the main
   Prompt Audit configuration.
 - When enabled, allow an ordinary blocking request after all Guard nodes end in
   `prompt_guard_unavailable`.
@@ -27,5 +27,6 @@ make the gateway unavailable to every user in the configured scope.
 ## Impact
 
 The existing Prompt Audit settings JSON gains one backward-compatible boolean.
-No SQL migration or new dependency is required. Existing installations preserve
-fail-closed behavior until an administrator explicitly enables the policy.
+No SQL migration or new dependency is required. Existing configurations that
+lack the field default to failure allow; an administrator may explicitly set it
+to false to require fail-closed Guard availability.

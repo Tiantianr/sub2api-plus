@@ -65,7 +65,7 @@ export default {
       title: '正常记录留存', description: '默认不保存正常通过记录。仅为这里选中的用户保存正常事件和完整聊天；Flag 和 Critical 问题记录始终保存。',
       revision: '留存版本 v{revision}', selectedCount: '已为 {count} 名用户保存正常记录', limitHint: '最多选择 100 名用户；如需更大范围，应重新评估正常记录的存储成本。', save: '保存留存用户', loadDegraded: '留存配置无法读取，当前按空名单处理，不保存任何新的正常记录。',
     },
-    saveBar: { enabled: '启用提示词审计', blocking: '同步阻止', allowOnGuardUnavailable: 'Guard 不可用时放行', allowOnGuardUnavailableHint: '仅放行 Guard 超时、连接或 API 不可用；风险命中、无效响应、提取失败和强制恢复仍会阻止。故障放行不会生成 Allow 凭据。', blockingLatestTurnOnly: '同步阻止优先审当前用户输入', dirty: '有未保存的更改', synced: '配置已同步' },
+    saveBar: { enabled: '启用提示词审计', blocking: '同步阻止', allowOnGuardUnavailable: 'Guard 不可用时放行', allowOnGuardUnavailableHint: '默认开启。仅放行 Guard 超时、连接或 API 不可用；风险命中、无效响应、提取失败和强制恢复仍会阻止。故障放行不会生成 Allow 凭据。', blockingLatestTurnOnly: '同步阻止优先审当前用户输入', dirty: '有未保存的更改', synced: '配置已同步' },
     blockingConfirm: {
       title: '开启同步阻止？',
       message: '适用请求会在账号选择、计费和访问上游之前等待 Guard；同步放行后还会异步深度复核。同步或深度复核 Block 后，用户下一次请求必须通过同步深度复核。',
