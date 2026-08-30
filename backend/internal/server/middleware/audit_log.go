@@ -52,7 +52,7 @@ func SkipAudit(c *gin.Context) {
 // scalar, non-secret operation summaries. Request bodies and arbitrary maps
 // are never accepted through this channel.
 var auditExtraAllowedKeys = map[string]struct{}{
-	"result": {}, "error_code": {}, "enabled": {}, "blocking_enabled": {},
+	"result": {}, "error_code": {}, "enabled": {}, "blocking_enabled": {}, "allow_on_guard_unavailable": {},
 	"config_version": {}, "endpoint_count": {}, "scanner_count": {},
 	"all_groups": {}, "group_count": {}, "guard_endpoint_id": {},
 	"http_status": {}, "latency_ms": {}, "token_applied": {}, "retryable": {},
@@ -140,6 +140,7 @@ var auditSensitiveReads = map[string]string{
 	"GET /api/v1/admin/data-management/s3/config":                    "admin.data_management.s3_config.read",
 	"GET /api/v1/admin/ip-access-control/failure-states":             "security.ip_login_failure.read",
 	"GET /api/v1/admin/prompt-audit/events/:id":                      "admin.prompt_audit.event.read",
+	"GET /api/v1/admin/prompt-audit/pass-retention":                  "admin.prompt_audit.pass_retention.read",
 	"GET /api/v1/admin/openai-oauth-access/accounts":                 "admin.openai_oauth_access.accounts.read",
 	"GET /api/v1/admin/openai-oauth-access/users":                    "admin.openai_oauth_access.users.read",
 }
@@ -167,6 +168,7 @@ var auditActionOverrides = map[string]string{
 	"POST /api/v1/admin/ip-access-control/failure-state/block":     "security.ip_login_failure.manual_block",
 	"DELETE /api/v1/admin/settings/admin-api-key":                  "admin.admin_api_key.delete",
 	"PUT /api/v1/admin/prompt-audit/config":                        "admin.prompt_audit.config.update",
+	"PUT /api/v1/admin/prompt-audit/pass-retention":                "admin.prompt_audit.pass_retention.update",
 	"POST /api/v1/admin/prompt-audit/endpoints/probe":              "admin.prompt_audit.endpoint.probe",
 	"DELETE /api/v1/admin/prompt-audit/events/:id":                 "admin.prompt_audit.event.delete",
 	"POST /api/v1/admin/prompt-audit/events/batch-delete":          "admin.prompt_audit.events.batch_delete",
@@ -185,6 +187,7 @@ var auditBodyOmittedRoutes = map[string]struct{}{
 	"POST /api/v1/admin/accounts/import/codex-session":          {},
 	"PUT /api/v1/admin/accounts/:id/ollama-cloud-usage/session": {},
 	"PUT /api/v1/admin/prompt-audit/config":                     {},
+	"PUT /api/v1/admin/prompt-audit/pass-retention":             {},
 	"POST /api/v1/admin/prompt-audit/endpoints/probe":           {},
 	"DELETE /api/v1/admin/prompt-audit/events/:id":              {},
 	"POST /api/v1/admin/prompt-audit/events/batch-delete":       {},

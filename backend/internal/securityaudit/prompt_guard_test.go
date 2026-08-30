@@ -18,6 +18,10 @@ type scriptedScanner struct {
 	entered chan<- struct{}
 }
 
+type passRetentionDeciderFunc func(int64) bool
+
+func (f passRetentionDeciderFunc) ShouldStorePass(userID int64) bool { return f(userID) }
+
 func (s *scriptedScanner) Scan(ctx context.Context, endpoint ActiveEndpoint, _ string, _ []string) (*NormalizedResult, error) {
 	s.mu.Lock()
 	s.calls = append(s.calls, endpoint.ID)
@@ -71,6 +75,26 @@ func TestGuardEvaluatorOrderedFailoverAndInvalidTerminal(t *testing.T) {
 	require.Equal(t, int64(2), snapshotMetrics.Total)
 	require.Equal(t, int64(1), snapshotMetrics.Allowed)
 	require.Equal(t, int64(1), snapshotMetrics.Invalid)
+}
+
+func TestGuardEvaluatorUsesUserPassRetentionWhenRecording(t *testing.T) {
+	repo := &fakeJobRepository{}
+	evaluator := newGuardEvaluator(&scriptedScanner{}, repo, NewAtomicMetrics(), 2, 2)
+	cfg := guardConfig(ActiveEndpoint{ID: "good", Enabled: true, TimeoutMS: 1000, InputLimit: 100})
+	cfg.PassRetentionUserIDs = []int64{42}
+
+	_, err := evaluator.Evaluate(context.Background(), cfg, PromptSnapshot{UserID: 42, ScanText: "selected", PromptLength: 8})
+	require.NoError(t, err)
+	require.True(t, repo.recordBlockingStore)
+	_, err = evaluator.Evaluate(context.Background(), cfg, PromptSnapshot{UserID: 43, ScanText: "default", PromptLength: 7})
+	require.NoError(t, err)
+	require.False(t, repo.recordBlockingStore)
+
+	latestRepo := &fakeJobRepository{}
+	latest := NewGuardEvaluator(&scriptedScanner{}, latestRepo, NewAtomicMetrics(), passRetentionDeciderFunc(func(int64) bool { return false }))
+	_, err = latest.Evaluate(context.Background(), cfg, PromptSnapshot{UserID: 42, ScanText: "removed", PromptLength: 7})
+	require.NoError(t, err)
+	require.False(t, latestRepo.recordBlockingStore, "completion must use the latest retention snapshot")
 }
 
 func TestGuardEvaluatorGlobalBulkheadIsNonBlocking(t *testing.T) {

@@ -20,6 +20,7 @@ type AtomicMetrics struct {
 	failovers             atomic.Int64
 	bulkheadFull          atomic.Int64
 	recordFailed          atomic.Int64
+	failureAllowed        atomic.Int64
 	latencyTotal          atomic.Int64
 	latencyMax            atomic.Int64
 	enqueued              atomic.Int64
@@ -52,7 +53,8 @@ func (m *AtomicMetrics) Snapshot() GuardMetricsSnapshot {
 		Total: m.total.Load(), Allowed: m.allowed.Load(), Flagged: m.flagged.Load(),
 		Blocked: m.blocked.Load(), Unavailable: m.unavailable.Load(), Invalid: m.invalid.Load(),
 		Timeouts: m.timeouts.Load(), Failovers: m.failovers.Load(), BulkheadFull: m.bulkheadFull.Load(),
-		RecordFailed: m.recordFailed.Load(), LatencyCount: m.total.Load(), LatencyMaxMS: m.latencyMax.Load(),
+		RecordFailed: m.recordFailed.Load(), FailureAllowed: m.failureAllowed.Load(),
+		LatencyCount: m.total.Load(), LatencyMaxMS: m.latencyMax.Load(),
 	}
 	if snapshot.LatencyCount > 0 {
 		snapshot.LatencyAvgMS = m.latencyTotal.Load() / snapshot.LatencyCount
@@ -178,6 +180,11 @@ func (m *AtomicMetrics) IncBulkheadFull() {
 func (m *AtomicMetrics) IncRecordFailed() {
 	if m != nil {
 		m.recordFailed.Add(1)
+	}
+}
+func (m *AtomicMetrics) IncFailureAllowed() {
+	if m != nil {
+		m.failureAllowed.Add(1)
 	}
 }
 func (m *AtomicMetrics) IncAllowReceiptHit() {

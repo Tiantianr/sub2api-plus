@@ -13,6 +13,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	infraerrors "github.com/LuckyKuang/sub2api-plus/internal/pkg/errors"
 )
 
 type PromptService struct {
@@ -37,6 +39,11 @@ type PromptService struct {
 	probes       map[string]ProbeResult
 }
 
+type passRetentionConfigStore interface {
+	PublicPassRetention() (PassRetentionConfig, error)
+	SavePassRetention(context.Context, UpdatePassRetentionRequest, int64) (PassRetentionConfig, error)
+}
+
 func NewPromptService(
 	config ConfigStore,
 	repo *PostgreSQLRepository,
@@ -51,7 +58,11 @@ func NewPromptService(
 		jobRepo = repo
 	}
 	enqueuer := NewEnqueuer(config, jobRepo, payload, metrics)
-	evaluator := NewGuardEvaluator(scanner, jobRepo, metrics)
+	var retention passRetentionDecider
+	if configured, ok := config.(passRetentionDecider); ok {
+		retention = configured
+	}
+	evaluator := NewGuardEvaluator(scanner, jobRepo, metrics, retention)
 	runner := NewRunner(config, jobRepo, payload, scanner, metrics)
 	return &PromptService{
 		config: config, repo: repo, payload: payload, state: state, receipts: receipts, scanner: scanner, metrics: metrics,
@@ -304,6 +315,16 @@ func (s *PromptService) Evaluate(ctx context.Context, req Request) (*PromptDecis
 		if deepRequired {
 			s.observeRecoveryRetained(req, DecisionUnavailable, guardErrorCode(err))
 		}
+		if !deepRequired && cfg.AllowOnGuardUnavailable && guardFailureAllowEligible(err) {
+			if s.metrics != nil {
+				s.metrics.IncFailureAllowed()
+			}
+			LogWarn(EventGuardFailureAllowed, mergeLogFields(requestLogFields(req), map[string]any{
+				"config_version": cfg.ConfigVersion, "decision": DecisionAllow, "status": "failure_allowed",
+				"error_code": ErrorCodeUnavailable, "upstream_dispatched": false, "billing_preconsumed": false,
+			}))
+			return &PromptDecision{Kind: DecisionAllow, ErrorCode: ErrorCodeUnavailable, AllowNextStage: true, FailureAllowed: true}, nil
+		}
 		return decision, err
 	}
 	if !deepRequired {
@@ -321,6 +342,11 @@ func (s *PromptService) Evaluate(ctx context.Context, req Request) (*PromptDecis
 		return decision, nil
 	}
 	return s.finishRequiredDeepReview(ctx, req, stateToken, decision)
+}
+
+func guardFailureAllowEligible(err error) bool {
+	var guardErr *GuardError
+	return errors.As(err, &guardErr) && guardErr.Code == ErrorCodeUnavailable && guardErr.FailureAllowEligible
 }
 
 func (s *PromptService) commitAllowReceipts(ctx context.Context, decision *PromptDecision) {
@@ -461,8 +487,24 @@ func (s *PromptService) observeRecoveryStateFailure(req Request, code string) {
 
 func (s *PromptService) GetConfig() (PublicConfig, error) { return s.config.Public() }
 
+func (s *PromptService) GetPassRetention() (PassRetentionConfig, error) {
+	store, ok := s.config.(passRetentionConfigStore)
+	if !ok {
+		return PassRetentionConfig{}, infraerrors.ServiceUnavailable(ErrorCodeConfigUnavailable, "正常记录留存配置暂不可用")
+	}
+	return store.PublicPassRetention()
+}
+
 func (s *PromptService) SaveConfig(ctx context.Context, req UpdateConfigRequest, actorID int64) (PublicConfig, error) {
 	return s.config.Save(ctx, req, actorID)
+}
+
+func (s *PromptService) SavePassRetention(ctx context.Context, req UpdatePassRetentionRequest, actorID int64) (PassRetentionConfig, error) {
+	store, ok := s.config.(passRetentionConfigStore)
+	if !ok {
+		return PassRetentionConfig{}, infraerrors.ServiceUnavailable(ErrorCodeConfigUnavailable, "正常记录留存配置暂不可用")
+	}
+	return store.SavePassRetention(ctx, req, actorID)
 }
 
 func (s *PromptService) Runtime(ctx context.Context) RuntimeSnapshot {

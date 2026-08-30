@@ -101,8 +101,10 @@ const searchResults = ref<SimpleUser[]>([]);
 const searchLoading = ref(false);
 const showDropdown = ref(false);
 const selectedUsers = ref<Record<number, SimpleUser>>({});
+const USER_HYDRATE_BATCH_SIZE = 10;
 let searchTimer: ReturnType<typeof setTimeout> | null = null;
 let searchSequence = 0;
+let hydrationSequence = 0;
 
 const selectedUserIds = computed(() =>
   Array.from(new Set(props.modelValue.filter((id) => Number.isInteger(id) && id > 0))),
@@ -143,6 +145,15 @@ function debounceSearch(): void {
     searchLoading.value = true;
     try {
       const results = await adminAPI.usage.searchUsers(query);
+      const numericId = /^\d+$/.test(query) ? Number(query) : 0;
+      if (numericId > 0 && !results.some((user) => user.id === numericId)) {
+        try {
+          const user = await adminAPI.users.getById(numericId, true);
+          results.unshift({ id: user.id, email: user.email, deleted: Boolean(user.deleted_at) });
+        } catch {
+          // A missing numeric ID simply leaves the ordinary search results.
+        }
+      }
       if (sequence === searchSequence) {
         searchResults.value = results;
       }
@@ -176,23 +187,29 @@ function removeUser(userId: number): void {
 }
 
 async function hydrateSelectedUsers(userIds: number[]): Promise<void> {
+  const sequence = ++hydrationSequence;
   const missing = userIds.filter((id) => !selectedUsers.value[id]);
   if (missing.length === 0) return;
 
-  const users = await Promise.all(
-    missing.map(async (id) => {
-      try {
-        const user = await adminAPI.users.getById(id, true);
-        return {
-          id: user.id,
-          email: user.email,
-          deleted: Boolean(user.deleted_at),
-        } satisfies SimpleUser;
-      } catch {
-        return null;
-      }
-    }),
-  );
+  const users: Array<SimpleUser | null> = [];
+  for (let index = 0; index < missing.length; index += USER_HYDRATE_BATCH_SIZE) {
+    const batch = await Promise.all(
+      missing.slice(index, index + USER_HYDRATE_BATCH_SIZE).map(async (id) => {
+        try {
+          const user = await adminAPI.users.getById(id, true);
+          return {
+            id: user.id,
+            email: user.email,
+            deleted: Boolean(user.deleted_at),
+          } satisfies SimpleUser;
+        } catch {
+          return null;
+        }
+      }),
+    );
+    if (sequence !== hydrationSequence) return;
+    users.push(...batch);
+  }
 
   const next = { ...selectedUsers.value };
   for (const user of users) {
@@ -200,7 +217,7 @@ async function hydrateSelectedUsers(userIds: number[]): Promise<void> {
       next[user.id] = user;
     }
   }
-  selectedUsers.value = next;
+  if (sequence === hydrationSequence) selectedUsers.value = next;
 }
 
 function handleDocumentClick(event: MouseEvent): void {
@@ -224,6 +241,7 @@ onMounted(() => {
 
 onUnmounted(() => {
   clearPendingSearch();
+  hydrationSequence += 1;
   document.removeEventListener("click", handleDocumentClick);
 });
 </script>

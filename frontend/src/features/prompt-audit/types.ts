@@ -33,11 +33,11 @@ export interface PromptAuditEndpointDraft extends PromptAuditEndpoint {
 export interface PromptAuditConfig {
   enabled: boolean
   blocking_enabled: boolean
+  allow_on_guard_unavailable: boolean
   blocking_latest_turn_only: boolean
   blocking_review_modules: PromptAuditReviewModules
   deep_review_modules: PromptAuditReviewModules
   allow_receipt_ttl_seconds: number
-  store_pass_events: boolean
   effective_mode: PromptAuditMode
   strategy: 'priority'
   worker_count: number
@@ -60,11 +60,11 @@ export interface PromptAuditUpdateRequest {
   expected_config_version: number
   enabled: boolean
   blocking_enabled: boolean
+  allow_on_guard_unavailable: boolean
   blocking_latest_turn_only: boolean
   blocking_review_modules: PromptAuditReviewModules
   deep_review_modules: PromptAuditReviewModules
   allow_receipt_ttl_seconds: number
-  store_pass_events: boolean
   strategy: 'priority'
   worker_count: number
   queue_capacity: number
@@ -118,6 +118,7 @@ export interface PromptGuardMetrics {
   failovers: number
   bulkhead_full: number
   record_failed: number
+  failure_allowed: number
   latency_avg_ms?: number
   latency_p50_ms?: number
   latency_p95_ms?: number
@@ -263,11 +264,26 @@ export interface PromptDeleteResult {
 
 export interface PromptDeletePreview {
   matched_count: number
+  matched_context_count: number
+  estimated_reclaimable_bytes: number
   filter_summary: Record<string, unknown>
   snapshot_max_id: number
   filter_hash: string
   confirmation_token: string
   expires_at: string
+}
+
+export interface PromptPassRetentionConfig {
+  revision: number
+  user_ids: number[]
+  updated_at: string
+  updated_by: number
+  load_error?: string
+}
+
+export interface PromptPassRetentionUpdateRequest {
+  expected_revision: number
+  user_ids: number[]
 }
 
 export interface PromptAuditGroup {
@@ -279,6 +295,7 @@ export interface PromptAuditGroup {
 
 export interface PromptLoadErrors {
   config: string
+  retention: string
   runtime: string
   groups: string
   events: string

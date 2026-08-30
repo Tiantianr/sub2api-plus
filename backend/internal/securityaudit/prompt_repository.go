@@ -11,8 +11,9 @@ import (
 )
 
 const (
-	promptAuditAdmissionLockKey int64 = 579147893221901921
-	promptAuditConfigLockKey    int64 = 579147893221901922
+	promptAuditAdmissionLockKey     int64 = 579147893221901921
+	promptAuditConfigLockKey        int64 = 579147893221901922
+	promptAuditPassRetentionLockKey int64 = 579147893221901923
 )
 
 var (
@@ -313,7 +314,7 @@ func (r *PostgreSQLRepository) RecordBlocking(ctx context.Context, snapshot Prom
 	return event, nil
 }
 
-// shouldStorePromptAuditEvent keeps store_pass_events scoped to safe results.
+// shouldStorePromptAuditEvent keeps optional storage scoped to safe results.
 // Risk events are always persisted while prompt auditing itself is enabled.
 func shouldStorePromptAuditEvent(decision EventDecision, storePassEvents bool) bool {
 	return decision != EventPass || storePassEvents

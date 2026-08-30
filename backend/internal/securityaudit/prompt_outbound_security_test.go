@@ -108,6 +108,7 @@ func TestOpenAICompatibleScannerClassifiesHTTPConnectionAndTimeoutFailures(t *te
 			require.Equal(t, ErrorCodeUnavailable, guardErr.Code)
 			require.Equal(t, tt.status, guardErr.HTTPStatus)
 			require.Equal(t, tt.retryable, guardErr.Retryable)
+			require.True(t, guardErr.FailureAllowEligible)
 			require.NotContains(t, err.Error(), server.URL)
 		})
 	}
@@ -119,6 +120,7 @@ func TestOpenAICompatibleScannerClassifiesHTTPConnectionAndTimeoutFailures(t *te
 	var connectionErr *GuardError
 	require.ErrorAs(t, err, &connectionErr)
 	require.True(t, connectionErr.Retryable)
+	require.True(t, connectionErr.FailureAllowEligible)
 
 	timeout := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		time.Sleep(100 * time.Millisecond)
@@ -130,6 +132,13 @@ func TestOpenAICompatibleScannerClassifiesHTTPConnectionAndTimeoutFailures(t *te
 	require.ErrorAs(t, err, &timeoutErr)
 	require.True(t, timeoutErr.Retryable)
 	require.True(t, timeoutErr.Timeout)
+	require.True(t, timeoutErr.FailureAllowEligible)
+
+	_, err = NewOpenAICompatibleScanner().Scan(context.Background(), ActiveEndpoint{ID: "invalid-config", BaseURL: "://invalid", Model: DefaultGuardModel, TimeoutMS: 100}, "hello", AllScannerIDs)
+	var configErr *GuardError
+	require.ErrorAs(t, err, &configErr)
+	require.Equal(t, ErrorCodeUnavailable, configErr.Code)
+	require.False(t, configErr.FailureAllowEligible)
 }
 
 func TestPromptAuditProbeModelsFallbackAndResponseSafety(t *testing.T) {

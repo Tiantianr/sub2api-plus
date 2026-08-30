@@ -173,6 +173,22 @@ or partial hit, `guard_input`, event prompt metadata, hashes, and chunk counts
 describe only the receipt misses; every selected canonical source segment
 remains in encrypted context for review.
 
+Pass evidence retention is independently selected by authenticated user ID and
+defaults to an empty selection. An unselected user's Pass result still
+completes review, metrics, deep-review scheduling, and applicable Allow receipt
+work, but it creates no event or complete-context artifact. Flag and Critical
+events always retain the same encrypted evidence regardless of this optional
+Pass-retention setting. Changing the retention list has its own revision and
+does not change Guard policy identity, invalidate receipts, or make queued jobs
+stale.
+
+The administration cleanup shortcut is fixed to Pass events and requires a
+displayed server preview with an explicit time range, snapshot high water,
+administrator-bound confirmation token, context count, and estimated stored
+content bytes. Cleanup reuses event cascade deletion and never deletes Allow
+receipts. The estimate describes future logical-backup reduction; it does not
+promise immediate filesystem reclamation.
+
 Blocking Allow starts a best-effort `async_deep` job only after Content
 Moderation and Prompt Guard both permit the request. A synchronous aggregate
 Block writes a versioned per-user Redis requirement before returning 403; an
@@ -195,7 +211,10 @@ cancelled.
 All enabled engine paths expose `extraction_attempted`,
 `extraction_succeeded`, `extraction_empty`, and `extraction_failed` counters.
 Prompt Audit also exposes incremental Allow receipt hit, miss, write, and error
-counters; these counters do not change security decisions.
+counters. Blocking Guard failures additionally expose `failure_allowed` when
+the active, default-off `allow_on_guard_unavailable` policy lets an ordinary
+request continue after all Guard nodes end in `prompt_guard_unavailable`.
+Unavailable and timeout counters still record the underlying failure.
 Every extraction, evaluation, or audit-dependency exception emits a structured
 log containing request ID, endpoint, protocol, stage, a stable error
 code/reason, available byte counts, and bounded incomplete reasons. Extraction
@@ -230,6 +249,22 @@ Prompt Audit block decision. Extraction failure uses a distinct dependency
 error code rather than a content category. Content Moderation external API
 availability remains separate from Prompt Guard selection semantics.
 
+Blocking Prompt Audit fails closed on Guard unavailability by default. An
+administrator may explicitly enable `allow_on_guard_unavailable`; this changes
+only the final action for ordinary synchronous requests after node timeout,
+connection/API failure, authentication failure, or capacity saturation.
+Missing usable nodes, undecryptable credentials, local client construction,
+and scanner wiring failures are not eligible. A failure-allowed request has no
+Safe result and creates no Allow receipt, including if its best-effort
+asynchronous deep review later succeeds. Strictly invalid Guard responses,
+partial or failed content extraction, encryption/configuration failure, known
+Flag or Block results, Content Moderation failure, and required user recovery
+remain fail closed. Required recovery also retains its Redis state when Guard
+is unavailable. The structured `prompt_guard.failure_allowed` event and
+runtime counter make every use observable; best-effort asynchronous deep
+review may still be queued after the request passes the independent final
+recovery fence.
+
 Deterministic structured serialization is part of extraction. Sanitization or
 JSON serialization failure sets `Incomplete`; async audit may retain extracted
 siblings, while blocking audit rejects the partial result.
@@ -254,6 +289,10 @@ the same change and provide all of the following evidence:
 - HTTP and WebSocket ordering tests proving blocking extraction failures and
   confirmed policy blocks both produce zero account, billing,
   concurrency, or upstream side effects; and
+- HTTP and WebSocket tests for API-key and OAuth identities proving an explicit
+  Guard-unavailable policy allows downstream stages without creating an Allow
+  receipt, while extraction and recovery failures remain before side effects;
+  and
 - Live lifecycle tests when Sideband classification or forwarding changes.
 
 Route-call presence or static source-order assertions alone do not prove

@@ -315,6 +315,16 @@ func TestCoordinatorEnqueuesDeepOnlyAfterCombinedBlockingAllow(t *testing.T) {
 	require.Equal(t, int64(1), prompt.receiptCommits.Load())
 	require.Equal(t, prompt.decision.AllowReceiptKeys, prompt.lastDeep.AllowReceiptKeys)
 	require.True(t, prompt.lastDeep.AllowReceiptWrite)
+	require.False(t, prompt.lastDeep.SuppressReceiptWrite)
+
+	prompt = &fakePromptEngine{mode: ModeBlocking, decision: &PromptDecision{
+		Kind: DecisionAllow, ErrorCode: ErrorCodeUnavailable, AllowNextStage: true, FailureAllowed: true,
+	}}
+	decision = NewCoordinator(&fakeLegacyEngine{decision: &LegacyDecision{Allowed: true}}, prompt).Check(context.Background(), Request{})
+	require.True(t, decision.AllowNextStage)
+	require.Equal(t, int64(1), prompt.deepEnqueues.Load())
+	require.False(t, prompt.lastDeep.AllowReceiptWrite)
+	require.True(t, prompt.lastDeep.SuppressReceiptWrite)
 
 	prompt = &fakePromptEngine{mode: ModeBlocking, decision: &PromptDecision{Kind: DecisionAllow, AllowNextStage: true}}
 	decision = NewCoordinator(&fakeLegacyEngine{decision: &LegacyDecision{Blocked: true, StatusCode: http.StatusForbidden}}, prompt).Check(context.Background(), Request{})

@@ -1,44 +1,50 @@
-Sub2API Plus v0.1.183+custom.914
+Sub2API Plus v0.1.183+custom.915
 
 ## Highlights
 
-- Show user IDs directly in the order-management user column.
-- Let administrators reorder Prompt Audit nodes; the first enabled node is
-  attempted first and retryable failures continue through the saved order.
-- List OAuth account-authorization users by descending user ID so recent users
-  appear first across filtered pages.
+- Retain normal Prompt Audit Pass evidence only for explicitly selected users;
+  Flag and Critical findings remain mandatory for every audited user.
+- Add a previewed Pass-only cleanup workflow with event, context, and estimated
+  retained-byte counts before irreversible deletion.
+- Let administrators explicitly allow ordinary requests when every usable
+  Guard node fails because of a remote API, timeout, or capacity problem.
 
 ## Changed
 
-- Add accessible priority controls and visible sequence numbers to the Prompt
-  Audit node pool without changing the persisted configuration format.
-- Clarify that the five-minute release budget applies only to the tag-triggered
-  Linux image publication job after protected PR and exact-main checks pass.
-- Require release requests with incompatible end-to-end deadlines to stop
-  before mutating Git or publication state until the remaining stages are
-  explicitly accepted.
+- Add an independently versioned, multi-instance-safe Pass-retention user list;
+  users without an explicit selection default to no normal-event storage.
+- Add a default-off `allow_on_guard_unavailable` switch and a dedicated runtime
+  counter for observable failure-allowed requests.
+- Keep Guard failure allowance separate from invalid responses, incomplete
+  extraction, undecryptable credentials, known findings, Content Moderation,
+  and required user recovery; those paths continue to fail closed.
 
 ## Fixed
 
-- Replace the OAuth authorization user's email-based ordering with stable
-  descending user-ID ordering before access filtering and pagination.
-- Keep order user IDs visible even when an email or username is available.
+- Prevent normal Pass conversations from dominating future logical backups
+  when no user has been selected for retention.
+- Ensure a failure-allowed request cannot create an Allow receipt, including if
+  its later asynchronous deep review succeeds.
 
 ## Compatibility and migration
 
-- No database migration, new configuration field, or API compatibility change
-  is required.
-- Existing Prompt Audit endpoint arrays retain their stored order; saving a
-  reordered draft changes runtime priority immediately after configuration
-  activation.
+- Migration `241_prompt_audit_remove_global_pass_retention.sql` removes the
+  obsolete global `store_pass_events` JSON field; it does not change the SQL
+  schema or delete existing audit events.
+- The initial Pass-retention allowlist is empty. Existing Pass evidence remains
+  until an administrator separately previews and confirms cleanup.
+- `allow_on_guard_unavailable` is a backward-compatible configuration field
+  and defaults to false, preserving fail-closed behavior until explicitly
+  enabled.
 - No Compose, port, certificate, proxy, or persistent-volume change is
   required. Personal images and binary archives remain Linux arm64 only.
 
 ## Known issues
 
-- The five-minute budget is not an end-to-end release guarantee; candidate
-  validation, protected merge, asset publication, and verification remain
-  separate stages.
+- Logical deletion reduces future backups but does not guarantee immediate
+  PostgreSQL filesystem reclamation.
+- Historical large backups and existing Pass records are not deleted by this
+  release.
 - Production deployment remains a separate operation and is not part of this
   release publication.
 

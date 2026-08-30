@@ -96,6 +96,23 @@ describe('OpenAIFastPolicyUserSelector', () => {
     expect(wrapper.emitted('update:modelValue')).toEqual([[[9]]])
   })
 
+  it('resolves a numeric search directly by user ID', async () => {
+    mockSearchUsers.mockResolvedValue([])
+    mockGetUserById.mockResolvedValue({ id: 42, email: 'id@example.com', deleted_at: null })
+    const wrapper = mount(OpenAIFastPolicyUserSelector, {
+      props: { modelValue: [] },
+      global: { stubs: { Icon: true } },
+    })
+    const input = wrapper.get('input')
+    await input.setValue('42')
+    await input.trigger('input')
+    vi.advanceTimersByTime(300)
+    await flushPromises()
+
+    expect(mockGetUserById).toHaveBeenCalledWith(42, true)
+    expect(wrapper.text()).toContain('id@example.com')
+  })
+
   it('keeps an unresolved saved ID visible and removable', async () => {
     mockGetUserById.mockRejectedValue(new Error('not found'))
 

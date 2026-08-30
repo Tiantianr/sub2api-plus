@@ -51,17 +51,28 @@
               />
               <div v-if="loadErrors.groups" role="alert" class="mt-5 rounded-lg bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:bg-amber-950/30 dark:text-amber-200">{{ loadErrors.groups }}</div>
               <PolicyPanel :draft="draft" :groups="groups" @update:draft="replaceDraft" />
+              <PassRetentionPanel
+                :config="passRetention"
+                :user-ids="retentionUserIDs"
+                :dirty="retentionDirty"
+                :loading="loading.retention"
+                :saving="loading.savingRetention"
+                :error="loadErrors.retention"
+                @update:user-ids="retentionUserIDs = canonicalUserIDs($event)"
+                @save="savePassRetention"
+                @reset="resetPassRetention"
+              />
             </template>
           </div>
 
           <div v-show="activeTab === 'events'" data-test="tab-panel-events">
             <div
-              v-if="draft?.enabled && !draft.store_pass_events"
+              v-if="draft?.enabled && passRetention"
               data-test="pass-events-disabled-notice"
               role="status"
               class="mt-6 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-amber-900/70 dark:bg-amber-950/30 dark:text-amber-200"
             >
-              <span>{{ t('admin.promptAudit.events.passEventsDisabled') }}</span>
+              <span>{{ t('admin.promptAudit.events.passRetentionNotice', { count: passRetention.user_ids.length }) }}</span>
               <button type="button" class="btn btn-secondary btn-sm" @click="activeTab = 'config'">
                 {{ t('admin.promptAudit.events.openConfiguration') }}
               </button>
@@ -84,6 +95,7 @@
               @delete="requestSingleDelete"
               @batch-delete="requestBatchDelete"
               @preview-delete="requestFilterDeletePreview"
+              @cleanup-pass="openPassCleanup"
             />
           </div>
         </main>
@@ -95,7 +107,14 @@
         <div class="flex flex-wrap items-center gap-x-5 gap-y-2">
           <SaveToggle :label="t('admin.promptAudit.saveBar.enabled')" :model-value="draft.enabled" data-test="enabled-toggle" @update:model-value="setEnabled" />
           <SaveToggle :label="t('admin.promptAudit.saveBar.blocking')" :model-value="draft.blocking_enabled" :disabled="!draft.enabled" data-test="blocking-toggle" @update:model-value="setBlocking" />
-          <SaveToggle :label="t('admin.promptAudit.saveBar.storePass')" :model-value="draft.store_pass_events" data-test="store-pass-toggle" @update:model-value="replaceDraft({ ...draft!, store_pass_events: $event })" />
+          <SaveToggle
+            :label="t('admin.promptAudit.saveBar.allowOnGuardUnavailable')"
+            :model-value="draft.allow_on_guard_unavailable"
+            :disabled="!draft.enabled || !draft.blocking_enabled"
+            :title="t('admin.promptAudit.saveBar.allowOnGuardUnavailableHint')"
+            data-test="failure-allow-toggle"
+            @update:model-value="setAllowOnGuardUnavailable"
+          />
         </div>
         <div class="flex items-center gap-3">
           <span class="text-sm" :class="dirty ? 'text-amber-700 dark:text-amber-300' : 'text-gray-500 dark:text-dark-400'">
@@ -138,6 +157,16 @@
       @confirm="confirmFilterDelete"
       @criteria-change="clearDeletePreview"
     />
+    <PassEventCleanupDialog
+      :show="showPassCleanup"
+      :preview="passCleanupPreview"
+      :previewing="loading.previewing"
+      :deleting="loading.deleting"
+      @close="closePassCleanup"
+      @preview="runPassCleanupPreview"
+      @confirm="confirmPassCleanup"
+      @criteria-change="clearPassCleanupPreview"
+    />
     <EventDetailDialog :show="showEventDetail" :event="activeEvent" :loading="loading.detail" @close="closeEventDetail" />
   </AppLayout>
 </template>
@@ -155,6 +184,8 @@ import PolicyPanel from './components/PolicyPanel.vue'
 import EventWorkspace from './components/EventWorkspace.vue'
 import EventDetailDialog from './components/EventDetailDialog.vue'
 import FilterDeleteDialog from './components/FilterDeleteDialog.vue'
+import PassRetentionPanel from './components/PassRetentionPanel.vue'
+import PassEventCleanupDialog from './components/PassEventCleanupDialog.vue'
 import promptAuditAPI from './api'
 import type {
   PromptAuditDraft,
@@ -167,6 +198,7 @@ import type {
   PromptEventPage,
   PromptLoadErrors,
   PromptProbeResult,
+  PromptPassRetentionConfig,
 } from './types'
 import { buildUpdateRequest, cloneData, configToDraft, draftFingerprint, emptyEventFilters } from './viewModel'
 
@@ -180,6 +212,8 @@ const pageTabs = computed(() => [
 ])
 const serverConfig = ref<PromptAuditDraft | null>(null)
 const draft = ref<PromptAuditDraft | null>(null)
+const passRetention = ref<PromptPassRetentionConfig | null>(null)
+const retentionUserIDs = ref<number[]>([])
 const runtime = ref<PromptAuditRuntime | null>(null)
 const groups = ref<PromptAuditGroup[]>([])
 const events = reactive<PromptEventPage>({ items: [], total: 0, page: 1, page_size: 20, pages: 0 })
@@ -191,13 +225,17 @@ const showEventDetail = ref(false)
 const probeResults = reactive<Record<string, PromptProbeResult>>({})
 const probingIds = ref<string[]>([])
 const showFilterDelete = ref(false)
+const showPassCleanup = ref(false)
+const passCleanupPreview = ref<PromptDeletePreview | null>(null)
+const passCleanupFilters = ref<PromptEventFilters | null>(null)
 const deletePreview = ref<PromptDeletePreview | null>(null)
 const deletePreviewFilters = ref<PromptEventFilters | null>(null)
 const showBlockingConfirmation = ref(false)
 const deleteRequest = reactive<{ mode: '' | 'single' | 'batch'; ids: number[] }>({ mode: '', ids: [] })
-const loading = reactive({ config: false, runtime: false, groups: false, events: false, saving: false, detail: false, deleting: false, previewing: false })
-const loadErrors = reactive<PromptLoadErrors>({ config: '', runtime: '', groups: '', events: '' })
+const loading = reactive({ config: false, retention: false, runtime: false, groups: false, events: false, saving: false, savingRetention: false, detail: false, deleting: false, previewing: false })
+const loadErrors = reactive<PromptLoadErrors>({ config: '', retention: '', runtime: '', groups: '', events: '' })
 const dirty = computed(() => draftFingerprint(draft.value) !== draftFingerprint(serverConfig.value))
+const retentionDirty = computed(() => JSON.stringify(canonicalUserIDs(retentionUserIDs.value)) !== JSON.stringify(passRetention.value?.user_ids || []))
 
 const SaveToggle = defineComponent({
   inheritAttrs: false,
@@ -264,6 +302,16 @@ async function loadRuntime() {
   catch (error) { loadErrors.runtime = errorMessage(error, 'admin.promptAudit.errors.loadRuntime') }
   finally { loading.runtime = false }
 }
+async function loadPassRetention() {
+  loading.retention = true
+  loadErrors.retention = ''
+  try {
+    passRetention.value = await promptAuditAPI.getPassRetention()
+    retentionUserIDs.value = canonicalUserIDs(passRetention.value.user_ids)
+  } catch (error) {
+    loadErrors.retention = errorMessage(error, 'admin.promptAudit.errors.loadRetention')
+  } finally { loading.retention = false }
+}
 async function loadGroups() {
   loading.groups = true
   loadErrors.groups = ''
@@ -285,7 +333,26 @@ async function loadEvents() {
   }
 }
 async function loadInitial() {
-  await Promise.allSettled([loadConfig(), loadRuntime(), loadGroups(), loadEvents()])
+  await Promise.allSettled([loadConfig(), loadPassRetention(), loadRuntime(), loadGroups(), loadEvents()])
+}
+
+function canonicalUserIDs(values: number[]): number[] {
+  return [...new Set(values.filter((value) => Number.isInteger(value) && value > 0))].sort((a, b) => a - b)
+}
+function resetPassRetention() { retentionUserIDs.value = [...(passRetention.value?.user_ids || [])] }
+async function savePassRetention() {
+  if (!passRetention.value || !retentionDirty.value) return
+  loading.savingRetention = true
+  try {
+    passRetention.value = await promptAuditAPI.updatePassRetention({
+      expected_revision: passRetention.value.revision,
+      user_ids: canonicalUserIDs(retentionUserIDs.value),
+    })
+    retentionUserIDs.value = [...passRetention.value.user_ids]
+    appStore.showSuccess(t('admin.promptAudit.messages.retentionSaved'))
+  } catch (error) {
+    appStore.showError(errorMessage(error, 'admin.promptAudit.errors.saveRetention'))
+  } finally { loading.savingRetention = false }
 }
 
 function replaceDraft(value: PromptAuditDraft) { draft.value = cloneData(value) }
@@ -295,12 +362,21 @@ function updateEndpoints(value: PromptAuditEndpointDraft[]) {
 }
 function setEnabled(value: boolean) {
   if (!draft.value) return
-  replaceDraft({ ...draft.value, enabled: value, blocking_enabled: value ? draft.value.blocking_enabled : false })
+  replaceDraft({
+    ...draft.value,
+    enabled: value,
+    blocking_enabled: value ? draft.value.blocking_enabled : false,
+    allow_on_guard_unavailable: value ? draft.value.allow_on_guard_unavailable : false,
+  })
 }
 function setBlocking(value: boolean) {
   if (!draft.value || !draft.value.enabled) return
   if (value && !draft.value.blocking_enabled) { showBlockingConfirmation.value = true; return }
-  replaceDraft({ ...draft.value, blocking_enabled: value })
+  replaceDraft({ ...draft.value, blocking_enabled: value, allow_on_guard_unavailable: value ? draft.value.allow_on_guard_unavailable : false })
+}
+function setAllowOnGuardUnavailable(value: boolean) {
+  if (!draft.value?.enabled || !draft.value.blocking_enabled) return
+  replaceDraft({ ...draft.value, allow_on_guard_unavailable: value })
 }
 function confirmBlocking() {
   showBlockingConfirmation.value = false
@@ -420,6 +496,42 @@ async function confirmFilterDelete(filters?: PromptEventFilters) {
     await Promise.allSettled([loadEvents(), loadRuntime()])
   } catch (error) {
     clearDeletePreview()
+    appStore.showError(errorMessage(error, 'admin.promptAudit.errors.deleteConfirmation'))
+  } finally { loading.deleting = false }
+}
+function openPassCleanup() {
+  clearPassCleanupPreview()
+  showPassCleanup.value = true
+}
+function closePassCleanup() {
+  showPassCleanup.value = false
+  clearPassCleanupPreview()
+}
+function clearPassCleanupPreview() {
+  passCleanupPreview.value = null
+  passCleanupFilters.value = null
+}
+async function runPassCleanupPreview(value: PromptEventFilters) {
+  loading.previewing = true
+  try {
+    const filters = { ...cloneData(value), decision: 'pass' }
+    passCleanupPreview.value = await promptAuditAPI.previewDelete(filters)
+    passCleanupFilters.value = filters
+  } catch (error) {
+    clearPassCleanupPreview()
+    appStore.showError(errorMessage(error, 'admin.promptAudit.errors.previewDelete'))
+  } finally { loading.previewing = false }
+}
+async function confirmPassCleanup() {
+  if (!passCleanupPreview.value || !passCleanupFilters.value || loading.deleting) return
+  loading.deleting = true
+  try {
+    const result = await promptAuditAPI.deleteEventsByFilter(passCleanupFilters.value, passCleanupPreview.value)
+    closePassCleanup()
+    appStore.showSuccess(t('admin.promptAudit.messages.deleted', { count: result.deleted_events }))
+    await Promise.allSettled([loadEvents(), loadRuntime()])
+  } catch (error) {
+    clearPassCleanupPreview()
     appStore.showError(errorMessage(error, 'admin.promptAudit.errors.deleteConfirmation'))
   } finally { loading.deleting = false }
 }

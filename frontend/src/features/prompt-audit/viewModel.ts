@@ -55,6 +55,7 @@ export function cloneData<T>(value: T): T {
 export function configToDraft(config: PromptAuditConfig): PromptAuditDraft {
   return {
     ...cloneData(config),
+    allow_on_guard_unavailable: Boolean(config.blocking_enabled && config.allow_on_guard_unavailable),
     blocking_review_modules: { ...DEFAULT_BLOCKING_REVIEW_MODULES, ...(config.blocking_review_modules ?? {}) },
     deep_review_modules: { ...DEFAULT_DEEP_REVIEW_MODULES, ...(config.deep_review_modules ?? {}) },
     allow_receipt_ttl_seconds: config.allow_receipt_ttl_seconds ?? DEFAULT_ALLOW_RECEIPT_TTL_SECONDS,
@@ -90,11 +91,11 @@ export function buildUpdateRequest(draft: PromptAuditDraft): PromptAuditUpdateRe
     expected_config_version: draft.config_version,
     enabled: draft.enabled,
     blocking_enabled: draft.enabled && draft.blocking_enabled,
+    allow_on_guard_unavailable: draft.enabled && draft.blocking_enabled && draft.allow_on_guard_unavailable,
     blocking_latest_turn_only: draft.blocking_latest_turn_only,
     blocking_review_modules: cloneData(draft.blocking_review_modules),
     deep_review_modules: cloneData(draft.deep_review_modules),
     allow_receipt_ttl_seconds: Number(draft.allow_receipt_ttl_seconds),
-    store_pass_events: draft.store_pass_events,
     strategy: 'priority',
     worker_count: Number(draft.worker_count),
     queue_capacity: Number(draft.queue_capacity),
@@ -199,4 +200,11 @@ export function resolveDeleteRangeFilters(
   resolved.start_at = new Date(0).toISOString()
   resolved.end_at = new Date(days === null ? now : now - days * DAY_MS).toISOString()
   return resolved
+}
+
+export function passCleanupFilters(userID = 0): PromptEventFilters {
+  const filters = emptyEventFilters()
+  filters.decision = 'pass'
+  if (Number.isInteger(userID) && userID > 0) filters.user_id = String(userID)
+  return filters
 }

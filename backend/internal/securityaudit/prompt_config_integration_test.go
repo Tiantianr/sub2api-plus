@@ -117,7 +117,7 @@ func promptAuditTestEncryptor(t *testing.T) service.SecretEncryptor {
 
 func promptAuditUpdateRequest(version int64, workerCount int, token string) UpdateConfigRequest {
 	return UpdateConfigRequest{
-		ExpectedConfigVersion: version, Enabled: true, BlockingEnabled: false, StorePassEvents: false,
+		ExpectedConfigVersion: version, Enabled: true, BlockingEnabled: true, AllowOnGuardUnavailable: true,
 		Strategy: "priority", WorkerCount: workerCount, QueueCapacity: 64, Scanners: []string{"pii", "jailbreak"},
 		AllGroups: true, Endpoints: []UpdateEndpoint{{
 			ID: "guard-one", Name: "Guard One", Protocol: "openai_compatible",
@@ -132,6 +132,14 @@ func waitForConfigVersion(t *testing.T, manager *ConfigManager, version int64, t
 	require.Eventually(t, func() bool {
 		active, ok := manager.Active()
 		return ok && active.ConfigVersion == version
+	}, timeout, 20*time.Millisecond)
+}
+
+func waitForPassRetention(t *testing.T, manager *ConfigManager, userID int64, timeout time.Duration) {
+	t.Helper()
+	require.Eventually(t, func() bool {
+		active, ok := manager.Active()
+		return ok && active.ShouldStorePass(userID)
 	}, timeout, 20*time.Millisecond)
 }
 
@@ -161,16 +169,38 @@ func TestPromptAuditConfigCASSecretRoundTripInvalidationAndTTL(t *testing.T) {
 	require.Eventually(t, func() bool {
 		return redisClient.PubSubNumSub(context.Background(), ConfigInvalidationChannel).Val()[ConfigInvalidationChannel] >= 2
 	}, 2*time.Second, 20*time.Millisecond)
+	require.Eventually(t, func() bool {
+		return redisClient.PubSubNumSub(context.Background(), PassRetentionInvalidationChannel).Val()[PassRetentionInvalidationChannel] >= 2
+	}, 2*time.Second, 20*time.Millisecond)
+
+	retention, err := managerOne.SavePassRetention(context.Background(), UpdatePassRetentionRequest{
+		ExpectedRevision: 1, UserIDs: []int64{166, 128, 166},
+	}, 100)
+	require.NoError(t, err)
+	require.Equal(t, int64(2), retention.Revision)
+	require.Equal(t, []int64{128, 166}, retention.UserIDs)
+	waitForPassRetention(t, managerTwo, 166, 2*time.Second)
+	activeBeforeGuardSave, ok := managerTwo.Active()
+	require.True(t, ok)
+	require.Equal(t, int64(1), activeBeforeGuardSave.ConfigVersion, "retention changes must not alter Guard policy version")
+	_, err = managerTwo.SavePassRetention(context.Background(), UpdatePassRetentionRequest{
+		ExpectedRevision: 1, UserIDs: []int64{3},
+	}, 102)
+	require.Equal(t, "prompt_audit_pass_retention_conflict", infraerrors.Reason(err))
 
 	const canary = "GUARD_TOKEN_CANARY_SECRET_4_CONFIG"
 	public, err := managerOne.Save(context.Background(), promptAuditUpdateRequest(1, 1, canary), 101)
 	require.NoError(t, err)
 	require.Equal(t, int64(2), public.ConfigVersion)
+	require.True(t, public.AllowOnGuardUnavailable)
 	require.True(t, public.Endpoints[0].HasToken)
 	publicJSON, err := json.Marshal(public)
 	require.NoError(t, err)
 	require.NotContains(t, string(publicJSON), canary)
 	waitForConfigVersion(t, managerTwo, 2, 2*time.Second)
+	activeOnSecond, ok := managerTwo.Active()
+	require.True(t, ok)
+	require.True(t, activeOnSecond.AllowOnGuardUnavailable)
 
 	raw, err := settingRepo.GetValue(context.Background(), SettingKeyPromptAuditConfig)
 	require.NoError(t, err)

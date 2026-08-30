@@ -17,17 +17,19 @@ import (
 )
 
 type fakePromptAdminService struct {
-	config       PublicConfig
-	save         func(context.Context, UpdateConfigRequest, int64) (PublicConfig, error)
-	probe        func(context.Context, ProbeRequest) ProbeResult
-	runtime      RuntimeSnapshot
-	list         func(context.Context, EventFilter, int, int) (*EventPage, error)
-	get          func(context.Context, int64) (*Event, error)
-	download     func(context.Context, int64) (*EventContextDownload, error)
-	deleteOne    func(context.Context, int64) (*DeleteResult, error)
-	deleteIDs    func(context.Context, []int64) (*DeleteResult, error)
-	preview      func(context.Context, EventFilter, int64) (*DeletePreview, error)
-	deleteFilter func(context.Context, DeleteByFilterRequest, int64) (*DeleteResult, error)
+	config        PublicConfig
+	retention     PassRetentionConfig
+	save          func(context.Context, UpdateConfigRequest, int64) (PublicConfig, error)
+	saveRetention func(context.Context, UpdatePassRetentionRequest, int64) (PassRetentionConfig, error)
+	probe         func(context.Context, ProbeRequest) ProbeResult
+	runtime       RuntimeSnapshot
+	list          func(context.Context, EventFilter, int, int) (*EventPage, error)
+	get           func(context.Context, int64) (*Event, error)
+	download      func(context.Context, int64) (*EventContextDownload, error)
+	deleteOne     func(context.Context, int64) (*DeleteResult, error)
+	deleteIDs     func(context.Context, []int64) (*DeleteResult, error)
+	preview       func(context.Context, EventFilter, int64) (*DeletePreview, error)
+	deleteFilter  func(context.Context, DeleteByFilterRequest, int64) (*DeleteResult, error)
 }
 
 func (s *fakePromptAdminService) GetConfig() (PublicConfig, error) {
@@ -38,6 +40,18 @@ func (s *fakePromptAdminService) SaveConfig(ctx context.Context, req UpdateConfi
 		return PublicConfig{}, errors.New("unexpected SaveConfig call")
 	}
 	return s.save(ctx, req, actorID)
+}
+func (s *fakePromptAdminService) GetPassRetention() (PassRetentionConfig, error) {
+	if s.retention.Revision == 0 {
+		return PassRetentionConfig{Revision: 1, UserIDs: []int64{}}, nil
+	}
+	return s.retention, nil
+}
+func (s *fakePromptAdminService) SavePassRetention(ctx context.Context, req UpdatePassRetentionRequest, actorID int64) (PassRetentionConfig, error) {
+	if s.saveRetention == nil {
+		return PassRetentionConfig{}, errors.New("unexpected SavePassRetention call")
+	}
+	return s.saveRetention(ctx, req, actorID)
 }
 func (s *fakePromptAdminService) Probe(ctx context.Context, req ProbeRequest) ProbeResult {
 	if s.probe == nil {
@@ -101,6 +115,8 @@ func promptAdminRouter(service PromptAdminService) *gin.Engine {
 	group := router.Group("/admin/prompt-audit")
 	group.GET("/config", handler.GetConfig)
 	group.PUT("/config", handler.UpdateConfig)
+	group.GET("/pass-retention", handler.GetPassRetention)
+	group.PUT("/pass-retention", handler.UpdatePassRetention)
 	group.POST("/endpoints/probe", handler.ProbeEndpoint)
 	group.GET("/runtime", handler.GetRuntime)
 	group.GET("/events", handler.ListEvents)
@@ -124,6 +140,29 @@ func TestPromptAdminDownloadsCompleteContextWithoutCaching(t *testing.T) {
 	require.Equal(t, "nosniff", response.Header().Get("X-Content-Type-Options"))
 	require.Contains(t, response.Header().Get("Content-Disposition"), "prompt-audit-context-7.json")
 	require.JSONEq(t, `{"segments":[{"text":"complete context"}]}`, response.Body.String())
+}
+
+func TestPromptAdminPassRetentionUsesIndependentRevisionAndActor(t *testing.T) {
+	service := &fakePromptAdminService{
+		retention: PassRetentionConfig{Revision: 3, UserIDs: []int64{7}},
+		saveRetention: func(_ context.Context, request UpdatePassRetentionRequest, actorID int64) (PassRetentionConfig, error) {
+			require.Equal(t, int64(42), actorID)
+			require.Equal(t, int64(3), request.ExpectedRevision)
+			require.Equal(t, []int64{9, 7, 9}, request.UserIDs)
+			return PassRetentionConfig{Revision: 4, UserIDs: []int64{7, 9}, UpdatedBy: actorID}, nil
+		},
+	}
+
+	getResponse := promptAdminRequest(t, promptAdminRouter(service), http.MethodGet, "/admin/prompt-audit/pass-retention", nil)
+	require.Equal(t, http.StatusOK, getResponse.Code)
+	require.Contains(t, getResponse.Body.String(), `"revision":3`)
+
+	putResponse := promptAdminRequest(t, promptAdminRouter(service), http.MethodPut, "/admin/prompt-audit/pass-retention", map[string]any{
+		"expected_revision": 3, "user_ids": []int64{9, 7, 9},
+	})
+	require.Equal(t, http.StatusOK, putResponse.Code)
+	require.Contains(t, putResponse.Body.String(), `"revision":4`)
+	require.NotContains(t, putResponse.Body.String(), "user_id_set_hash")
 }
 
 func promptAdminRequest(t *testing.T, router http.Handler, method, path string, body any) *httptest.ResponseRecorder {
@@ -166,8 +205,9 @@ func TestPromptAdminConfigRequiresVersionMapsConflictAndNeverEchoesToken(t *test
 	t.Run("success public DTO", func(t *testing.T) {
 		service := &fakePromptAdminService{save: func(_ context.Context, req UpdateConfigRequest, actorID int64) (PublicConfig, error) {
 			require.Equal(t, int64(42), actorID)
+			require.True(t, req.AllowOnGuardUnavailable)
 			require.Equal(t, canary, req.Endpoints[0].Token)
-			return PublicConfig{ConfigVersion: 8, Endpoints: []PublicEndpoint{{ID: "guard-1", HasToken: true, TokenStatus: "configured"}}}, nil
+			return PublicConfig{ConfigVersion: 8, AllowOnGuardUnavailable: true, Endpoints: []PublicEndpoint{{ID: "guard-1", HasToken: true, TokenStatus: "configured"}}}, nil
 		}}
 		response := promptAdminRequest(t, promptAdminRouter(service), http.MethodPut, "/admin/prompt-audit/config", validHandlerUpdateRequest(canary))
 		require.Equal(t, http.StatusOK, response.Code)
@@ -176,6 +216,7 @@ func TestPromptAdminConfigRequiresVersionMapsConflictAndNeverEchoesToken(t *test
 		require.NotContains(t, body, "token_ciphertext")
 		require.NotContains(t, body, `"token":`)
 		require.Contains(t, body, `"has_token":true`)
+		require.Contains(t, body, `"allow_on_guard_unavailable":true`)
 	})
 }
 
@@ -254,12 +295,13 @@ func TestPromptAdminNormalizesClientIPFilter(t *testing.T) {
 
 func validHandlerUpdateRequest(token string) UpdateConfigRequest {
 	return UpdateConfigRequest{
-		ExpectedConfigVersion: 7,
-		Strategy:              "priority",
-		WorkerCount:           1,
-		QueueCapacity:         10,
-		Scanners:              []string{"pii"},
-		AllGroups:             true,
+		ExpectedConfigVersion:   7,
+		AllowOnGuardUnavailable: true,
+		Strategy:                "priority",
+		WorkerCount:             1,
+		QueueCapacity:           10,
+		Scanners:                []string{"pii"},
+		AllGroups:               true,
 		Endpoints: []UpdateEndpoint{{
 			ID: "guard-1", Name: "Guard One", Protocol: "openai_compatible",
 			BaseURL: "http://127.0.0.1:18080", Model: DefaultGuardModel, Token: token,

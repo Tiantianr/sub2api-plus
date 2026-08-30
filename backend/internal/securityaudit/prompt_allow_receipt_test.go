@@ -420,6 +420,29 @@ func TestBlockingAllowIsReusedBySameRequestDeepReview(t *testing.T) {
 	require.Len(t, payload.AllowReceiptKeys, 1)
 }
 
+func TestFailureAllowedDeepReviewCannotWriteAllowReceipts(t *testing.T) {
+	cfg := allowReceiptTestConfig()
+	config := &fakeConfigStore{active: true, cfg: cfg}
+	receipts := newFakeAllowReceiptPayload()
+	metrics := NewAtomicMetrics()
+	repo := &fakeJobRepository{}
+	req := allowReceiptRequest(7, "failure-allowed user turn", "stable system")
+	req.SuppressReceiptWrite = true
+
+	require.NoError(t, NewEnqueuer(config, repo, receipts, metrics).EnqueueDeep(context.Background(), req))
+	payload := decodeTransientPromptPayload(receipts.payloads[repo.createJob.ID])
+	require.False(t, payload.AllowReceiptWrite)
+	repo.createJob.Attempts = 1
+	repo.createJob.MaxAttempts = 3
+	repo.createJob.ClaimVersion = 1
+	runner := NewRunner(config, repo, receipts, PromptScannerFunc(func(context.Context, ActiveEndpoint, string, []string) (*NormalizedResult, error) {
+		return allowReceiptResult(ActionAllow), nil
+	}), metrics)
+	require.NoError(t, runner.processJob(context.Background(), 0, cfg, repo.createJob))
+	require.Zero(t, receipts.writes)
+	require.Zero(t, metrics.AuditSnapshot().AllowReceiptWrites)
+}
+
 func TestSameRequestDeepReviewSkipsJobWhenEverySegmentWasAllowed(t *testing.T) {
 	cfg := allowReceiptTestConfig()
 	config := &fakeConfigStore{active: true, cfg: cfg}

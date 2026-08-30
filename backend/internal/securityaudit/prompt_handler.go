@@ -15,6 +15,8 @@ import (
 type PromptAdminService interface {
 	GetConfig() (PublicConfig, error)
 	SaveConfig(context.Context, UpdateConfigRequest, int64) (PublicConfig, error)
+	GetPassRetention() (PassRetentionConfig, error)
+	SavePassRetention(context.Context, UpdatePassRetentionRequest, int64) (PassRetentionConfig, error)
 	Probe(context.Context, ProbeRequest) ProbeResult
 	Runtime(context.Context) RuntimeSnapshot
 	ListEvents(context.Context, EventFilter, int, int) (*EventPage, error)
@@ -56,6 +58,33 @@ func (h *PromptAdminHandler) UpdateConfig(c *gin.Context) {
 	}
 	setPromptAdminAudit(c, "success", "", configAuditFields(request, &config))
 	response.Success(c, config)
+}
+
+func (h *PromptAdminHandler) GetPassRetention(c *gin.Context) {
+	config, err := h.service.GetPassRetention()
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, config)
+}
+
+func (h *PromptAdminHandler) UpdatePassRetention(c *gin.Context) {
+	var request UpdatePassRetentionRequest
+	if err := c.ShouldBindJSON(&request); err != nil {
+		setPromptAdminAudit(c, "failed", "prompt_audit_pass_retention_invalid_request", nil)
+		response.ErrorFrom(c, infraerrors.BadRequest("prompt_audit_pass_retention_invalid_request", "正常记录留存配置请求无效"))
+		return
+	}
+	before, _ := h.service.GetPassRetention()
+	saved, err := h.service.SavePassRetention(c.Request.Context(), request, adminID(c))
+	if err != nil {
+		setPromptAdminAudit(c, "failed", infraerrors.Reason(err), retentionAuditFields(before, request.UserIDs, request.ExpectedRevision))
+		response.ErrorFrom(c, err)
+		return
+	}
+	setPromptAdminAudit(c, "success", "", retentionAuditFields(before, saved.UserIDs, saved.Revision))
+	response.Success(c, saved)
 }
 
 func (h *PromptAdminHandler) ProbeEndpoint(c *gin.Context) {
@@ -206,7 +235,9 @@ func (h *PromptAdminHandler) DeletePreview(c *gin.Context) {
 		return
 	}
 	setPromptAdminAudit(c, "success", "", map[string]any{
-		"matched_count": preview.MatchedCount, "snapshot_max_id": preview.SnapshotMaxID, "filter_hash": preview.FilterHash,
+		"matched_count": preview.MatchedCount, "matched_context_count": preview.MatchedContextCount,
+		"estimated_reclaimable_bytes": preview.EstimatedReclaimableBytes,
+		"snapshot_max_id":             preview.SnapshotMaxID, "filter_hash": preview.FilterHash,
 	})
 	response.Success(c, preview)
 }
@@ -251,12 +282,40 @@ func configAuditFields(request UpdateConfigRequest, saved *PublicConfig) map[str
 	}
 	return map[string]any{
 		"enabled": request.Enabled, "blocking_enabled": request.BlockingEnabled,
-		"blocking_latest_turn_only": request.BlockingLatestTurnOnly,
-		"blocking_review_modules":   request.BlockingReviewModules,
-		"deep_review_modules":       request.DeepReviewModules,
-		"config_version":            version, "endpoint_count": len(request.Endpoints),
+		"allow_on_guard_unavailable": request.AllowOnGuardUnavailable,
+		"blocking_latest_turn_only":  request.BlockingLatestTurnOnly,
+		"blocking_review_modules":    request.BlockingReviewModules,
+		"deep_review_modules":        request.DeepReviewModules,
+		"config_version":             version, "endpoint_count": len(request.Endpoints),
 		"scanner_count": len(request.Scanners), "all_groups": request.AllGroups,
 		"group_count": len(request.GroupIDs),
+	}
+}
+
+func retentionAuditFields(before PassRetentionConfig, userIDs []int64, revision int64) map[string]any {
+	canonical := canonicalInt64s(userIDs)
+	previous := make(map[int64]struct{}, len(before.UserIDs))
+	for _, userID := range before.UserIDs {
+		previous[userID] = struct{}{}
+	}
+	next := make(map[int64]struct{}, len(canonical))
+	added := 0
+	for _, userID := range canonical {
+		next[userID] = struct{}{}
+		if _, ok := previous[userID]; !ok {
+			added++
+		}
+	}
+	removed := 0
+	for userID := range previous {
+		if _, ok := next[userID]; !ok {
+			removed++
+		}
+	}
+	return map[string]any{
+		"retention_revision": revision, "selected_user_count": len(canonical),
+		"added_user_count": added, "removed_user_count": removed,
+		"user_id_set_hash": passRetentionDigest(canonical),
 	}
 }
 

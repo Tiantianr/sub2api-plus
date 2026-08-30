@@ -1,0 +1,52 @@
+package securityaudit
+
+import (
+	"encoding/json"
+	"testing"
+
+	infraerrors "github.com/LuckyKuang/sub2api-plus/internal/pkg/errors"
+	"github.com/stretchr/testify/require"
+)
+
+func TestPassRetentionDefaultsCanonicalizesAndIgnoresLegacyGlobalSwitch(t *testing.T) {
+	stored, err := parsePassRetentionStorage("")
+	require.NoError(t, err)
+	require.Equal(t, int64(1), stored.Revision)
+	require.Empty(t, stored.UserIDs)
+
+	stored, err = parsePassRetentionStorage(`{"revision":4,"user_ids":[9,3,9]}`)
+	require.NoError(t, err)
+	require.Equal(t, []int64{3, 9}, stored.UserIDs)
+
+	main, err := ParseStorageConfig(`{"store_pass_events":true,"config_version":7,"worker_count":4,"queue_capacity":10,"scanners":["pii"],"all_groups":true}`)
+	require.NoError(t, err)
+	publicJSON, err := json.Marshal(PublicFromStorage(main, true, nil))
+	require.NoError(t, err)
+	require.NotContains(t, string(publicJSON), "store_pass_events")
+}
+
+func TestActiveConfigStoresPassOnlyForSelectedUsers(t *testing.T) {
+	cfg := ActiveConfig{PassRetentionUserIDs: []int64{3, 9}}
+	require.False(t, cfg.ShouldStorePass(0))
+	require.False(t, cfg.ShouldStorePass(2))
+	require.True(t, cfg.ShouldStorePass(3))
+	require.True(t, cfg.ShouldStorePass(9))
+	require.False(t, cfg.ShouldStorePass(10))
+}
+
+func TestPassRetentionUpdateValidation(t *testing.T) {
+	ids, err := validatePassRetentionUpdate(UpdatePassRetentionRequest{ExpectedRevision: 2, UserIDs: []int64{7, 4, 7}})
+	require.NoError(t, err)
+	require.Equal(t, []int64{4, 7}, ids)
+
+	_, err = validatePassRetentionUpdate(UpdatePassRetentionRequest{ExpectedRevision: 0})
+	require.Equal(t, "prompt_audit_pass_retention_expected_revision_required", infraerrors.Reason(err))
+	_, err = validatePassRetentionUpdate(UpdatePassRetentionRequest{ExpectedRevision: 1, UserIDs: []int64{-1}})
+	require.Equal(t, "prompt_audit_pass_retention_invalid_user", infraerrors.Reason(err))
+	tooMany := make([]int64, maxPassRetentionUsers+1)
+	for index := range tooMany {
+		tooMany[index] = int64(index + 1)
+	}
+	_, err = validatePassRetentionUpdate(UpdatePassRetentionRequest{ExpectedRevision: 1, UserIDs: tooMany})
+	require.Equal(t, "prompt_audit_pass_retention_user_limit", infraerrors.Reason(err))
+}

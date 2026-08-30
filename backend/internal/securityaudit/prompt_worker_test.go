@@ -38,6 +38,9 @@ type fakeConfigStore struct {
 func (s *fakeConfigStore) Start(context.Context) error    { return nil }
 func (s *fakeConfigStore) Shutdown(context.Context) error { return nil }
 func (s *fakeConfigStore) Active() (ActiveConfig, bool)   { return cloneActiveConfig(s.cfg), s.active }
+func (s *fakeConfigStore) ShouldStorePass(userID int64) bool {
+	return s.active && s.cfg.ShouldStorePass(userID)
+}
 func (s *fakeConfigStore) EffectiveMode() Mode {
 	if s.BlockingActivationDegraded() {
 		return ModeBlocking
@@ -89,6 +92,7 @@ type fakeJobRepository struct {
 	recordBlockingCalls    int
 	recordBlockingSnapshot PromptSnapshot
 	recordBlockingResult   *NormalizedResult
+	recordBlockingStore    bool
 	recordBlockingErr      error
 }
 
@@ -176,11 +180,11 @@ func (r *fakeJobRepository) ReclaimStale(context.Context, time.Time, time.Time, 
 	return 0, nil
 }
 func (r *fakeJobRepository) QueueStats(context.Context) (QueueStats, error) { return QueueStats{}, nil }
-func (r *fakeJobRepository) RecordBlocking(_ context.Context, snapshot PromptSnapshot, _ int64, result *NormalizedResult, _ bool) (*Event, error) {
+func (r *fakeJobRepository) RecordBlocking(_ context.Context, snapshot PromptSnapshot, _ int64, result *NormalizedResult, storePass bool) (*Event, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.recordBlockingCalls++
-	r.recordBlockingSnapshot, r.recordBlockingResult = snapshot, result
+	r.recordBlockingSnapshot, r.recordBlockingResult, r.recordBlockingStore = snapshot, result, storePass
 	return nil, r.recordBlockingErr
 }
 
@@ -705,7 +709,6 @@ func TestPromptAuditSyntheticAsyncBaseline(t *testing.T) {
 	const totalRequests = 100
 	cfg := asyncConfig()
 	cfg.Endpoints[0].InputLimit = 256
-	cfg.StorePassEvents = false
 	repo := &fakeJobRepository{}
 	payload := &fakePayloadStore{values: make(map[int64]string, totalRequests)}
 	metrics := NewAtomicMetrics()
@@ -764,11 +767,55 @@ func TestPromptAuditSyntheticAsyncBaseline(t *testing.T) {
 	require.Zero(t, knownBenignFindings)
 	require.Equal(t, 3, knownMaliciousBlocked)
 	require.Equal(t, 98, repo.completeCount)
-	require.Equal(t, 8, repo.eventCount, "store_pass_events=false only grows events for flag/block fixtures")
+	require.Equal(t, 8, repo.eventCount, "default Pass retention only grows events for flag/block fixtures")
 	require.Positive(t, snapshot.LatencyP50MS)
 	require.LessOrEqual(t, snapshot.LatencyP50MS, snapshot.LatencyP95MS)
 	require.LessOrEqual(t, snapshot.LatencyP95MS, snapshot.LatencyP99MS)
 	t.Logf("synthetic async baseline: p50=%dms p95=%dms p99=%dms failure_rate=2%% false_positive_rate=0%% event_growth=8/100", snapshot.LatencyP50MS, snapshot.LatencyP95MS, snapshot.LatencyP99MS)
+}
+
+func TestRunnerUsesUserPassRetentionAtCompletion(t *testing.T) {
+	cfg := asyncConfig()
+	cfg.PassRetentionUserIDs = []int64{42}
+	resultScanner := PromptScannerFunc(func(context.Context, ActiveEndpoint, string, []string) (*NormalizedResult, error) {
+		return &NormalizedResult{Decision: EventPass, RiskLevel: RiskLow, Action: ActionAllow, ScannerScores: map[string]float64{}, ScannerEvidence: map[string]string{}}, nil
+	})
+
+	for _, testCase := range []struct {
+		userID int64
+		store  bool
+		events int
+	}{
+		{userID: 42, store: true, events: 1},
+		{userID: 43, store: false, events: 0},
+	} {
+		repo := &fakeJobRepository{}
+		payload := &fakePayloadStore{values: map[int64]string{1: "normal input"}}
+		runner := NewRunner(&fakeConfigStore{active: true, cfg: cfg}, repo, payload, resultScanner, NewAtomicMetrics())
+		job := &Job{ID: 1, ClaimVersion: 1, Attempts: 1, MaxAttempts: 1, ConfigVersion: cfg.ConfigVersion,
+			Snapshot: PromptSnapshot{UserID: testCase.userID, PromptLength: 12}}
+		require.NoError(t, runner.processJob(context.Background(), 0, cfg, job))
+		require.Equal(t, testCase.store, repo.completedStore)
+		require.Equal(t, testCase.events, repo.eventCount)
+	}
+}
+
+func TestRunnerReadsLatestPassRetentionAfterScanning(t *testing.T) {
+	cfg := asyncConfig()
+	cfg.PassRetentionUserIDs = []int64{42}
+	configStore := &fakeConfigStore{active: true, cfg: cfg}
+	repo := &fakeJobRepository{}
+	payload := &fakePayloadStore{values: map[int64]string{1: "normal input"}}
+	runner := NewRunner(configStore, repo, payload, PromptScannerFunc(func(context.Context, ActiveEndpoint, string, []string) (*NormalizedResult, error) {
+		configStore.cfg.PassRetentionUserIDs = nil
+		return &NormalizedResult{Decision: EventPass, RiskLevel: RiskLow, Action: ActionAllow, ScannerScores: map[string]float64{}, ScannerEvidence: map[string]string{}}, nil
+	}), NewAtomicMetrics())
+	job := &Job{ID: 1, ClaimVersion: 1, Attempts: 1, MaxAttempts: 1, ConfigVersion: cfg.ConfigVersion,
+		Snapshot: PromptSnapshot{UserID: 42, PromptLength: 12}}
+
+	require.NoError(t, runner.processJob(context.Background(), 0, cfg, job))
+	require.False(t, repo.completedStore)
+	require.Zero(t, repo.eventCount)
 }
 
 func TestAsyncDeepBlockMarksUserBeforeCompletingJob(t *testing.T) {

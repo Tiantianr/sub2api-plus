@@ -34,6 +34,7 @@ func TestDefaultConfigIsOff(t *testing.T) {
 	storage, err := ParseStorageConfig("")
 	require.NoError(t, err)
 	require.False(t, storage.Enabled)
+	require.False(t, storage.AllowOnGuardUnavailable)
 	require.False(t, storage.BlockingLatestTurnOnly)
 	require.Equal(t, DefaultBlockingReviewModules(), storage.BlockingReviewModules)
 	require.Equal(t, DefaultDeepReviewModules(), storage.DeepReviewModules)
@@ -107,7 +108,7 @@ func TestModuleAllowCacheTTLDefaultsForOldConfigAndRejectsInvalidUpdate(t *testi
 func TestBlockingLatestTurnOnlyConfigRoundTrip(t *testing.T) {
 	manager := &ConfigManager{encryptor: prefixEncryptor{}, encryptionKeyConfigured: true}
 	request := UpdateConfigRequest{
-		ExpectedConfigVersion: 1, Enabled: true, BlockingEnabled: true, BlockingLatestTurnOnly: true,
+		ExpectedConfigVersion: 1, Enabled: true, BlockingEnabled: true, AllowOnGuardUnavailable: true, BlockingLatestTurnOnly: true,
 		Strategy: "priority", WorkerCount: 1, QueueCapacity: 10, Scanners: []string{"pii"}, AllGroups: true,
 		Endpoints: []UpdateEndpoint{{
 			ID: "guard-1", Name: "Guard", Protocol: "openai_compatible", BaseURL: "http://127.0.0.1:8080",
@@ -117,13 +118,17 @@ func TestBlockingLatestTurnOnlyConfigRoundTrip(t *testing.T) {
 	next, err := manager.buildNextStorage(DefaultStorageConfig(), request, 9)
 	require.NoError(t, err)
 	require.True(t, next.BlockingLatestTurnOnly)
+	require.True(t, next.AllowOnGuardUnavailable)
+	require.Contains(t, changeSummary(next), `"allow_on_guard_unavailable":true`)
 	require.Contains(t, changeSummary(next), `"blocking_latest_turn_only":true`)
 
 	active, err := ActiveFromStorage(next, true, prefixEncryptor{})
 	require.NoError(t, err)
 	require.True(t, active.BlockingLatestTurnOnly)
+	require.True(t, active.AllowOnGuardUnavailable)
 	public := PublicFromStorage(next, true, nil)
 	require.True(t, public.BlockingLatestTurnOnly)
+	require.True(t, public.AllowOnGuardUnavailable)
 }
 
 func TestConfigRejectsBlockingWithoutAudit(t *testing.T) {
@@ -206,6 +211,49 @@ func TestConfigManagerPublicRequiresSuccessfullyLoadedSnapshot(t *testing.T) {
 	})
 }
 
+func TestConfigManagerInvalidPassRetentionDefaultsEmptyWithoutDisablingAudit(t *testing.T) {
+	repository := staticSettingRepository{values: map[string]string{
+		SettingKeyPromptAuditConfig:        "",
+		SettingKeyPromptAuditPassRetention: `{"revision":2,"user_ids":[7]}`,
+		SettingKeyRiskControl:              "false",
+	}}
+	manager := NewConfigManager(nil, repository, nil, prefixEncryptor{}, testTotpKeyConfig())
+	require.NoError(t, manager.Reload(context.Background()))
+	active, ok := manager.Active()
+	require.True(t, ok)
+	require.True(t, active.ShouldStorePass(7))
+
+	repository.values[SettingKeyPromptAuditPassRetention] = `{bad-json`
+	require.NoError(t, manager.Reload(context.Background()))
+
+	active, ok = manager.Active()
+	require.True(t, ok)
+	require.Equal(t, ModeOff, active.EffectiveMode())
+	require.Empty(t, active.PassRetentionUserIDs)
+	retention, err := manager.PublicPassRetention()
+	require.NoError(t, err)
+	require.Equal(t, int64(1), retention.Revision)
+	require.Empty(t, retention.UserIDs)
+	require.Equal(t, "pass_retention_config_invalid", retention.LoadError)
+}
+
+func TestConfigManagerPassRetentionSnapshotNeverMovesBackward(t *testing.T) {
+	manager := &ConfigManager{}
+	manager.snapshot.Store(&activeConfigSnapshot{
+		storage: DefaultStorageConfig(), retention: passRetentionStorage{Revision: 3, UserIDs: []int64{7}},
+		active: ActiveConfig{PassRetentionUserIDs: []int64{7}},
+	})
+	manager.installPassRetention(passRetentionStorage{Revision: 2, UserIDs: []int64{9}})
+
+	active, ok := manager.Active()
+	require.True(t, ok)
+	require.True(t, active.ShouldStorePass(7))
+	require.False(t, active.ShouldStorePass(9))
+	retention, err := manager.PublicPassRetention()
+	require.NoError(t, err)
+	require.Equal(t, int64(3), retention.Revision)
+}
+
 // Regression coverage for issue #4887: a persisted config whose endpoint token
 // can no longer be decrypted (encryption key changed or auto-generated per
 // boot) must stay visible and editable for admins instead of falling back to a
@@ -244,7 +292,7 @@ func TestConfigManagerUndecryptableTokenKeepsConfigVisibleAndRecoverable(t *test
 }
 
 func TestConfigManagerUndecryptableTokenStillFailsClosedForBlockingIntent(t *testing.T) {
-	persisted := `{"enabled":true,"blocking_enabled":true,"config_version":9,"endpoints":[{"id":"g1","name":"Guard","protocol":"openai_compatible","base_url":"http://127.0.0.1:8080","model":"m","token_ciphertext":"undecryptable","timeout_ms":1000,"input_limit":1000,"enabled":true}]}`
+	persisted := `{"enabled":true,"blocking_enabled":true,"allow_on_guard_unavailable":true,"config_version":9,"endpoints":[{"id":"g1","name":"Guard","protocol":"openai_compatible","base_url":"http://127.0.0.1:8080","model":"m","token_ciphertext":"undecryptable","timeout_ms":1000,"input_limit":1000,"enabled":true}]}`
 	manager := NewConfigManager(nil, staticSettingRepository{values: map[string]string{
 		SettingKeyPromptAuditConfig: persisted,
 		SettingKeyRiskControl:       "true",

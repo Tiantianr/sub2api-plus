@@ -6,6 +6,7 @@ import PolicyPanel from '../components/PolicyPanel.vue'
 import EventWorkspace from '../components/EventWorkspace.vue'
 import EventDetailDialog from '../components/EventDetailDialog.vue'
 import FilterDeleteDialog from '../components/FilterDeleteDialog.vue'
+import PassEventCleanupDialog from '../components/PassEventCleanupDialog.vue'
 import RuntimeOverview from '../components/RuntimeOverview.vue'
 import type { PromptAuditDraft, PromptAuditEndpointDraft, PromptAuditEvent, PromptAuditRuntime, PromptEventFilters } from '../types'
 import { DEFAULT_BLOCKING_REVIEW_MODULES, DEFAULT_DEEP_REVIEW_MODULES, emptyEventFilters, resolveDeleteRangeFilters, SCANNER_CATALOG } from '../viewModel'
@@ -25,6 +26,10 @@ vi.mock('vue-i18n', async () => {
 
 const DialogStub = defineComponent({ props: ['show', 'title'], emits: ['close'], template: '<div v-if="show" data-test="dialog"><slot /><slot name="footer" /></div>' })
 const PaginationStub = defineComponent({ props: ['total', 'page', 'pageSize'], emits: ['update:page', 'update:pageSize'], template: '<div data-test="pagination" />' })
+const UserSelectorStub = defineComponent({
+  props: ['modelValue'], emits: ['update:modelValue'],
+  template: '<button type="button" data-test="pick-user" @click="$emit(\'update:modelValue\', [42])">pick</button>',
+})
 
 const endpoint = (): PromptAuditEndpointDraft => ({
   id: 'guard-1', name: 'Guard One', protocol: 'openai_compatible', base_url: 'http://127.0.0.1:8000',
@@ -47,7 +52,7 @@ describe('Prompt Audit components', () => {
       last_processed_at: '2026-07-16T00:05:00Z', last_error_at: '2026-07-16T00:01:00Z',
       last_error_code: 'prompt_guard_unavailable', last_error_message: 'Prompt Guard unavailable',
       database_status: 'ok', redis_status: 'ok', endpoints: {},
-      guard_metrics: { total: 1, allowed: 1, flagged: 0, blocked: 0, unavailable: 0, invalid: 0, timeouts: 0, failovers: 0, bulkhead_full: 0, record_failed: 0 },
+      guard_metrics: { total: 1, allowed: 1, flagged: 0, blocked: 0, unavailable: 0, invalid: 0, timeouts: 0, failovers: 0, bulkhead_full: 0, record_failed: 0, failure_allowed: 0 },
     }
     const wrapper = mount(RuntimeOverview, { props: { runtime, loading: false, error: '' } })
 
@@ -126,7 +131,7 @@ describe('Prompt Audit components', () => {
 
   it('supports group search, stale configured groups, nine scanners, and bounded worker inputs', async () => {
     const draft: PromptAuditDraft = {
-      enabled: true, blocking_enabled: false, blocking_latest_turn_only: false, store_pass_events: false, effective_mode: 'async_audit', strategy: 'priority',
+      enabled: true, blocking_enabled: false, allow_on_guard_unavailable: false, blocking_latest_turn_only: false, effective_mode: 'async_audit', strategy: 'priority',
       blocking_review_modules: { ...DEFAULT_BLOCKING_REVIEW_MODULES }, deep_review_modules: { ...DEFAULT_DEEP_REVIEW_MODULES },
       allow_receipt_ttl_seconds: 3600,
       worker_count: 4, queue_capacity: 100, scanners: SCANNER_CATALOG.map((item) => item.id), all_groups: false, group_ids: [1, 99],
@@ -169,6 +174,8 @@ describe('Prompt Audit components', () => {
     expect(wrapper.text()).toContain('203.0.113.42')
     expect(wrapper.text()).toContain('2.50 s')
     expect(wrapper.get('[data-test="filter-delete"]').attributes()).not.toHaveProperty('disabled')
+    await wrapper.get('[data-test="cleanup-pass-events"]').trigger('click')
+    expect(wrapper.emitted('cleanup-pass')).toHaveLength(1)
     await wrapper.get('[data-test="filter-delete"]').trigger('click')
     expect(wrapper.emitted('preview-delete')).toHaveLength(1)
     await wrapper.get('[aria-label="admin.promptAudit.events.selectEvent"]').setValue(true)
@@ -237,7 +244,7 @@ describe('Prompt Audit components', () => {
     expect(customPreview.end_at).toBe('2026-07-02T00:00')
 
     await wrapper.setProps({
-      preview: { matched_count: 3, filter_summary: {}, snapshot_max_id: 9, filter_hash: 'b'.repeat(64), confirmation_token: 'tok', expires_at: '2026-07-16T00:05:00Z' },
+      preview: { matched_count: 3, matched_context_count: 2, estimated_reclaimable_bytes: 4096, filter_summary: {}, snapshot_max_id: 9, filter_hash: 'b'.repeat(64), confirmation_token: 'tok', expires_at: '2026-07-16T00:05:00Z' },
     })
     expect(wrapper.get('[data-test="delete-preview-result"]').text()).toContain('admin.promptAudit.events.filterDeleteCount')
     expect(wrapper.find('[data-test="confirm-disabled-reason"]').exists()).toBe(false)
@@ -253,7 +260,7 @@ describe('Prompt Audit components', () => {
       props: {
         show: true,
         initialFilters: emptyEventFilters(),
-        preview: { matched_count: 0, filter_summary: {}, snapshot_max_id: 0, filter_hash: 'c'.repeat(64), confirmation_token: 'tok', expires_at: '2026-07-16T00:05:00Z' },
+        preview: { matched_count: 0, matched_context_count: 0, estimated_reclaimable_bytes: 0, filter_summary: {}, snapshot_max_id: 0, filter_hash: 'c'.repeat(64), confirmation_token: 'tok', expires_at: '2026-07-16T00:05:00Z' },
         previewing: false,
         deleting: false,
       },
@@ -276,6 +283,26 @@ describe('Prompt Audit components', () => {
     expect(wrapper.get<HTMLInputElement>('[data-test="custom-range"] [aria-label="admin.promptAudit.events.startAt"]').element.value).toBe('2026-07-01T00:00')
     expect(wrapper.get<HTMLSelectElement>('[data-test="delete-decision"]').element.value).toBe('critical')
     expect(wrapper.get('[data-test="run-delete-preview"]').attributes()).not.toHaveProperty('disabled')
+  })
+
+  it('keeps normal-event cleanup fixed to Pass and disabled until preview', async () => {
+    const wrapper = mount(PassEventCleanupDialog, {
+      props: { show: true, preview: null, previewing: false, deleting: false },
+      global: { stubs: { BaseDialog: DialogStub, OpenAIFastPolicyUserSelector: UserSelectorStub } },
+    })
+    expect(wrapper.get('[data-test="confirm-pass-cleanup"]').attributes()).toHaveProperty('disabled')
+    await wrapper.get('[data-test="preview-pass-cleanup"]').trigger('click')
+    const filters = wrapper.emitted('preview')?.at(-1)?.[0] as PromptEventFilters
+    expect(filters.decision).toBe('pass')
+    expect(filters.start_at).toBe('1970-01-01T00:00:00.000Z')
+
+    await wrapper.setProps({
+      preview: { matched_count: 5, matched_context_count: 4, estimated_reclaimable_bytes: 5 * 1024 ** 3, filter_summary: {}, snapshot_max_id: 12, filter_hash: 'd'.repeat(64), confirmation_token: 'tok', expires_at: '2026-07-16T00:05:00Z' },
+    })
+    expect(wrapper.get('[data-test="pass-cleanup-preview"]').text()).toContain('5.00 GB')
+    expect(wrapper.get('[data-test="confirm-pass-cleanup"]').attributes()).not.toHaveProperty('disabled')
+    await wrapper.get('[data-test="confirm-pass-cleanup"]').trigger('click')
+    expect(wrapper.emitted('confirm')).toHaveLength(1)
   })
 
   it('shows the full unredacted prompt and structured guard return on the risks tab', async () => {
