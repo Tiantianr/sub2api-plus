@@ -6,13 +6,15 @@ import (
 )
 
 const (
-	SettingKeyPromptAuditConfig = "prompt_audit_config"
-	SettingKeyRiskControl       = "risk_control_enabled"
+	SettingKeyPromptAuditConfig        = "prompt_audit_config"
+	SettingKeyPromptAuditPassRetention = "prompt_audit_pass_retention"
+	SettingKeyRiskControl              = "risk_control_enabled"
 
-	ConfigInvalidationChannel = "sub2api:prompt_guard:config:invalidate"
-	PayloadKeyPrefix          = "sub2api:prompt_audit:payload:"
-	DeepReviewStateKeyPrefix  = "sub2api:prompt_audit:deep_required:user:"
-	AllowReceiptKeyPrefix     = "sub2api:prompt_audit:allow_receipt:user:"
+	ConfigInvalidationChannel        = "sub2api:prompt_guard:config:invalidate"
+	PassRetentionInvalidationChannel = "sub2api:prompt_audit:pass_retention:invalidate"
+	PayloadKeyPrefix                 = "sub2api:prompt_audit:payload:"
+	DeepReviewStateKeyPrefix         = "sub2api:prompt_audit:deep_required:user:"
+	AllowReceiptKeyPrefix            = "sub2api:prompt_audit:allow_receipt:user:"
 
 	ErrorCodeBlocked               = "prompt_guard_blocked"
 	ErrorCodeUnavailable           = "prompt_guard_unavailable"
@@ -110,9 +112,10 @@ type Request struct {
 	Body       []byte
 	Stage      string
 
-	PromptTextAuthority bool
-	AllowReceiptKeys    []string
-	AllowReceiptWrite   bool
+	PromptTextAuthority  bool
+	AllowReceiptKeys     []string
+	AllowReceiptWrite    bool
+	SuppressReceiptWrite bool
 }
 
 func (r Request) Clone() Request {
@@ -208,6 +211,7 @@ type PromptDecision struct {
 	AllowNextStage   bool              `json:"allow_next_stage"`
 	DeepReviewed     bool              `json:"-"`
 	AllowReceiptKeys []string          `json:"-"`
+	FailureAllowed   bool              `json:"-"`
 	allowReceipt     *allowReceiptCommit
 }
 
@@ -261,22 +265,23 @@ type ProbeResult struct {
 }
 
 type GuardMetricsSnapshot struct {
-	Total        int64 `json:"total"`
-	Allowed      int64 `json:"allowed"`
-	Flagged      int64 `json:"flagged"`
-	Blocked      int64 `json:"blocked"`
-	Unavailable  int64 `json:"unavailable"`
-	Invalid      int64 `json:"invalid"`
-	Timeouts     int64 `json:"timeouts"`
-	Failovers    int64 `json:"failovers"`
-	BulkheadFull int64 `json:"bulkhead_full"`
-	RecordFailed int64 `json:"record_failed"`
-	LatencyCount int64 `json:"latency_count"`
-	LatencyAvgMS int64 `json:"latency_avg_ms"`
-	LatencyP50MS int64 `json:"latency_p50_ms"`
-	LatencyP95MS int64 `json:"latency_p95_ms"`
-	LatencyP99MS int64 `json:"latency_p99_ms"`
-	LatencyMaxMS int64 `json:"latency_max_ms"`
+	Total          int64 `json:"total"`
+	Allowed        int64 `json:"allowed"`
+	Flagged        int64 `json:"flagged"`
+	Blocked        int64 `json:"blocked"`
+	Unavailable    int64 `json:"unavailable"`
+	Invalid        int64 `json:"invalid"`
+	Timeouts       int64 `json:"timeouts"`
+	Failovers      int64 `json:"failovers"`
+	BulkheadFull   int64 `json:"bulkhead_full"`
+	RecordFailed   int64 `json:"record_failed"`
+	FailureAllowed int64 `json:"failure_allowed"`
+	LatencyCount   int64 `json:"latency_count"`
+	LatencyAvgMS   int64 `json:"latency_avg_ms"`
+	LatencyP50MS   int64 `json:"latency_p50_ms"`
+	LatencyP95MS   int64 `json:"latency_p95_ms"`
+	LatencyP99MS   int64 `json:"latency_p99_ms"`
+	LatencyMaxMS   int64 `json:"latency_max_ms"`
 }
 
 type AuditMetricsSnapshot struct {
@@ -373,6 +378,7 @@ type Metrics interface {
 	IncFailover()
 	IncBulkheadFull()
 	IncRecordFailed()
+	IncFailureAllowed()
 	IncAllowReceiptHit()
 	IncAllowReceiptMiss()
 	IncAllowReceiptWrite()

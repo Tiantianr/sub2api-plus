@@ -59,11 +59,12 @@ var categoryAliases = map[string]string{
 }
 
 type GuardError struct {
-	Code       string
-	HTTPStatus int
-	Retryable  bool
-	Timeout    bool
-	Cause      error
+	Code                 string
+	HTTPStatus           int
+	Retryable            bool
+	Timeout              bool
+	FailureAllowEligible bool
+	Cause                error
 }
 
 func (e *GuardError) Error() string {
@@ -228,17 +229,17 @@ func (s *OpenAICompatibleScanner) Scan(ctx context.Context, endpoint ActiveEndpo
 		if errors.As(err, &netErr) && netErr.Timeout() {
 			timeout = true
 		}
-		return nil, &GuardError{Code: ErrorCodeUnavailable, Retryable: true, Timeout: timeout, Cause: err}
+		return nil, &GuardError{Code: ErrorCodeUnavailable, Retryable: true, Timeout: timeout, FailureAllowEligible: true, Cause: err}
 	}
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		retryable := resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode >= 500
-		return nil, &GuardError{Code: ErrorCodeUnavailable, HTTPStatus: resp.StatusCode, Retryable: retryable}
+		return nil, &GuardError{Code: ErrorCodeUnavailable, HTTPStatus: resp.StatusCode, Retryable: retryable, FailureAllowEligible: true}
 	}
 	limited := io.LimitReader(resp.Body, maxGuardResponseBytes+1)
 	responseBody, err := io.ReadAll(limited)
 	if err != nil {
-		return nil, &GuardError{Code: ErrorCodeUnavailable, Retryable: true, Cause: err}
+		return nil, &GuardError{Code: ErrorCodeUnavailable, Retryable: true, FailureAllowEligible: true, Cause: err}
 	}
 	if int64(len(responseBody)) > maxGuardResponseBytes {
 		return nil, &GuardError{Code: ErrorCodeInvalidResponse}

@@ -14,9 +14,19 @@ describe('Prompt Audit API', () => {
     await promptAuditAPI.getConfig()
     expect(client.get).toHaveBeenCalledWith('/admin/prompt-audit/config')
 
+    client.get.mockResolvedValue({ data: { revision: 1, user_ids: [] } })
+    await promptAuditAPI.getPassRetention()
+    expect(client.get).toHaveBeenCalledWith('/admin/prompt-audit/pass-retention')
+
     client.get.mockResolvedValue({ data: { process_status: 'running' } })
     await promptAuditAPI.getRuntime()
     expect(client.get).toHaveBeenCalledWith('/admin/prompt-audit/runtime')
+  })
+
+  it('saves Pass retention through its independent revision', async () => {
+    client.put.mockResolvedValue({ data: { revision: 4, user_ids: [7, 9] } })
+    await promptAuditAPI.updatePassRetention({ expected_revision: 3, user_ids: [9, 7] })
+    expect(client.put).toHaveBeenCalledWith('/admin/prompt-audit/pass-retention', { expected_revision: 3, user_ids: [9, 7] })
   })
 
   it('sends a temporary probe token only in the request and never invents response credentials', async () => {
@@ -35,7 +45,7 @@ describe('Prompt Audit API', () => {
     filters.start_at = '2026-07-15T00:00'
     filters.end_at = '2026-07-16T00:00'
     await promptAuditAPI.deleteEventsByFilter(filters, {
-      matched_count: 2, filter_summary: {}, snapshot_max_id: 10, filter_hash: 'a'.repeat(64), confirmation_token: 'opaque-token', expires_at: '2026-07-16T00:05:00Z',
+      matched_count: 2, matched_context_count: 2, estimated_reclaimable_bytes: 4096, filter_summary: {}, snapshot_max_id: 10, filter_hash: 'a'.repeat(64), confirmation_token: 'opaque-token', expires_at: '2026-07-16T00:05:00Z',
     })
     expect(client.post).toHaveBeenCalledWith('/admin/prompt-audit/events/delete-by-filter', expect.objectContaining({
       snapshot_max_id: 10, filter_hash: 'a'.repeat(64), confirmation_token: 'opaque-token', confirm: true,

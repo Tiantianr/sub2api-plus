@@ -123,6 +123,7 @@ const guardMetricItems = computed(() => {
     { label: t('admin.promptAudit.metrics.flagged'), value: metrics.flagged },
     { label: t('admin.promptAudit.metrics.blocked'), value: metrics.blocked },
     { label: t('admin.promptAudit.metrics.unavailable'), value: metrics.unavailable },
+    { label: t('admin.promptAudit.metrics.failureAllowed'), value: metrics.failure_allowed ?? 0 },
     { label: t('admin.promptAudit.metrics.timeouts'), value: metrics.timeouts },
     { label: t('admin.promptAudit.metrics.failovers'), value: metrics.failovers },
     { label: 'P95', value: metrics.latency_p95_ms != null ? `${metrics.latency_p95_ms} ms` : '—' },

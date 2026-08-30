@@ -27,7 +27,9 @@ func (e *Enqueuer) Enqueue(ctx context.Context, req Request) error {
 }
 
 func (e *Enqueuer) EnqueueDeep(ctx context.Context, req Request) error {
-	req.AllowReceiptWrite = true
+	if !req.SuppressReceiptWrite {
+		req.AllowReceiptWrite = true
+	}
 	return e.enqueue(ctx, req, ModeAsyncDeep)
 }
 

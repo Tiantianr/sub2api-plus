@@ -261,7 +261,7 @@ func TestExtractionFailuresBlockAPIKeyAndOAuthBeforeDownstreamStages(t *testing.
 			}
 			metrics := securityaudit.NewAtomicMetrics()
 			prompt := securityaudit.NewPromptService(blockingCompatibilityConfigStore{cfg: securityaudit.ActiveConfig{
-				RiskControlEnabled: true, Enabled: true, BlockingEnabled: true, AllGroups: true,
+				RiskControlEnabled: true, Enabled: true, BlockingEnabled: true, AllowOnGuardUnavailable: true, AllGroups: true,
 				Scanners: []string{"pii"}, Endpoints: []securityaudit.ActiveEndpoint{{ID: "guard", Enabled: true, TimeoutMS: 1000, InputLimit: 4096}},
 			}}, nil, testPromptAuditRedisStore(t), nil, metrics)
 			coordinator := securityaudit.NewCoordinator(nil, prompt)
@@ -307,7 +307,7 @@ func TestExtractionFailuresBlockWebSocketTurnBeforeUpstreamWrite(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	metrics := securityaudit.NewAtomicMetrics()
 	prompt := securityaudit.NewPromptService(blockingCompatibilityConfigStore{cfg: securityaudit.ActiveConfig{
-		RiskControlEnabled: true, Enabled: true, BlockingEnabled: true, AllGroups: true,
+		RiskControlEnabled: true, Enabled: true, BlockingEnabled: true, AllowOnGuardUnavailable: true, AllGroups: true,
 		Scanners: []string{"pii"}, Endpoints: []securityaudit.ActiveEndpoint{{ID: "guard", Enabled: true, TimeoutMS: 1000, InputLimit: 4096}},
 	}}, nil, testPromptAuditRedisStore(t), nil, metrics)
 	coordinator := securityaudit.NewCoordinator(nil, prompt)
@@ -332,6 +332,62 @@ func TestExtractionFailuresBlockWebSocketTurnBeforeUpstreamWrite(t *testing.T) {
 	}
 	require.Zero(t, upstreamWrites)
 	require.Equal(t, securityaudit.AuditMetricsSnapshot{ExtractionAttempted: 1, ExtractionFailed: 1}, metrics.AuditSnapshot())
+}
+
+func TestGuardUnavailablePolicyAllowsHTTPAndWebSocketForAPIKeyAndOAuth(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	for _, accountType := range []string{service.AccountTypeAPIKey, service.AccountTypeOAuth} {
+		for _, stage := range []string{"http", "subsequent_turn"} {
+			t.Run(accountType+"/"+stage, func(t *testing.T) {
+				metrics := securityaudit.NewAtomicMetrics()
+				prompt := securityaudit.NewPromptService(blockingCompatibilityConfigStore{cfg: securityaudit.ActiveConfig{
+					RiskControlEnabled: true, Enabled: true, BlockingEnabled: true, AllowOnGuardUnavailable: true,
+					AllGroups: true, ConfigVersion: 7, Scanners: []string{"pii"},
+					Endpoints: []securityaudit.ActiveEndpoint{{ID: "guard", BaseURL: "http://127.0.0.1:1", Model: securityaudit.DefaultGuardModel, Enabled: true, TimeoutMS: 100, InputLimit: 4096}},
+				}}, nil, testPromptAuditRedisStore(t), securityaudit.NewOpenAICompatibleScanner(), metrics)
+				coordinator := securityaudit.NewCoordinator(nil, prompt)
+				recorder := httptest.NewRecorder()
+				c, _ := gin.CreateTestContext(recorder)
+				c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
+				if stage != "http" {
+					c.Set(securityAuditWSTurnContextKey, 2)
+				}
+				groupID := int64(3)
+				apiKey := &service.APIKey{ID: 9, UserID: 7, GroupID: &groupID, Group: &service.Group{ID: groupID, Platform: service.PlatformOpenAI}}
+				account := &service.Account{ID: 11, Platform: service.PlatformOpenAI, Type: accountType, Credentials: map[string]any{"api_key": "key", "access_token": "token"}}
+				decision := runSecurityAudit(
+					c, nil, coordinator, nil, apiKey, middleware2.AuthSubject{UserID: 7, Concurrency: 2},
+					service.ContentModerationProtocolOpenAIResponses, "gpt-test",
+					[]byte(`{"input":[{"type":"message","role":"user","content":"review during outage"}]}`), stage,
+				)
+
+				require.NotNil(t, decision)
+				require.Equal(t, securityaudit.DecisionAllow, decision.Kind)
+				require.True(t, decision.AllowNextStage)
+				require.NotNil(t, decision.Prompt)
+				require.Equal(t, securityaudit.ErrorCodeUnavailable, decision.Prompt.ErrorCode)
+				require.Empty(t, decision.Prompt.AllowReceiptKeys)
+				require.Equal(t, int64(1), metrics.Snapshot().FailureAllowed)
+
+				accountSelections, billingChecks, concurrencyAcquisitions, upstreamWrites := 0, 0, 0, 0
+				if decision.AllowNextStage {
+					accountSelections++
+					credential := account.GetOpenAIProtocolAPIKey()
+					if account.IsOpenAIOAuth() {
+						credential = account.GetOpenAIAccessToken()
+					}
+					require.NotEmpty(t, credential)
+					billingChecks++
+					concurrencyAcquisitions++
+					upstreamWrites++
+				}
+				require.Equal(t, 1, accountSelections)
+				require.Equal(t, 1, billingChecks)
+				require.Equal(t, 1, concurrencyAcquisitions)
+				require.Equal(t, 1, upstreamWrites)
+			})
+		}
+	}
 }
 
 func TestAgentMessagesReachHTTPAndWebSocketDownstreamForAPIKeyAndOAuth(t *testing.T) {

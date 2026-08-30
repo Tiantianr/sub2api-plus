@@ -6,6 +6,9 @@
         <p class="mt-1 text-sm text-gray-500 dark:text-dark-300">{{ t('admin.promptAudit.events.description') }}</p>
       </div>
       <div class="flex flex-wrap gap-2">
+        <button type="button" class="btn btn-secondary btn-sm" data-test="cleanup-pass-events" @click="$emit('cleanup-pass')">
+          {{ t('admin.promptAudit.cleanup.action') }}
+        </button>
         <button type="button" class="btn btn-secondary btn-sm" :disabled="selectedIds.length === 0" @click="$emit('batch-delete')">
           {{ t('admin.promptAudit.events.deleteSelected', { count: selectedIds.length }) }}
         </button>
@@ -168,6 +171,7 @@ const emit = defineEmits<{
   (event: 'delete', id: number): void
   (event: 'batch-delete'): void
   (event: 'preview-delete'): void
+  (event: 'cleanup-pass'): void
 }>()
 const { t, locale } = useI18n()
 const localFilters = reactive<PromptEventFilters>(cloneData(props.filters))

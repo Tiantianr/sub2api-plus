@@ -39,12 +39,14 @@ type EventPage struct {
 }
 
 type DeletePreview struct {
-	MatchedCount      int64       `json:"matched_count"`
-	FilterSummary     EventFilter `json:"filter_summary"`
-	SnapshotMaxID     int64       `json:"snapshot_max_id"`
-	FilterHash        string      `json:"filter_hash"`
-	ConfirmationToken string      `json:"confirmation_token,omitempty"`
-	ExpiresAt         time.Time   `json:"expires_at,omitempty"`
+	MatchedCount              int64       `json:"matched_count"`
+	MatchedContextCount       int64       `json:"matched_context_count"`
+	EstimatedReclaimableBytes int64       `json:"estimated_reclaimable_bytes"`
+	FilterSummary             EventFilter `json:"filter_summary"`
+	SnapshotMaxID             int64       `json:"snapshot_max_id"`
+	FilterHash                string      `json:"filter_hash"`
+	ConfirmationToken         string      `json:"confirmation_token,omitempty"`
+	ExpiresAt                 time.Time   `json:"expires_at,omitempty"`
 }
 
 type DeleteResult struct {
@@ -179,15 +181,24 @@ func (r *PostgreSQLRepository) PreviewDelete(ctx context.Context, filter EventFi
 	}
 	defer func() { _ = tx.Rollback() }()
 	where, args := buildEventWhere(filter, 1)
-	var count, maxID int64
-	if err := tx.QueryRowContext(ctx, `SELECT COUNT(*), COALESCE(MAX(e.id),0) FROM prompt_audit_events e`+where, args...).Scan(&count, &maxID); err != nil {
+	var count, contextCount, estimatedBytes, maxID int64
+	if err := tx.QueryRowContext(ctx, `
+		SELECT COUNT(*), COALESCE(MAX(e.id),0), COUNT(c.event_id),
+			COALESCE(SUM(pg_column_size(e.full_prompt)),0) +
+			COALESCE(SUM(pg_column_size(c.context_ciphertext)),0)
+		FROM prompt_audit_events e
+		LEFT JOIN prompt_audit_event_contexts c ON c.event_id=e.id`+where,
+		args...).Scan(&count, &maxID, &contextCount, &estimatedBytes); err != nil {
 		return nil, err
 	}
 	if err := tx.Commit(); err != nil {
 		return nil, err
 	}
 	canonical := canonicalEventFilter(filter)
-	return &DeletePreview{MatchedCount: count, FilterSummary: canonical, SnapshotMaxID: maxID, FilterHash: FilterHash(canonical, maxID)}, nil
+	return &DeletePreview{
+		MatchedCount: count, MatchedContextCount: contextCount, EstimatedReclaimableBytes: estimatedBytes,
+		FilterSummary: canonical, SnapshotMaxID: maxID, FilterHash: FilterHash(canonical, maxID),
+	}, nil
 }
 
 func (r *PostgreSQLRepository) DeleteEventsByFilter(ctx context.Context, filter EventFilter, snapshotMaxID int64, batchSize int) (*DeleteResult, error) {

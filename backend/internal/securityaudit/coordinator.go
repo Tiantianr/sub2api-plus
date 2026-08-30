@@ -127,7 +127,8 @@ func (c *Coordinator) checkBlocking(ctx context.Context, req Request) Decision {
 		if deep, ok := c.prompt.(deepReviewPromptEngine); ok {
 			deepReq := req.Clone()
 			deepReq.AllowReceiptKeys = append([]string(nil), prompt.AllowReceiptKeys...)
-			deepReq.AllowReceiptWrite = true
+			deepReq.AllowReceiptWrite = !prompt.FailureAllowed
+			deepReq.SuppressReceiptWrite = prompt.FailureAllowed
 			_ = deep.EnqueueDeep(ctx, deepReq)
 		}
 	}

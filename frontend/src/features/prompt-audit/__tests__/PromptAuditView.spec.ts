@@ -6,7 +6,7 @@ import { SCANNER_CATALOG } from '../viewModel'
 import PromptAuditView from '../PromptAuditView.vue'
 
 const mocks = vi.hoisted(() => ({
-  getConfig: vi.fn(), updateConfig: vi.fn(), probeEndpoint: vi.fn(), getRuntime: vi.fn(), listEvents: vi.fn(),
+  getConfig: vi.fn(), updateConfig: vi.fn(), getPassRetention: vi.fn(), updatePassRetention: vi.fn(), probeEndpoint: vi.fn(), getRuntime: vi.fn(), listEvents: vi.fn(),
   getEvent: vi.fn(), deleteEvent: vi.fn(), batchDeleteEvents: vi.fn(), previewDelete: vi.fn(), deleteEventsByFilter: vi.fn(), listGroups: vi.fn(),
   showSuccess: vi.fn(), showError: vi.fn(),
 }))
@@ -19,7 +19,7 @@ vi.mock('vue-i18n', async () => {
 })
 
 const baseConfig = (): PromptAuditConfig => ({
-  enabled: true, blocking_enabled: false, blocking_latest_turn_only: false, store_pass_events: false, effective_mode: 'async_audit', strategy: 'priority',
+  enabled: true, blocking_enabled: false, allow_on_guard_unavailable: false, blocking_latest_turn_only: false, effective_mode: 'async_audit', strategy: 'priority',
   worker_count: 4, queue_capacity: 100, scanners: SCANNER_CATALOG.map((item) => item.id), all_groups: true, group_ids: [],
   endpoints: [{ id: 'guard-1', name: 'Guard One', protocol: 'openai_compatible', base_url: 'http://127.0.0.1:8000', model: 'guard-model', timeout_ms: 3000, input_limit: 4000, enabled: true, has_token: true, token_status: 'configured' }],
   config_version: 7, updated_at: '2026-07-16T00:00:00Z', updated_by: 1, change_summary: '{}',
@@ -33,7 +33,7 @@ const runtime = (): PromptAuditRuntime => ({
   allow_receipt_hits: 0, allow_receipt_misses: 0, allow_receipt_writes: 0, allow_receipt_errors: 0,
   recovery_required_sync: 0, recovery_required_async: 0, recovery_cleared: 0, recovery_retained: 0, recovery_errors: 0,
   database_status: 'ok', redis_status: 'ok', endpoints: {},
-  guard_metrics: { total: 1, allowed: 1, flagged: 0, blocked: 0, unavailable: 0, invalid: 0, timeouts: 0, failovers: 0, bulkhead_full: 0, record_failed: 0 },
+  guard_metrics: { total: 1, allowed: 1, flagged: 0, blocked: 0, unavailable: 0, invalid: 0, timeouts: 0, failovers: 0, bulkhead_full: 0, record_failed: 0, failure_allowed: 0 },
 })
 
 const AppLayoutStub = { template: '<div><slot /></div>' }
@@ -43,10 +43,14 @@ const EndpointStub = defineComponent({
   template: '<div data-test="endpoint"><button data-test="inject-secret" @click="$emit(\'update:endpoints\', endpoints.map((e) => ({ ...e, token: \'PROMPT_AUDIT_CANARY_SECRET_DO_NOT_PERSIST\' })))">secret</button><button data-test="probe" @click="$emit(\'probe\', endpoints[0])">probe</button></div>',
 })
 const PolicyStub = defineComponent({ props: ['draft', 'groups'], emits: ['update:draft'], template: '<div data-test="policy" />' })
+const RetentionStub = defineComponent({
+  props: ['config', 'userIds', 'dirty', 'loading', 'saving', 'error'], emits: ['update:userIds', 'save', 'reset'],
+  template: '<div data-test="retention"><button data-test="retention-change" @click="$emit(\'update:userIds\', [9])">change</button><button data-test="retention-save" @click="$emit(\'save\')">save</button></div>',
+})
 const EventsStub = defineComponent({
   props: ['events', 'filters', 'selectedIds', 'loading', 'error', 'total', 'page', 'pageSize'],
-  emits: ['filters-change', 'search', 'selection', 'page', 'page-size', 'view', 'delete', 'batch-delete', 'preview-delete'],
-  template: '<div data-test="events"><button data-test="preview" @click="$emit(\'preview-delete\')">preview</button><button data-test="change-filter" @click="$emit(\'filters-change\', { ...filters, keyword: \'changed\' })">change</button><button data-test="delete-one" @click="$emit(\'delete\', 5)">delete</button><button data-test="select-batch" @click="$emit(\'selection\', [5, 6])">select</button><button data-test="delete-batch" @click="$emit(\'batch-delete\')">batch</button></div>',
+  emits: ['filters-change', 'search', 'selection', 'page', 'page-size', 'view', 'delete', 'batch-delete', 'preview-delete', 'cleanup-pass'],
+  template: '<div data-test="events"><button data-test="preview" @click="$emit(\'preview-delete\')">preview</button><button data-test="cleanup-pass" @click="$emit(\'cleanup-pass\')">cleanup</button><button data-test="change-filter" @click="$emit(\'filters-change\', { ...filters, keyword: \'changed\' })">change</button><button data-test="delete-one" @click="$emit(\'delete\', 5)">delete</button><button data-test="select-batch" @click="$emit(\'selection\', [5, 6])">select</button><button data-test="delete-batch" @click="$emit(\'batch-delete\')">batch</button></div>',
 })
 const DetailStub = defineComponent({ props: ['show', 'event', 'loading'], emits: ['close'], template: '<div data-test="detail" />' })
 const ConfirmStub = defineComponent({ props: ['show', 'title', 'message'], emits: ['confirm', 'cancel'], template: '<div v-if="show" data-test="confirm"><button data-test="confirm-action" @click="$emit(\'confirm\')">confirm</button></div>' })
@@ -55,10 +59,14 @@ const FilterDeleteStub = defineComponent({
   emits: ['close', 'preview', 'confirm', 'criteria-change'],
   template: '<div v-if="show" data-test="filter-delete-dialog"><button data-test="dialog-preview" @click="$emit(\'preview\', { ...initialFilters, start_at: \'2026-07-15T00:00\', end_at: \'2026-07-16T00:00\' })">run</button><button data-test="dialog-confirm" @click="$emit(\'confirm\', { ...initialFilters, start_at: \'2026-07-15T00:00\', end_at: \'2026-07-16T00:00\' })">confirm</button><span data-test="dialog-preview-state">{{ preview ? preview.matched_count : \'none\' }}</span></div>',
 })
+const PassCleanupStub = defineComponent({
+  props: ['show', 'preview', 'previewing', 'deleting'], emits: ['close', 'preview', 'confirm', 'criteria-change'],
+  template: '<div v-if="show" data-test="pass-cleanup-dialog"><button data-test="pass-cleanup-preview" @click="$emit(\'preview\', { decision: \'pass\', user_id: \'\', start_at: \'1970-01-01T00:00:00.000Z\', end_at: \'2026-07-16T00:00:00.000Z\' })">preview</button><button data-test="pass-cleanup-confirm" @click="$emit(\'confirm\')">confirm</button><span data-test="pass-cleanup-state">{{ preview ? preview.matched_count : \'none\' }}</span></div>',
+})
 
 function mountView() {
   return mount(PromptAuditView, {
-    global: { stubs: { AppLayout: AppLayoutStub, RuntimeOverview: RuntimeStub, EndpointPool: EndpointStub, PolicyPanel: PolicyStub, EventWorkspace: EventsStub, EventDetailDialog: DetailStub, FilterDeleteDialog: FilterDeleteStub, ConfirmDialog: ConfirmStub } },
+    global: { stubs: { AppLayout: AppLayoutStub, RuntimeOverview: RuntimeStub, EndpointPool: EndpointStub, PolicyPanel: PolicyStub, PassRetentionPanel: RetentionStub, EventWorkspace: EventsStub, EventDetailDialog: DetailStub, FilterDeleteDialog: FilterDeleteStub, PassEventCleanupDialog: PassCleanupStub, ConfirmDialog: ConfirmStub } },
   })
 }
 
@@ -66,21 +74,24 @@ describe('PromptAuditView', () => {
   beforeEach(() => {
     Object.values(mocks).forEach((mock) => mock.mockReset())
     mocks.getConfig.mockResolvedValue(baseConfig())
+    mocks.getPassRetention.mockResolvedValue({ revision: 1, user_ids: [], updated_at: '', updated_by: 0 })
     mocks.getRuntime.mockResolvedValue(runtime())
     mocks.listGroups.mockResolvedValue([])
     mocks.listEvents.mockResolvedValue({ items: [], total: 0, page: 1, page_size: 20, pages: 0 })
     mocks.updateConfig.mockImplementation(async () => ({ ...baseConfig(), config_version: 8 }))
+    mocks.updatePassRetention.mockResolvedValue({ revision: 2, user_ids: [9], updated_at: '', updated_by: 1 })
     mocks.probeEndpoint.mockResolvedValue({ ok: true, status: 'healthy', message: 'ok', latency_ms: 2, http_status: 200, retryable: false, checked_at: '2026-07-16T00:00:00Z', token_applied: true })
-    mocks.previewDelete.mockResolvedValue({ matched_count: 2, filter_summary: {}, snapshot_max_id: 10, filter_hash: 'a'.repeat(64), confirmation_token: 'opaque-confirmation', expires_at: '2026-07-16T00:05:00Z' })
+    mocks.previewDelete.mockResolvedValue({ matched_count: 2, matched_context_count: 2, estimated_reclaimable_bytes: 4096, filter_summary: {}, snapshot_max_id: 10, filter_hash: 'a'.repeat(64), confirmation_token: 'opaque-confirmation', expires_at: '2026-07-16T00:05:00Z' })
     mocks.deleteEventsByFilter.mockResolvedValue({ deleted_events: 2, deleted_jobs: 2 })
     mocks.deleteEvent.mockResolvedValue({ deleted_events: 1, deleted_jobs: 1 })
     mocks.batchDeleteEvents.mockResolvedValue({ deleted_events: 2, deleted_jobs: 2 })
   })
 
-  it('starts config, runtime, groups, and events loads independently', async () => {
+  it('starts config, retention, runtime, groups, and events loads independently', async () => {
     mocks.getRuntime.mockRejectedValue(new Error('runtime offline'))
     const wrapper = mountView()
     expect(mocks.getConfig).toHaveBeenCalledOnce()
+    expect(mocks.getPassRetention).toHaveBeenCalledOnce()
     expect(mocks.getRuntime).toHaveBeenCalledOnce()
     expect(mocks.listGroups).toHaveBeenCalledOnce()
     expect(mocks.listEvents).toHaveBeenCalledOnce()
@@ -130,11 +141,16 @@ describe('PromptAuditView', () => {
     expect(wrapper.find('[data-test="confirm"]').exists()).toBe(true)
     await wrapper.get('[data-test="confirm-action"]').trigger('click')
     expect(wrapper.get('[data-test="blocking-toggle"]').attributes('aria-checked')).toBe('true')
+    expect(wrapper.get('[data-test="failure-allow-toggle"]').attributes()).not.toHaveProperty('disabled')
+    await wrapper.get('[data-test="failure-allow-toggle"]').trigger('click')
+    expect(wrapper.get('[data-test="failure-allow-toggle"]').attributes('aria-checked')).toBe('true')
     expect(wrapper.find('[data-test="blocking-latest-turn-only-toggle"]').exists()).toBe(false)
     await wrapper.get('[data-test="enabled-toggle"]').trigger('click')
     expect(wrapper.get('[data-test="enabled-toggle"]').attributes('aria-checked')).toBe('false')
     expect(wrapper.get('[data-test="blocking-toggle"]').attributes('aria-checked')).toBe('false')
     expect(wrapper.get('[data-test="blocking-toggle"]').attributes()).toHaveProperty('disabled')
+    expect(wrapper.get('[data-test="failure-allow-toggle"]').attributes('aria-checked')).toBe('false')
+    expect(wrapper.get('[data-test="failure-allow-toggle"]').attributes()).toHaveProperty('disabled')
   })
 
   it('clears plaintext token state after a successful save', async () => {
@@ -184,6 +200,32 @@ describe('PromptAuditView', () => {
     expect(switches.every((item) => Boolean(item.attributes('aria-label')))).toBe(true)
     expect(wrapper.html()).toContain('fixed inset-x-0 bottom-0')
     expect(wrapper.html()).toContain('flex-wrap')
+  })
+
+  it('saves Pass retention independently from the Guard configuration', async () => {
+    const wrapper = mountView()
+    await flushPromises()
+    await wrapper.get('[data-test="tab-config"]').trigger('click')
+    await wrapper.get('[data-test="retention-change"]').trigger('click')
+    await wrapper.get('[data-test="retention-save"]').trigger('click')
+    await flushPromises()
+    expect(mocks.updatePassRetention).toHaveBeenCalledWith({ expected_revision: 1, user_ids: [9] })
+    expect(mocks.updateConfig).not.toHaveBeenCalled()
+  })
+
+  it('requires a preview before confirming Pass-only cleanup', async () => {
+    const wrapper = mountView()
+    await flushPromises()
+    await wrapper.get('[data-test="cleanup-pass"]').trigger('click')
+    await wrapper.get('[data-test="pass-cleanup-confirm"]').trigger('click')
+    expect(mocks.deleteEventsByFilter).not.toHaveBeenCalled()
+    await wrapper.get('[data-test="pass-cleanup-preview"]').trigger('click')
+    await flushPromises()
+    expect(mocks.previewDelete).toHaveBeenCalledWith(expect.objectContaining({ decision: 'pass' }))
+    expect(wrapper.get('[data-test="pass-cleanup-state"]').text()).toBe('2')
+    await wrapper.get('[data-test="pass-cleanup-confirm"]').trigger('click')
+    await flushPromises()
+    expect(mocks.deleteEventsByFilter).toHaveBeenCalledWith(expect.objectContaining({ decision: 'pass' }), expect.objectContaining({ snapshot_max_id: 10 }))
   })
 
   it('executes single, selected-batch, and preview-confirmed filter deletion flows', async () => {

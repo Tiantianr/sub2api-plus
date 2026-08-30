@@ -78,6 +78,10 @@
       <div v-if="preview" class="rounded-xl border border-red-200 bg-red-50/60 px-4 py-3 dark:border-red-900/60 dark:bg-red-950/20" data-test="delete-preview-result">
         <p class="text-sm font-semibold text-red-700 dark:text-red-300">{{ t('admin.promptAudit.events.filterDeleteCount', { count: preview.matched_count }) }}</p>
         <dl class="mt-2 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-xs text-gray-600 dark:text-dark-300">
+          <dt>{{ t('admin.promptAudit.cleanup.contexts') }}</dt>
+          <dd>{{ preview.matched_context_count }}</dd>
+          <dt>{{ t('admin.promptAudit.cleanup.estimatedBytes') }}</dt>
+          <dd>{{ formatBytes(preview.estimated_reclaimable_bytes) }}</dd>
           <dt>{{ t('admin.promptAudit.events.snapshotMax') }}</dt>
           <dd>{{ preview.snapshot_max_id }}</dd>
           <dt>Filter SHA-256</dt>
@@ -190,5 +194,11 @@ function requestConfirm() {
 }
 function formatDate(value: string): string {
   return new Intl.DateTimeFormat(locale.value, { dateStyle: 'medium', timeStyle: 'medium' }).format(new Date(value))
+}
+function formatBytes(value: number): string {
+  if (!Number.isFinite(value) || value <= 0) return '0 B'
+  const units = ['B', 'KB', 'MB', 'GB', 'TB']
+  const index = Math.min(Math.floor(Math.log(value) / Math.log(1024)), units.length - 1)
+  return `${(value / 1024 ** index).toFixed(index === 0 ? 0 : 2)} ${units[index]}`
 }
 </script>

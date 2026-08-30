@@ -8,10 +8,11 @@ import (
 )
 
 type GuardEvaluator struct {
-	scanner PromptScanner
-	repo    JobRepository
-	metrics Metrics
-	clock   Clock
+	scanner   PromptScanner
+	repo      JobRepository
+	metrics   Metrics
+	clock     Clock
+	retention passRetentionDecider
 
 	global       chan struct{}
 	perNodeLimit int
@@ -19,8 +20,12 @@ type GuardEvaluator struct {
 	nodes        map[string]chan struct{}
 }
 
-func NewGuardEvaluator(scanner PromptScanner, repo JobRepository, metrics Metrics) *GuardEvaluator {
-	return newGuardEvaluator(scanner, repo, metrics, 64, 16)
+func NewGuardEvaluator(scanner PromptScanner, repo JobRepository, metrics Metrics, retention ...passRetentionDecider) *GuardEvaluator {
+	evaluator := newGuardEvaluator(scanner, repo, metrics, 64, 16)
+	if len(retention) > 0 {
+		evaluator.retention = retention[0]
+	}
+	return evaluator
 }
 
 func newGuardEvaluator(scanner PromptScanner, repo JobRepository, metrics Metrics, globalLimit, perNodeLimit int) *GuardEvaluator {
@@ -62,7 +67,7 @@ func (g *GuardEvaluator) Evaluate(ctx context.Context, cfg ActiveConfig, snapsho
 			g.metrics.Observe(DecisionUnavailable, g.clock.Now().Sub(start))
 		}
 		logGuardFailure(snapshot, cfg, DecisionUnavailable, ErrorCodeUnavailable, "", g.clock.Now().Sub(start))
-		return nil, &GuardError{Code: ErrorCodeUnavailable}
+		return nil, &GuardError{Code: ErrorCodeUnavailable, FailureAllowEligible: true}
 	}
 	inputLimit := minimumInputLimit(endpoints)
 	chunks := SplitRunes(snapshot.ScanText, inputLimit)
@@ -148,7 +153,11 @@ func (g *GuardEvaluator) Evaluate(ctx context.Context, cfg ActiveConfig, snapsho
 		"status": "completed",
 	}))
 	if g.repo != nil {
-		if _, recordErr := g.repo.RecordBlocking(ctx, snapshot.Redacted(), cfg.ConfigVersion, aggregated, cfg.StorePassEvents); recordErr != nil {
+		storePass := cfg.ShouldStorePass(snapshot.UserID)
+		if g.retention != nil {
+			storePass = g.retention.ShouldStorePass(snapshot.UserID)
+		}
+		if _, recordErr := g.repo.RecordBlocking(ctx, snapshot.Redacted(), cfg.ConfigVersion, aggregated, storePass); recordErr != nil {
 			if g.metrics != nil {
 				g.metrics.IncRecordFailed()
 			}
@@ -199,7 +208,7 @@ func (g *GuardEvaluator) scanChunk(ctx context.Context, cfg ActiveConfig, endpoi
 			if g.metrics != nil {
 				g.metrics.IncBulkheadFull()
 			}
-			lastErr = &GuardError{Code: ErrorCodeUnavailable, Retryable: true}
+			lastErr = &GuardError{Code: ErrorCodeUnavailable, Retryable: true, FailureAllowEligible: true}
 			if index < len(endpoints)-1 && g.metrics != nil {
 				g.metrics.IncFailover()
 			}
@@ -219,7 +228,7 @@ func (g *GuardEvaluator) scanChunk(ctx context.Context, cfg ActiveConfig, endpoi
 		}
 		if attemptErr != nil {
 			result = nil
-			err = &GuardError{Code: ErrorCodeUnavailable, Retryable: true, Timeout: errors.Is(attemptErr, context.DeadlineExceeded), Cause: attemptErr}
+			err = &GuardError{Code: ErrorCodeUnavailable, Retryable: true, Timeout: errors.Is(attemptErr, context.DeadlineExceeded), FailureAllowEligible: true, Cause: attemptErr}
 		}
 		if err == nil && result != nil {
 			return result, nil

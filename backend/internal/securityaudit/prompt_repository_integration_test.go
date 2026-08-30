@@ -465,15 +465,29 @@ func TestPromptAuditRepositoryHighWaterAndSafeDeletion(t *testing.T) {
 	db := openPromptAuditIntegrationDB(t)
 	repo := NewPostgreSQLRepository(db)
 	ctx := context.Background()
-	first, err := repo.RecordBlocking(ctx, integrationSnapshot("first"), 1, integrationResult(EventCritical), true)
+	firstSnapshot := integrationSnapshot("first")
+	firstSnapshot.FullPrompt = "first full prompt"
+	firstSnapshot.FullContextCiphertext = strings.Repeat("a", 4096)
+	firstSnapshot.FullContextHash = strings.Repeat("1", 64)
+	firstSnapshot.FullContextBytes = 4096
+	firstSnapshot.FullContextSegmentCount = 2
+	first, err := repo.RecordBlocking(ctx, firstSnapshot, 1, integrationResult(EventCritical), true)
 	require.NoError(t, err)
-	second, err := repo.RecordBlocking(ctx, integrationSnapshot("second"), 1, integrationResult(EventCritical), true)
+	secondSnapshot := integrationSnapshot("second")
+	secondSnapshot.FullPrompt = "second full prompt"
+	secondSnapshot.FullContextCiphertext = strings.Repeat("b", 2048)
+	secondSnapshot.FullContextHash = strings.Repeat("2", 64)
+	secondSnapshot.FullContextBytes = 2048
+	secondSnapshot.FullContextSegmentCount = 1
+	second, err := repo.RecordBlocking(ctx, secondSnapshot, 1, integrationResult(EventCritical), true)
 	require.NoError(t, err)
 	start, end := time.Now().Add(-time.Hour), time.Now().Add(time.Hour)
 	filter := EventFilter{Decision: string(EventCritical), StartAt: &start, EndAt: &end}
 	preview, err := repo.PreviewDelete(ctx, filter)
 	require.NoError(t, err)
 	require.Equal(t, int64(2), preview.MatchedCount)
+	require.Equal(t, int64(2), preview.MatchedContextCount)
+	require.Positive(t, preview.EstimatedReclaimableBytes)
 	require.Equal(t, second.ID, preview.SnapshotMaxID)
 	require.Equal(t, FilterHash(preview.FilterSummary, preview.SnapshotMaxID), preview.FilterHash)
 

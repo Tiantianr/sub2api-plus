@@ -19,9 +19,10 @@ import (
 )
 
 type activeConfigSnapshot struct {
-	storage  storageConfig
-	active   ActiveConfig
-	loadedAt time.Time
+	storage   storageConfig
+	retention passRetentionStorage
+	active    ActiveConfig
+	loadedAt  time.Time
 }
 
 type ConfigManager struct {
@@ -35,8 +36,9 @@ type ConfigManager struct {
 	// undecryptable after the next restart, so Save rejects them (issue #4887).
 	encryptionKeyConfigured bool
 
-	snapshot atomic.Pointer[activeConfigSnapshot]
-	expected atomic.Int64
+	snapshot   atomic.Pointer[activeConfigSnapshot]
+	snapshotMu sync.Mutex
+	expected   atomic.Int64
 	// expectedBlocking records the last storage intent that could be decoded,
 	// independently of whether endpoint credentials or the full config could be
 	// activated. A config version alone cannot distinguish async from blocking.
@@ -49,9 +51,10 @@ type ConfigManager struct {
 	// not take the gateway down for every API request (see issue #4560).
 	configUntrusted atomic.Bool
 
-	stateMu       sync.RWMutex
-	lastLoadError string
-	lastErrorAt   *time.Time
+	stateMu            sync.RWMutex
+	lastLoadError      string
+	lastErrorAt        *time.Time
+	retentionLoadError string
 
 	lifecycleMu sync.Mutex
 	cancel      context.CancelFunc
@@ -110,9 +113,10 @@ func (m *ConfigManager) Reload(ctx context.Context) error {
 		m.markUntrustedIfNoActiveSnapshot()
 		return errors.New("prompt audit setting repository unavailable")
 	}
-	values, err := m.settings.GetMultiple(ctx, []string{SettingKeyPromptAuditConfig, SettingKeyRiskControl})
+	values, err := m.settings.GetMultiple(ctx, []string{SettingKeyPromptAuditConfig, SettingKeyPromptAuditPassRetention, SettingKeyRiskControl})
 	if err != nil {
 		m.recordLoadError(err)
+		m.disablePassRetention("pass_retention_config_unavailable")
 		m.markUntrustedIfNoActiveSnapshot()
 		return err
 	}
@@ -120,6 +124,7 @@ func (m *ConfigManager) Reload(ctx context.Context) error {
 	storage, err := ParseStorageConfig(values[SettingKeyPromptAuditConfig])
 	if err != nil {
 		m.recordLoadError(err)
+		m.disablePassRetention("pass_retention_config_unavailable")
 		m.markUntrustedIfNoActiveSnapshot()
 		return err
 	}
@@ -128,19 +133,34 @@ func (m *ConfigManager) Reload(ctx context.Context) error {
 	active, err := ActiveFromStorage(storage, values[SettingKeyRiskControl] == "true", m.encryptor)
 	if err != nil {
 		m.recordLoadError(err)
+		m.disablePassRetention("pass_retention_config_unavailable")
 		// expectedBlocking may already require fail-closed via BlockingActivationDegraded.
 		m.markUntrustedIfNoActiveSnapshot()
 		return err
 	}
+	retention, retentionErr := parsePassRetentionStorage(values[SettingKeyPromptAuditPassRetention])
+	if retentionErr != nil {
+		retention = defaultPassRetentionStorage()
+		m.recordRetentionLoadError()
+	} else {
+		m.clearRetentionLoadError()
+	}
+	active.PassRetentionUserIDs = append([]int64(nil), retention.UserIDs...)
 	now := m.clock.Now()
+	m.snapshotMu.Lock()
 	previous := m.snapshot.Load()
-	m.snapshot.Store(&activeConfigSnapshot{storage: cloneStorageConfig(storage), active: cloneActiveConfig(active), loadedAt: now})
+	if retentionErr == nil && previous != nil && previous.retention.Revision > retention.Revision {
+		retention = clonePassRetentionStorage(previous.retention)
+		active.PassRetentionUserIDs = append([]int64(nil), retention.UserIDs...)
+	}
+	m.snapshot.Store(&activeConfigSnapshot{storage: cloneStorageConfig(storage), retention: clonePassRetentionStorage(retention), active: cloneActiveConfig(active), loadedAt: now})
+	m.snapshotMu.Unlock()
 	m.configUntrusted.Store(false)
 	recovered := m.clearLoadError()
 	m.logInvalidTokenEndpoints(previous, active)
 	// refreshLoop calls Reload every 5s, so logging every successful load turns
 	// config_loaded into a heartbeat that buries real config changes.
-	if recovered || shouldLogConfigLoaded(previous, storage, active) {
+	if recovered || shouldLogConfigLoaded(previous, storage, retention, active) {
 		LogInfo(EventConfigLoaded, map[string]any{
 			"config_version": storage.ConfigVersion, "status": "loaded",
 		})
@@ -152,9 +172,10 @@ func (m *ConfigManager) Reload(ctx context.Context) error {
 // first snapshot, a new config version (every admin save bumps it under the
 // advisory lock in UpdateConfig) or a flip of the global risk control gate,
 // which lives in its own setting and so leaves the version untouched.
-func shouldLogConfigLoaded(previous *activeConfigSnapshot, storage storageConfig, active ActiveConfig) bool {
+func shouldLogConfigLoaded(previous *activeConfigSnapshot, storage storageConfig, retention passRetentionStorage, active ActiveConfig) bool {
 	return previous == nil ||
 		previous.storage.ConfigVersion != storage.ConfigVersion ||
+		previous.retention.Revision != retention.Revision ||
 		previous.active.RiskControlEnabled != active.RiskControlEnabled
 }
 
@@ -195,6 +216,11 @@ func (m *ConfigManager) Active() (ActiveConfig, bool) {
 		return ActiveConfig{}, false
 	}
 	return cloneActiveConfig(snapshot.active), true
+}
+
+func (m *ConfigManager) ShouldStorePass(userID int64) bool {
+	active, ok := m.Active()
+	return ok && active.ShouldStorePass(userID)
 }
 
 func (m *ConfigManager) BlockingActivationDegraded() bool {
@@ -255,6 +281,17 @@ func (m *ConfigManager) Public() (PublicConfig, error) {
 		return PublicConfig{}, infraerrors.ServiceUnavailable(ErrorCodeConfigUnavailable, "提示词审计配置暂不可用")
 	}
 	return PublicFromStorage(cloneStorageConfig(snapshot.storage), snapshot.active.RiskControlEnabled, snapshot.active.InvalidTokenEndpointIDs()), nil
+}
+
+func (m *ConfigManager) PublicPassRetention() (PassRetentionConfig, error) {
+	if m == nil {
+		return PassRetentionConfig{}, infraerrors.ServiceUnavailable(ErrorCodeConfigUnavailable, "正常记录留存配置暂不可用")
+	}
+	snapshot := m.snapshot.Load()
+	if snapshot == nil {
+		return PassRetentionConfig{}, infraerrors.ServiceUnavailable(ErrorCodeConfigUnavailable, "正常记录留存配置暂不可用")
+	}
+	return publicPassRetention(clonePassRetentionStorage(snapshot.retention), m.currentRetentionLoadError()), nil
 }
 
 func (m *ConfigManager) Save(ctx context.Context, req UpdateConfigRequest, actorID int64) (PublicConfig, error) {
@@ -320,8 +357,15 @@ func (m *ConfigManager) Save(ctx context.Context, req UpdateConfigRequest, actor
 	}
 	m.expected.Store(next.ConfigVersion)
 	m.expectedBlocking.Store(active.RiskControlEnabled && next.Enabled && next.BlockingEnabled)
+	m.snapshotMu.Lock()
 	previous := m.snapshot.Load()
-	m.snapshot.Store(&activeConfigSnapshot{storage: cloneStorageConfig(next), active: cloneActiveConfig(active), loadedAt: m.clock.Now()})
+	retention := defaultPassRetentionStorage()
+	if previous != nil {
+		retention = clonePassRetentionStorage(previous.retention)
+	}
+	active.PassRetentionUserIDs = append([]int64(nil), retention.UserIDs...)
+	m.snapshot.Store(&activeConfigSnapshot{storage: cloneStorageConfig(next), retention: retention, active: cloneActiveConfig(active), loadedAt: m.clock.Now()})
+	m.snapshotMu.Unlock()
 	// A successful admin save installs a trustworthy snapshot; clear any prior
 	// fail-closed degradation so disabling audit actually takes effect.
 	m.configUntrusted.Store(false)
@@ -340,6 +384,69 @@ func (m *ConfigManager) Save(ctx context.Context, req UpdateConfigRequest, actor
 	return PublicFromStorage(next, active.RiskControlEnabled, active.InvalidTokenEndpointIDs()), nil
 }
 
+func (m *ConfigManager) SavePassRetention(ctx context.Context, req UpdatePassRetentionRequest, actorID int64) (PassRetentionConfig, error) {
+	if m == nil || m.db == nil {
+		return PassRetentionConfig{}, errors.New("prompt audit Pass retention persistence unavailable")
+	}
+	userIDs, err := validatePassRetentionUpdate(req)
+	if err != nil {
+		return PassRetentionConfig{}, err
+	}
+	tx, err := m.db.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelReadCommitted})
+	if err != nil {
+		return PassRetentionConfig{}, err
+	}
+	defer func() { _ = tx.Rollback() }()
+	if _, err := tx.ExecContext(ctx, `SELECT pg_advisory_xact_lock($1)`, promptAuditPassRetentionLockKey); err != nil {
+		return PassRetentionConfig{}, err
+	}
+	current := defaultPassRetentionStorage()
+	var raw string
+	err = tx.QueryRowContext(ctx, `SELECT value FROM settings WHERE key=$1 FOR UPDATE`, SettingKeyPromptAuditPassRetention).Scan(&raw)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return PassRetentionConfig{}, err
+	}
+	if err == nil {
+		parsed, parseErr := parsePassRetentionStorage(raw)
+		if parseErr == nil {
+			current = parsed
+		}
+	}
+	if current.Revision != req.ExpectedRevision {
+		return PassRetentionConfig{}, infraerrors.Conflict("prompt_audit_pass_retention_conflict", "正常记录留存配置已被其他管理员更新")
+	}
+	next := passRetentionStorage{
+		Revision: current.Revision + 1, UserIDs: userIDs,
+		UpdatedAt: m.clock.Now(), UpdatedBy: actorID,
+	}
+	rawNext, err := json.Marshal(next)
+	if err != nil {
+		return PassRetentionConfig{}, err
+	}
+	if _, err := tx.ExecContext(ctx, `
+		INSERT INTO settings (key,value,updated_at) VALUES ($1,$2,NOW())
+		ON CONFLICT (key) DO UPDATE SET value=EXCLUDED.value, updated_at=EXCLUDED.updated_at`,
+		SettingKeyPromptAuditPassRetention, string(rawNext)); err != nil {
+		return PassRetentionConfig{}, err
+	}
+	if err := tx.Commit(); err != nil {
+		return PassRetentionConfig{}, err
+	}
+	m.installPassRetention(next)
+	m.clearRetentionLoadError()
+	LogInfo(EventConfigUpdated, map[string]any{
+		"retention_revision": next.Revision, "selected_user_count": len(next.UserIDs), "status": "updated",
+	})
+	if m.redis != nil {
+		if err := m.redis.Publish(ctx, PassRetentionInvalidationChannel, strconv.FormatInt(next.Revision, 10)).Err(); err != nil {
+			LogWarn(EventConfigReloadDegraded, map[string]any{
+				"retention_revision": next.Revision, "status": "degraded", "error_code": "pass_retention_invalidation_publish_failed",
+			})
+		}
+	}
+	return publicPassRetention(next, ""), nil
+}
+
 func (m *ConfigManager) buildNextStorage(current storageConfig, req UpdateConfigRequest, actorID int64) (storageConfig, error) {
 	if err := validateUpdateConfigRequest(req); err != nil {
 		return storageConfig{}, err
@@ -349,8 +456,9 @@ func (m *ConfigManager) buildNextStorage(current storageConfig, req UpdateConfig
 		currentByID[endpoint.ID] = endpoint
 	}
 	next := storageConfig{
-		Enabled: req.Enabled, BlockingEnabled: req.BlockingEnabled, BlockingLatestTurnOnly: req.BlockingLatestTurnOnly, StorePassEvents: req.StorePassEvents,
-		BlockingReviewModules: current.BlockingReviewModules, DeepReviewModules: current.DeepReviewModules,
+		Enabled: req.Enabled, BlockingEnabled: req.BlockingEnabled, AllowOnGuardUnavailable: req.AllowOnGuardUnavailable,
+		BlockingLatestTurnOnly: req.BlockingLatestTurnOnly,
+		BlockingReviewModules:  current.BlockingReviewModules, DeepReviewModules: current.DeepReviewModules,
 		AllowReceiptTTLSeconds: current.AllowReceiptTTLSeconds,
 		Strategy:               strings.TrimSpace(req.Strategy), WorkerCount: req.WorkerCount,
 		QueueCapacity: req.QueueCapacity, Scanners: append([]string(nil), req.Scanners...),
@@ -474,7 +582,7 @@ func (m *ConfigManager) refreshLoop(ctx context.Context) {
 
 func (m *ConfigManager) subscribeLoop(ctx context.Context) {
 	defer m.wg.Done()
-	pubsub := m.redis.Subscribe(ctx, ConfigInvalidationChannel)
+	pubsub := m.redis.Subscribe(ctx, ConfigInvalidationChannel, PassRetentionInvalidationChannel)
 	defer func() { _ = pubsub.Close() }()
 	channel := pubsub.Channel()
 	for {
@@ -489,12 +597,16 @@ func (m *ConfigManager) subscribeLoop(ctx context.Context) {
 			if err != nil || version < 1 {
 				continue
 			}
-			m.expected.Store(version)
+			if message.Channel == ConfigInvalidationChannel {
+				m.expected.Store(version)
+			}
 			if err := m.Reload(ctx); err != nil {
 				// A newer published version failed to activate. Until reload
 				// succeeds, do not keep serving a potentially stale weaker mode.
-				if active, ok := m.Active(); !ok || active.ConfigVersion < version {
-					m.markConfigUntrusted()
+				if message.Channel == ConfigInvalidationChannel {
+					if active, ok := m.Active(); !ok || active.ConfigVersion < version {
+						m.markConfigUntrusted()
+					}
 				}
 				LogWarn(EventConfigReloadDegraded, map[string]any{
 					"config_version": version, "status": "degraded", "error_code": "config_invalidation_reload_failed",
@@ -526,6 +638,55 @@ func (m *ConfigManager) clearLoadError() bool {
 	return recovered
 }
 
+func (m *ConfigManager) recordRetentionLoadError() {
+	m.stateMu.Lock()
+	m.retentionLoadError = "pass_retention_config_invalid"
+	m.stateMu.Unlock()
+}
+
+func (m *ConfigManager) disablePassRetention(code string) {
+	m.stateMu.Lock()
+	m.retentionLoadError = code
+	m.stateMu.Unlock()
+	m.snapshotMu.Lock()
+	if previous := m.snapshot.Load(); previous != nil {
+		active := cloneActiveConfig(previous.active)
+		active.PassRetentionUserIDs = nil
+		m.snapshot.Store(&activeConfigSnapshot{
+			storage: cloneStorageConfig(previous.storage), retention: defaultPassRetentionStorage(),
+			active: active, loadedAt: previous.loadedAt,
+		})
+	}
+	m.snapshotMu.Unlock()
+}
+
+func (m *ConfigManager) installPassRetention(next passRetentionStorage) {
+	m.snapshotMu.Lock()
+	defer m.snapshotMu.Unlock()
+	previous := m.snapshot.Load()
+	if previous == nil || next.Revision <= previous.retention.Revision {
+		return
+	}
+	active := cloneActiveConfig(previous.active)
+	active.PassRetentionUserIDs = append([]int64(nil), next.UserIDs...)
+	m.snapshot.Store(&activeConfigSnapshot{
+		storage: cloneStorageConfig(previous.storage), retention: clonePassRetentionStorage(next),
+		active: active, loadedAt: previous.loadedAt,
+	})
+}
+
+func (m *ConfigManager) clearRetentionLoadError() {
+	m.stateMu.Lock()
+	m.retentionLoadError = ""
+	m.stateMu.Unlock()
+}
+
+func (m *ConfigManager) currentRetentionLoadError() string {
+	m.stateMu.RLock()
+	defer m.stateMu.RUnlock()
+	return m.retentionLoadError
+}
+
 func cloneStorageConfig(cfg storageConfig) storageConfig {
 	cfg.Scanners = append([]string(nil), cfg.Scanners...)
 	cfg.GroupIDs = append([]int64(nil), cfg.GroupIDs...)
@@ -536,6 +697,12 @@ func cloneStorageConfig(cfg storageConfig) storageConfig {
 func cloneActiveConfig(cfg ActiveConfig) ActiveConfig {
 	cfg.Scanners = append([]string(nil), cfg.Scanners...)
 	cfg.GroupIDs = append([]int64(nil), cfg.GroupIDs...)
+	cfg.PassRetentionUserIDs = append([]int64(nil), cfg.PassRetentionUserIDs...)
 	cfg.Endpoints = append([]ActiveEndpoint(nil), cfg.Endpoints...)
 	return cfg
+}
+
+func clonePassRetentionStorage(stored passRetentionStorage) passRetentionStorage {
+	stored.UserIDs = append([]int64(nil), stored.UserIDs...)
+	return stored
 }

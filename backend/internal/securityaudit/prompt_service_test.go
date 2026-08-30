@@ -108,7 +108,7 @@ func TestPromptServiceBlockingExcludesCodexHarness(t *testing.T) {
 	}), nil, NewAtomicMetrics(), 2, 2)
 	passService := &PromptService{
 		config: &fakeConfigStore{active: true, cfg: ActiveConfig{
-			RiskControlEnabled: true, Enabled: true, BlockingEnabled: true, BlockingLatestTurnOnly: true, AllGroups: true,
+			RiskControlEnabled: true, Enabled: true, BlockingEnabled: true, AllowOnGuardUnavailable: true, BlockingLatestTurnOnly: true, AllGroups: true,
 			Scanners: AllScannerIDs, Endpoints: []ActiveEndpoint{{ID: "guard-1", Enabled: true, TimeoutMS: 1000, InputLimit: 8}},
 		}},
 		evaluator: passEvaluator,
@@ -132,7 +132,7 @@ func TestPromptServiceBlockingExcludesCodexHarness(t *testing.T) {
 	}), nil, NewAtomicMetrics(), 2, 2)
 	blockService := &PromptService{
 		config: &fakeConfigStore{active: true, cfg: ActiveConfig{
-			RiskControlEnabled: true, Enabled: true, BlockingEnabled: true, BlockingLatestTurnOnly: true, AllGroups: true,
+			RiskControlEnabled: true, Enabled: true, BlockingEnabled: true, AllowOnGuardUnavailable: true, BlockingLatestTurnOnly: true, AllGroups: true,
 			Scanners: AllScannerIDs, Endpoints: []ActiveEndpoint{{ID: "guard-1", Enabled: true, TimeoutMS: 1000, InputLimit: 4096}},
 		}},
 		evaluator: blockEvaluator,
@@ -224,7 +224,7 @@ func TestPromptServiceBlockingFailsClosedOnEmptyContentExtractionFailure(t *test
 	metrics := NewAtomicMetrics()
 	service := &PromptService{
 		config: &fakeConfigStore{active: true, cfg: ActiveConfig{
-			RiskControlEnabled: true, Enabled: true, BlockingEnabled: true, AllGroups: true,
+			RiskControlEnabled: true, Enabled: true, BlockingEnabled: true, AllowOnGuardUnavailable: true, AllGroups: true,
 			Scanners: AllScannerIDs, Endpoints: []ActiveEndpoint{{ID: "guard-1", Enabled: true, TimeoutMS: 1000, InputLimit: 4096}},
 		}},
 		evaluator: newGuardEvaluator(PromptScannerFunc(func(context.Context, ActiveEndpoint, string, []string) (*NormalizedResult, error) {
@@ -244,6 +244,116 @@ func TestPromptServiceBlockingFailsClosedOnEmptyContentExtractionFailure(t *test
 	require.ErrorAs(t, err, &guardErr)
 	require.Equal(t, ErrorCodeExtractionFailed, guardErr.Code)
 	require.Equal(t, AuditMetricsSnapshot{ExtractionAttempted: 1, ExtractionFailed: 1}, metrics.AuditSnapshot())
+}
+
+func TestPromptServiceGuardUnavailablePolicy(t *testing.T) {
+	request := Request{
+		RequestID: "req-guard-outage", UserID: 42, Protocol: "openai_chat_completions",
+		Body: []byte(`{"messages":[{"role":"user","content":"review me"}]}`),
+	}
+	newService := func(allow bool, scanErr error, metrics *AtomicMetrics) *PromptService {
+		state := newFakeAllowReceiptPayload()
+		cfg := ActiveConfig{
+			RiskControlEnabled: true, Enabled: true, BlockingEnabled: true,
+			AllowOnGuardUnavailable: allow, AllGroups: true, ConfigVersion: 7,
+			Scanners:  AllScannerIDs,
+			Endpoints: []ActiveEndpoint{{ID: "guard-1", Enabled: true, TimeoutMS: 1000, InputLimit: 4096}},
+		}
+		return &PromptService{
+			config: &fakeConfigStore{active: true, cfg: cfg},
+			evaluator: newGuardEvaluator(PromptScannerFunc(func(context.Context, ActiveEndpoint, string, []string) (*NormalizedResult, error) {
+				return nil, scanErr
+			}), nil, metrics, 1, 1),
+			state: state, receipts: state, metrics: metrics,
+		}
+	}
+
+	t.Run("default remains fail closed", func(t *testing.T) {
+		metrics := NewAtomicMetrics()
+		decision, err := newService(false, &GuardError{Code: ErrorCodeUnavailable}, metrics).Evaluate(context.Background(), request)
+		require.Nil(t, decision)
+		var guardErr *GuardError
+		require.ErrorAs(t, err, &guardErr)
+		require.Equal(t, ErrorCodeUnavailable, guardErr.Code)
+		require.Zero(t, metrics.Snapshot().FailureAllowed)
+	})
+
+	t.Run("explicit policy allows without certifying content", func(t *testing.T) {
+		metrics := NewAtomicMetrics()
+		decision, err := newService(true, &GuardError{Code: ErrorCodeUnavailable, Retryable: true, FailureAllowEligible: true}, metrics).Evaluate(context.Background(), request)
+		require.NoError(t, err)
+		require.Equal(t, DecisionAllow, decision.Kind)
+		require.True(t, decision.AllowNextStage)
+		require.Equal(t, ErrorCodeUnavailable, decision.ErrorCode)
+		require.True(t, decision.FailureAllowed)
+		require.Nil(t, decision.Result)
+		require.Nil(t, decision.allowReceipt)
+		require.Empty(t, decision.AllowReceiptKeys)
+		require.Equal(t, int64(1), metrics.Snapshot().Unavailable)
+		require.Equal(t, int64(1), metrics.Snapshot().FailureAllowed)
+	})
+
+	t.Run("zero usable endpoints remains fail closed", func(t *testing.T) {
+		metrics := NewAtomicMetrics()
+		state := newFakeAllowReceiptPayload()
+		service := &PromptService{
+			config: &fakeConfigStore{active: true, cfg: ActiveConfig{
+				RiskControlEnabled: true, Enabled: true, BlockingEnabled: true, AllowOnGuardUnavailable: true,
+				AllGroups: true, ConfigVersion: 7, Scanners: AllScannerIDs,
+				Endpoints: []ActiveEndpoint{{ID: "guard-1", Enabled: false, TokenInvalid: true, TimeoutMS: 1000, InputLimit: 4096}},
+			}},
+			evaluator: newGuardEvaluator(PromptScannerFunc(func(context.Context, ActiveEndpoint, string, []string) (*NormalizedResult, error) {
+				t.Fatal("invalid-token endpoint must not be called")
+				return nil, nil
+			}), nil, metrics, 1, 1),
+			state: state, receipts: state, metrics: metrics,
+		}
+		decision, err := service.Evaluate(context.Background(), request)
+		require.Nil(t, decision)
+		var guardErr *GuardError
+		require.ErrorAs(t, err, &guardErr)
+		require.Equal(t, ErrorCodeUnavailable, guardErr.Code)
+		require.False(t, guardErr.FailureAllowEligible)
+		require.Zero(t, metrics.Snapshot().FailureAllowed)
+	})
+
+	t.Run("invalid response remains fail closed", func(t *testing.T) {
+		metrics := NewAtomicMetrics()
+		decision, err := newService(true, &GuardError{Code: ErrorCodeInvalidResponse}, metrics).Evaluate(context.Background(), request)
+		require.Nil(t, decision)
+		var guardErr *GuardError
+		require.ErrorAs(t, err, &guardErr)
+		require.Equal(t, ErrorCodeInvalidResponse, guardErr.Code)
+		require.Zero(t, metrics.Snapshot().FailureAllowed)
+	})
+}
+
+func TestPromptServiceGuardUnavailablePolicyCannotBypassRequiredRecovery(t *testing.T) {
+	state := &fakePayloadStore{states: map[int64]string{42: "pending-v1"}}
+	metrics := NewAtomicMetrics()
+	service := &PromptService{
+		config: &fakeConfigStore{active: true, cfg: ActiveConfig{
+			RiskControlEnabled: true, Enabled: true, BlockingEnabled: true, AllowOnGuardUnavailable: true,
+			AllGroups: true, ConfigVersion: 7, DeepReviewModules: ReviewModules{Assistant: true}, Scanners: AllScannerIDs,
+			Endpoints: []ActiveEndpoint{{ID: "guard-1", Enabled: true, TimeoutMS: 1000, InputLimit: 4096}},
+		}},
+		evaluator: newGuardEvaluator(PromptScannerFunc(func(context.Context, ActiveEndpoint, string, []string) (*NormalizedResult, error) {
+			return nil, &GuardError{Code: ErrorCodeUnavailable, Retryable: true, FailureAllowEligible: true}
+		}), nil, metrics, 1, 1),
+		state: state, metrics: metrics, clock: fixedClock{now: time.Unix(127, 0)},
+	}
+
+	decision, err := service.Evaluate(context.Background(), Request{
+		RequestID: "req-recovery-outage", UserID: 42, Protocol: "openai_chat_completions",
+		Body: []byte(`{"messages":[{"role":"user","content":"review recovery"}]}`),
+	})
+	require.Nil(t, decision)
+	var guardErr *GuardError
+	require.ErrorAs(t, err, &guardErr)
+	require.Equal(t, ErrorCodeUnavailable, guardErr.Code)
+	require.Equal(t, "review:req-recovery-outage:127000000000", state.states[42])
+	require.Zero(t, metrics.Snapshot().FailureAllowed)
+	require.Equal(t, int64(1), metrics.AuditSnapshot().RecoveryRetained)
 }
 
 func TestPromptServiceBlockingExtractionCompatibilityCasesFailClosed(t *testing.T) {

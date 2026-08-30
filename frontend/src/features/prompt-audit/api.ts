@@ -11,6 +11,8 @@ import type {
   PromptEventPage,
   PromptProbeResult,
   PromptAuditEndpointDraft,
+  PromptPassRetentionConfig,
+  PromptPassRetentionUpdateRequest,
 } from './types'
 import { eventFilterPayload, eventQueryParams } from './viewModel'
 
@@ -23,6 +25,16 @@ export async function getConfig(): Promise<PromptAuditConfig> {
 
 export async function updateConfig(payload: PromptAuditUpdateRequest): Promise<PromptAuditConfig> {
   const { data } = await apiClient.put<PromptAuditConfig>(`${basePath}/config`, payload)
+  return data
+}
+
+export async function getPassRetention(): Promise<PromptPassRetentionConfig> {
+  const { data } = await apiClient.get<PromptPassRetentionConfig>(`${basePath}/pass-retention`)
+  return data
+}
+
+export async function updatePassRetention(payload: PromptPassRetentionUpdateRequest): Promise<PromptPassRetentionConfig> {
+  const { data } = await apiClient.put<PromptPassRetentionConfig>(`${basePath}/pass-retention`, payload)
   return data
 }
 
@@ -111,6 +123,8 @@ export async function listGroups(): Promise<PromptAuditGroup[]> {
 export const promptAuditAPI = {
   getConfig,
   updateConfig,
+  getPassRetention,
+  updatePassRetention,
   probeEndpoint,
   getRuntime,
   listEvents,
