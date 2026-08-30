@@ -233,7 +233,8 @@ func (s *OpenAICompatibleScanner) Scan(ctx context.Context, endpoint ActiveEndpo
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		retryable := resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode >= 500
-		return nil, &GuardError{Code: ErrorCodeUnavailable, HTTPStatus: resp.StatusCode, Retryable: retryable, FailureAllowEligible: true}
+		failureAllowEligible := resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden || retryable
+		return nil, &GuardError{Code: ErrorCodeUnavailable, HTTPStatus: resp.StatusCode, Retryable: retryable, FailureAllowEligible: failureAllowEligible}
 	}
 	limited := io.LimitReader(resp.Body, maxGuardResponseBytes+1)
 	responseBody, err := io.ReadAll(limited)

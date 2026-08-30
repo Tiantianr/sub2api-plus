@@ -178,7 +178,15 @@ upstream writes can resume. API-key, group, and client session identity changes
 do not avoid recovery; only complete exact Allow clears the observed finding
 version. A separate bounded per-user claim lease serializes recovery without
 replacing the non-expiring finding, so concurrent requests and process failure
-cannot strand a claim as the recovery requirement.
+cannot strand a claim as the recovery requirement. A concurrent request waits
+within its own request context instead of returning a claim-contention error.
+If the claim owner clears the finding, the waiter resumes ordinary blocking
+review; otherwise one waiter acquires the released claim and performs the next
+complete recovery review. Redis access failures remain fail closed.
+For ordinary blocking review, failure-allow is limited to network/read errors,
+timeouts or capacity, 401/403, 429, and 5xx. Other deterministic 4xx responses,
+invalid Guard output, extraction failures, and required recovery remain fail
+closed.
 Coordinator rechecks recovery state before an ordinary combined Allow commits
 receipts, enqueues deep review, or returns to HTTP/WebSocket upstream handling.
 Disabling blocking Prompt Audit pauses this gate without clearing pending state.

@@ -2,6 +2,7 @@ package securityaudit
 
 import (
 	"context"
+	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -15,6 +16,11 @@ import (
 	"time"
 
 	infraerrors "github.com/LuckyKuang/sub2api-plus/internal/pkg/errors"
+)
+
+const (
+	deepReviewClaimPollMin = 100 * time.Millisecond
+	deepReviewClaimPollMax = time.Second
 )
 
 type PromptService struct {
@@ -224,24 +230,21 @@ func (s *PromptService) Evaluate(ctx context.Context, req Request) (*PromptDecis
 	if cfg.EffectiveMode() != ModeBlocking {
 		return &PromptDecision{Kind: DecisionAllow, AllowNextStage: true}, nil
 	}
-	stateToken, deepRequired, stateErr := s.deepReviewRequired(ctx, req.UserID)
+	stateToken, deepRequired, claimToken, stateErr := s.acquireRequiredDeepReview(ctx, req)
 	if stateErr != nil {
-		s.observeRecoveryStateFailure(req, ErrorCodeDeepReviewState)
+		if errors.Is(stateErr, context.Canceled) || errors.Is(stateErr, context.DeadlineExceeded) {
+			s.observeRecoveryRetained(req, DecisionUnavailable, ErrorCodeDeepReviewState)
+		} else {
+			s.observeRecoveryStateFailure(req, ErrorCodeDeepReviewState)
+		}
 		logPromptRequestFailure(req, DecisionUnavailable, ErrorCodeDeepReviewState)
 		return nil, &GuardError{Code: ErrorCodeDeepReviewState, Cause: stateErr}
 	}
+	if claimToken != "" {
+		defer s.releaseRequiredDeepReviewClaim(req, claimToken)
+	}
 	if !deepRequired && !cfg.IncludesGroup(req.GroupID) {
 		return &PromptDecision{Kind: DecisionAllow, AllowNextStage: true}, nil
-	}
-	if deepRequired {
-		claimToken, claimErr := s.claimRequiredDeepReview(ctx, req)
-		stateErr = claimErr
-		if stateErr != nil {
-			s.observeRecoveryStateFailure(req, ErrorCodeDeepReviewState)
-			logPromptRequestFailure(req, DecisionUnavailable, ErrorCodeDeepReviewState)
-			return nil, &GuardError{Code: ErrorCodeDeepReviewState, Cause: stateErr}
-		}
-		defer s.releaseRequiredDeepReviewClaim(req, claimToken)
 	}
 	var snapshot PromptSnapshot
 	var diagnostic promptExtractionDiagnostic
@@ -268,7 +271,7 @@ func (s *PromptService) Evaluate(ctx context.Context, req Request) (*PromptDecis
 			s.metrics.ObserveExtraction(ExtractionEmpty)
 		}
 		if deepRequired {
-			return s.finishRequiredDeepReview(ctx, req, stateToken, &PromptDecision{Kind: DecisionBlock, ErrorCode: ErrorCodeDeepReviewRequired, AllowNextStage: false})
+			return s.finishRequiredDeepReview(ctx, req, stateToken, claimToken, &PromptDecision{Kind: DecisionBlock, ErrorCode: ErrorCodeDeepReviewRequired, AllowNextStage: false})
 		}
 		return &PromptDecision{Kind: DecisionAllow, AllowNextStage: true, DeepReviewed: deepRequired}, nil
 	}
@@ -291,7 +294,7 @@ func (s *PromptService) Evaluate(ctx context.Context, req Request) (*PromptDecis
 			s.metrics.ObserveExtraction(ExtractionSucceeded)
 		}
 		if deepRequired {
-			return s.finishRequiredDeepReview(ctx, req, stateToken, &PromptDecision{Kind: DecisionBlock, ErrorCode: ErrorCodeDeepReviewRequired, AllowNextStage: false})
+			return s.finishRequiredDeepReview(ctx, req, stateToken, claimToken, &PromptDecision{Kind: DecisionBlock, ErrorCode: ErrorCodeDeepReviewRequired, AllowNextStage: false})
 		}
 		return &PromptDecision{Kind: DecisionAllow, AllowNextStage: true}, nil
 	}
@@ -343,7 +346,7 @@ func (s *PromptService) Evaluate(ctx context.Context, req Request) (*PromptDecis
 		}
 		return decision, nil
 	}
-	return s.finishRequiredDeepReview(ctx, req, stateToken, decision)
+	return s.finishRequiredDeepReview(ctx, req, stateToken, claimToken, decision)
 }
 
 func guardFailureAllowEligible(err error) bool {
@@ -391,32 +394,110 @@ func (s *PromptService) pendingRecoveryDecision(ctx context.Context, req Request
 	}, nil
 }
 
-func (s *PromptService) claimRequiredDeepReview(ctx context.Context, req Request) (string, error) {
-	claim := fmt.Sprintf("review:%s:%d", req.RequestID, s.clock.Now().UnixNano())
-	claimed, err := s.state.Claim(ctx, req.UserID, claim, deepReviewClaimTTL)
-	if err != nil {
-		return "", err
+func (s *PromptService) acquireRequiredDeepReview(ctx context.Context, req Request) (string, bool, string, error) {
+	if req.UserID <= 0 {
+		return "", false, "", nil
 	}
-	if !claimed {
-		return "", errors.New("prompt audit deep review already in progress")
+	if s == nil || s.state == nil {
+		return "", false, "", errors.New("prompt audit deep review state unavailable")
 	}
-	return claim, nil
+	waiting := false
+	started := time.Now().UTC()
+	if s.clock != nil {
+		started = s.clock.Now()
+	}
+	claimBytes := make([]byte, 16)
+	if _, err := rand.Read(claimBytes); err != nil {
+		return "", false, "", errors.New("prompt audit deep review claim unavailable")
+	}
+	claimToken := "review:" + hex.EncodeToString(claimBytes)
+	delay := deepReviewClaimPollMin
+	jitter := sha256.Sum256([]byte(req.RequestID))
+	for {
+		stateToken, status, err := s.state.Claim(ctx, req.UserID, claimToken, deepReviewClaimTTL)
+		if err != nil {
+			if waiting {
+				s.logRecoveryWaitFinished(req, started, "failed")
+			}
+			return "", false, "", err
+		}
+		switch status {
+		case DeepReviewClaimMissing:
+			if waiting {
+				s.logRecoveryWaitFinished(req, started, "cleared")
+			}
+			return "", false, "", nil
+		case DeepReviewClaimAcquired:
+			if waiting {
+				s.logRecoveryWaitFinished(req, started, "acquired")
+			}
+			return stateToken, true, claimToken, nil
+		case DeepReviewClaimBusy:
+		default:
+			return "", false, "", errors.New("prompt audit deep review claim response invalid")
+		}
+
+		if !waiting {
+			waiting = true
+			LogInfo(EventRecoveryWaitStarted, mergeLogFields(requestLogFields(req), map[string]any{
+				"recovery_source": "recovery", "status": "waiting",
+			}))
+		}
+		wait := delay + time.Duration(int64(delay)*int64(jitter[0])/1024)
+		timer := time.NewTimer(wait)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			s.logRecoveryWaitFinished(req, started, "canceled")
+			return "", false, "", ctx.Err()
+		case <-timer.C:
+		}
+		if delay < deepReviewClaimPollMax {
+			delay *= 2
+			if delay > deepReviewClaimPollMax {
+				delay = deepReviewClaimPollMax
+			}
+		}
+	}
+}
+
+func (s *PromptService) logRecoveryWaitFinished(req Request, started time.Time, status string) {
+	now := time.Now().UTC()
+	if s != nil && s.clock != nil {
+		now = s.clock.Now()
+	}
+	latency := now.Sub(started)
+	if latency < 0 {
+		latency = 0
+	}
+	LogInfo(EventRecoveryWaitFinished, mergeLogFields(requestLogFields(req), map[string]any{
+		"recovery_source": "recovery", "status": status, "latency_ms": latency.Milliseconds(),
+	}))
 }
 
 func (s *PromptService) releaseRequiredDeepReviewClaim(req Request, claim string) {
+	if err := s.releaseRequiredDeepReviewClaimNow(req, claim); err != nil {
+		s.observeRecoveryStateFailure(req, ErrorCodeDeepReviewState)
+	}
+}
+
+func (s *PromptService) releaseRequiredDeepReviewClaimNow(req Request, claim string) error {
 	if s == nil || s.state == nil || strings.TrimSpace(claim) == "" {
-		return
+		return errors.New("prompt audit deep review claim unavailable")
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), allowReceiptOperationTimeout)
 	defer cancel()
 	released, err := s.state.ReleaseClaim(ctx, req.UserID, claim)
-	if err == nil && released {
-		return
+	if err != nil {
+		return err
 	}
-	s.observeRecoveryStateFailure(req, ErrorCodeDeepReviewState)
+	if !released {
+		return errors.New("prompt audit deep review claim changed")
+	}
+	return nil
 }
 
-func (s *PromptService) finishRequiredDeepReview(ctx context.Context, req Request, stateToken string, decision *PromptDecision) (*PromptDecision, error) {
+func (s *PromptService) finishRequiredDeepReview(ctx context.Context, req Request, stateToken, claimToken string, decision *PromptDecision) (*PromptDecision, error) {
 	if decision == nil || s == nil || s.state == nil {
 		if s != nil {
 			s.observeRecoveryStateFailure(req, ErrorCodeDeepReviewState)
@@ -425,7 +506,7 @@ func (s *PromptService) finishRequiredDeepReview(ctx context.Context, req Reques
 	}
 	decision.DeepReviewed = true
 	if decision.Kind == DecisionAllow {
-		cleared, err := s.state.Clear(ctx, req.UserID, stateToken)
+		cleared, err := s.state.ClearClaimed(ctx, req.UserID, stateToken, claimToken)
 		if err != nil || !cleared {
 			if err == nil {
 				err = errors.New("prompt audit deep review state changed")

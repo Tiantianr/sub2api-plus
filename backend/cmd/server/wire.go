@@ -53,6 +53,7 @@ func initializeApplication(buildInfo handler.BuildInfo) (*Application, error) {
 		// BuildInfo provider
 		provideServiceBuildInfo,
 		providePluginHostInfo,
+		providePromptAuditMetrics,
 
 		// Cleanup function provider
 		provideCleanup,

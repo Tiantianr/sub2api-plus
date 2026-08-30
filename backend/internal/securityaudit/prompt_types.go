@@ -374,6 +374,7 @@ type Metrics interface {
 	Snapshot() GuardMetricsSnapshot
 	AuditSnapshot() AuditMetricsSnapshot
 	Observe(kind DecisionKind, latency time.Duration)
+	ObservePoolOutcome(kind DecisionKind)
 	IncEnqueued()
 	IncDropped()
 	ObserveExtraction(outcome ExtractionOutcome)

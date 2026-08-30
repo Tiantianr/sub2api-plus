@@ -10,8 +10,6 @@ var ProviderSet = wire.NewSet(
 	wire.Bind(new(PayloadStore), new(*RedisPayloadStore)),
 	NewOpenAICompatibleScanner,
 	wire.Bind(new(PromptScanner), new(*OpenAICompatibleScanner)),
-	NewAtomicMetrics,
-	wire.Bind(new(Metrics), new(*AtomicMetrics)),
 	NewConfigManager,
 	wire.Bind(new(ConfigStore), new(*ConfigManager)),
 	NewPromptService,

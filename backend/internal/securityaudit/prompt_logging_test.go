@@ -34,7 +34,7 @@ func TestPromptAuditLogAllowlistAndErrorsDoNotLeakCanarySecrets(t *testing.T) {
 	beforeUnknown := output.Len()
 	LogWarn("prompt_audit.typo_event", map[string]any{"status": "failed"})
 	require.Equal(t, beforeUnknown, output.Len(), "events outside the stable dictionary must not be emitted")
-	require.Len(t, knownLogEvents, 35)
+	require.Len(t, knownLogEvents, 37)
 
 	_, err := NormalizeBaseURL("https://guard.example.test/path?token=" + canary)
 	require.Error(t, err)
@@ -52,8 +52,18 @@ func TestPromptRecoveryLogExposesSourceWithoutTokenOrContent(t *testing.T) {
 		"request_id": "req-recovery", "user_id": int64(42), "recovery_source": "blocking",
 		"status": "required", "token": "blocking:" + canary, "raw_prompt": canary,
 	})
+	LogInfo(EventRecoveryWaitStarted, map[string]any{
+		"request_id": "req-wait", "user_id": int64(42), "recovery_source": "recovery",
+		"status": "waiting", "claim": "review:" + canary,
+	})
+	LogInfo(EventRecoveryWaitFinished, map[string]any{
+		"request_id": "req-wait", "user_id": int64(42), "recovery_source": "recovery",
+		"status": "acquired", "latency_ms": int64(100), "finding": canary,
+	})
 
 	require.Contains(t, output.String(), EventRecoveryRequired)
+	require.Contains(t, output.String(), EventRecoveryWaitStarted)
+	require.Contains(t, output.String(), EventRecoveryWaitFinished)
 	require.Contains(t, output.String(), `"recovery_source":"blocking"`)
 	require.NotContains(t, output.String(), canary)
 }

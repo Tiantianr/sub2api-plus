@@ -89,15 +89,17 @@ func TestOpenAICompatibleScannerFollowsRedirectAndRejectsOversize(t *testing.T) 
 
 func TestOpenAICompatibleScannerClassifiesHTTPConnectionAndTimeoutFailures(t *testing.T) {
 	tests := []struct {
-		name      string
-		status    int
-		retryable bool
+		name                 string
+		status               int
+		retryable            bool
+		failureAllowEligible bool
 	}{
-		{name: "authentication", status: http.StatusUnauthorized, retryable: false},
-		{name: "forbidden", status: http.StatusForbidden, retryable: false},
-		{name: "rate limited", status: http.StatusTooManyRequests, retryable: true},
-		{name: "server failure", status: http.StatusBadGateway, retryable: true},
-		{name: "other client error", status: http.StatusBadRequest, retryable: false},
+		{name: "authentication", status: http.StatusUnauthorized, failureAllowEligible: true},
+		{name: "forbidden", status: http.StatusForbidden, failureAllowEligible: true},
+		{name: "rate limited", status: http.StatusTooManyRequests, retryable: true, failureAllowEligible: true},
+		{name: "server failure", status: http.StatusBadGateway, retryable: true, failureAllowEligible: true},
+		{name: "bad request", status: http.StatusBadRequest},
+		{name: "not found", status: http.StatusNotFound},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -111,7 +113,7 @@ func TestOpenAICompatibleScannerClassifiesHTTPConnectionAndTimeoutFailures(t *te
 			require.Equal(t, ErrorCodeUnavailable, guardErr.Code)
 			require.Equal(t, tt.status, guardErr.HTTPStatus)
 			require.Equal(t, tt.retryable, guardErr.Retryable)
-			require.True(t, guardErr.FailureAllowEligible)
+			require.Equal(t, tt.failureAllowEligible, guardErr.FailureAllowEligible)
 			require.NotContains(t, err.Error(), server.URL)
 		})
 	}

@@ -24,6 +24,8 @@ const (
 	EventRecoveryRequired     = "prompt_audit.recovery_required"
 	EventRecoveryCleared      = "prompt_audit.recovery_cleared"
 	EventRecoveryRetained     = "prompt_audit.recovery_retained"
+	EventRecoveryWaitStarted  = "prompt_audit.recovery_wait_started"
+	EventRecoveryWaitFinished = "prompt_audit.recovery_wait_finished"
 	EventRecoveryStateFailed  = "prompt_audit.recovery_state_failed"
 	EventAuditStarted         = "prompt_audit.started"
 	EventProcessingReclaimed  = "prompt_audit.processing_reclaimed"
@@ -50,7 +52,7 @@ var knownLogEvents = map[string]struct{}{
 	EventConfigUpdated: {}, EventConfigLoaded: {}, EventConfigReloadDegraded: {}, EventConfigTokenInvalid: {},
 	EventProbeStarted: {}, EventProbeFinished: {}, EventProbeFailed: {},
 	EventJobEnqueued: {}, EventEnqueueSkipped: {}, EventEnqueueDropped: {}, EventExtractionFailed: {}, EventAllowReceiptFailed: {},
-	EventRecoveryRequired: {}, EventRecoveryCleared: {}, EventRecoveryRetained: {}, EventRecoveryStateFailed: {},
+	EventRecoveryRequired: {}, EventRecoveryCleared: {}, EventRecoveryRetained: {}, EventRecoveryWaitStarted: {}, EventRecoveryWaitFinished: {}, EventRecoveryStateFailed: {},
 	EventAuditStarted: {}, EventProcessingReclaimed: {}, EventProcessed: {}, EventProcessFailed: {}, EventFindingRecorded: {},
 	EventChunkStarted: {}, EventChunkCompleted: {}, EventChunkFailed: {}, EventChunksAggregated: {},
 	EventEvaluationStarted: {}, EventGuardAllowed: {}, EventGuardBlocked: {}, EventGuardFailed: {}, EventGuardFailureAllowed: {}, EventResultRecordFailed: {},

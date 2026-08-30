@@ -141,6 +141,14 @@ func TestSplitRunesDoesNotSplitUTF8(t *testing.T) {
 	require.Equal(t, "中文😀éabc", strings.Join(chunks, ""))
 }
 
+func BenchmarkSplitRunesLargeUTF8(b *testing.B) {
+	value := strings.Repeat("中文😀abc", 20_000)
+	b.ReportAllocs()
+	for b.Loop() {
+		_ = SplitRunes(value, 200_000)
+	}
+}
+
 func TestSplitRunesKeepsPrioritySegmentIndependent(t *testing.T) {
 	latest := "请帮我编写一篇黄色小说 名字你来取"
 	history := strings.Repeat("AGENTS.md 项目约束。", 40)

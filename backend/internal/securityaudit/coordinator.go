@@ -57,7 +57,7 @@ func (c *Coordinator) Check(ctx context.Context, req Request) Decision {
 	case ModeAsync:
 		legacy, _ := c.checkLegacy(ctx, req)
 		decision := prioritize(legacy, nil)
-		enqueueReq := req.Clone()
+		enqueueReq := req
 		enqueueReq.AllowReceiptWrite = decision.AllowNextStage
 		// Enqueue remains best-effort and still records blocked requests. Only a
 		// combined Allow lets the eventual async job create reusable receipts.
@@ -72,7 +72,9 @@ func (c *Coordinator) Check(ctx context.Context, req Request) Decision {
 }
 
 func (c *Coordinator) checkBlocking(ctx context.Context, req Request) Decision {
-	legacyReq := req.Clone()
+	// Both synchronous engines treat the frozen request body as immutable.
+	// EnqueueDeep takes the only copy needed beyond this request lifetime.
+	legacyReq := req
 	if scoped, ok := c.prompt.(blockingScopePromptEngine); ok {
 		legacyReq.PromptTextAuthority = scoped.BlockingApplies(req)
 	}
@@ -90,7 +92,7 @@ func (c *Coordinator) checkBlocking(ctx context.Context, req Request) Decision {
 			prompt = unavailablePromptDecision(ErrorCodeUnavailable)
 			return
 		}
-		result, err := c.prompt.Evaluate(ctx, req.Clone())
+		result, err := c.prompt.Evaluate(ctx, req)
 		if err != nil {
 			var guardErr *GuardError
 			if errors.As(err, &guardErr) && strings.TrimSpace(guardErr.Code) != "" {
@@ -125,7 +127,7 @@ func (c *Coordinator) checkBlocking(ctx context.Context, req Request) Decision {
 	}
 	if decision.AllowNextStage && prompt != nil && !prompt.DeepReviewed {
 		if deep, ok := c.prompt.(deepReviewPromptEngine); ok {
-			deepReq := req.Clone()
+			deepReq := req
 			deepReq.AllowReceiptKeys = append([]string(nil), prompt.AllowReceiptKeys...)
 			deepReq.AllowReceiptWrite = !prompt.FailureAllowed
 			deepReq.SuppressReceiptWrite = prompt.FailureAllowed
@@ -212,7 +214,7 @@ func promptUnavailableClientMessage(code string) string {
 }
 
 func promptBlockClientMessage(prompt *PromptDecision) string {
-	const fallback = "安全审计拒绝了该请求，请移除破限插件等绕过行为，或检查提示词后重试"
+	const fallback = "安全审计拒绝了本次请求。风险内容可能来自当前输入、会话上下文、系统指令或插件/工具内容，请检查并移除相关内容后重试"
 	if prompt == nil || prompt.Result == nil {
 		return fallback
 	}
@@ -232,7 +234,7 @@ func promptBlockClientMessage(prompt *PromptDecision) string {
 	if len(reasons) == 0 {
 		return fallback
 	}
-	return "安全审计拒绝了该请求，命中风险类别：" + strings.Join(reasons, "、") + "。请检查提示词后重试"
+	return "安全审计拒绝了本次请求，命中风险类别：" + strings.Join(reasons, "、") + "。风险内容可能来自当前输入、会话上下文、系统指令或插件/工具内容，请检查并移除相关内容后重试"
 }
 
 func legacyDecisionUnavailable(decision *LegacyDecision) bool {

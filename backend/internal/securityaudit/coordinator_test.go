@@ -39,6 +39,7 @@ type fakePromptEngine struct {
 	fenceErr       error
 	lastEnqueue    Request
 	lastDeep       Request
+	lastEvaluate   Request
 }
 
 func (f *fakePromptEngine) EffectiveMode() Mode          { return f.mode }
@@ -113,9 +114,20 @@ func TestCoordinatorFinalRecoveryFenceFailsClosedOnStateError(t *testing.T) {
 	require.Zero(t, prompt.receiptCommits.Load())
 	require.Zero(t, prompt.deepEnqueues.Load())
 }
-func (f *fakePromptEngine) Evaluate(context.Context, Request) (*PromptDecision, error) {
+func (f *fakePromptEngine) Evaluate(_ context.Context, req Request) (*PromptDecision, error) {
 	f.evaluates.Add(1)
+	f.lastEvaluate = req
 	return f.decision, f.err
+}
+
+func TestCoordinatorSharesFrozenBodyAcrossSynchronousAuditBranches(t *testing.T) {
+	body := []byte(`{"input":"immutable"}`)
+	legacy := &fakeLegacyEngine{decision: &LegacyDecision{Allowed: true}}
+	prompt := &fakePromptEngine{mode: ModeBlocking, applies: true, decision: &PromptDecision{Kind: DecisionAllow, AllowNextStage: true, DeepReviewed: true}}
+	decision := NewCoordinator(legacy, prompt).Check(context.Background(), Request{Body: body})
+	require.True(t, decision.AllowNextStage)
+	require.True(t, &body[0] == &legacy.last.Body[0])
+	require.True(t, &body[0] == &prompt.lastEvaluate.Body[0])
 }
 
 func TestCoordinatorModesAndPriority(t *testing.T) {
@@ -181,7 +193,7 @@ func TestCoordinatorPromptPolicyBlockWinsLegacyUnavailable(t *testing.T) {
 
 	require.Equal(t, DecisionBlock, decision.Kind)
 	require.Equal(t, ErrorCodeBlocked, decision.ErrorCode)
-	require.Equal(t, "安全审计拒绝了该请求，请移除破限插件等绕过行为，或检查提示词后重试", decision.ClientMessage)
+	require.Equal(t, "安全审计拒绝了本次请求。风险内容可能来自当前输入、会话上下文、系统指令或插件/工具内容，请检查并移除相关内容后重试", decision.ClientMessage)
 	require.False(t, decision.AllowNextStage)
 }
 
@@ -197,20 +209,20 @@ func TestCoordinatorPromptBlockMessageUsesRedactedCategoryLabels(t *testing.T) {
 			result: &NormalizedResult{
 				Categories: []string{"pii", "jailbreak", "pii"},
 			},
-			want: "安全审计拒绝了该请求，命中风险类别：个人敏感信息、越狱攻击。请检查提示词后重试",
+			want: "安全审计拒绝了本次请求，命中风险类别：个人敏感信息、越狱攻击。风险内容可能来自当前输入、会话上下文、系统指令或插件/工具内容，请检查并移除相关内容后重试",
 		},
 		{
 			name: "unknown category",
 			result: &NormalizedResult{
 				UnknownCategories: []string{unknownCategoryID("future raw category")},
 			},
-			want:       "安全审计拒绝了该请求，命中风险类别：未知高风险分类。请检查提示词后重试",
+			want:       "安全审计拒绝了本次请求，命中风险类别：未知高风险分类。风险内容可能来自当前输入、会话上下文、系统指令或插件/工具内容，请检查并移除相关内容后重试",
 			notContain: "unknown:",
 		},
 		{
 			name:   "missing result",
 			result: nil,
-			want:   "安全审计拒绝了该请求，请移除破限插件等绕过行为，或检查提示词后重试",
+			want:   "安全审计拒绝了本次请求。风险内容可能来自当前输入、会话上下文、系统指令或插件/工具内容，请检查并移除相关内容后重试",
 		},
 	}
 	for _, tt := range tests {
@@ -305,7 +317,7 @@ func TestCoordinatorPreservesIndependentEngineFactsAndMapsOnlyGatewayOutcome(t *
 	require.Equal(t, "legacy finding", decision.Legacy.Message)
 	require.Equal(t, []string{"pii"}, decision.Prompt.Result.Categories)
 	require.Equal(t, ErrorCodeBlocked, decision.ErrorCode)
-	require.Equal(t, "安全审计拒绝了该请求，命中风险类别：个人敏感信息。请检查提示词后重试", decision.ClientMessage)
+	require.Equal(t, "安全审计拒绝了本次请求，命中风险类别：个人敏感信息。风险内容可能来自当前输入、会话上下文、系统指令或插件/工具内容，请检查并移除相关内容后重试", decision.ClientMessage)
 }
 
 func TestCoordinatorAsyncEnqueueFailuresNeverChangeResponseOrDownstreamDispatch(t *testing.T) {
