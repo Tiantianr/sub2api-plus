@@ -29,6 +29,14 @@ describe('Prompt Audit API', () => {
     expect(client.put).toHaveBeenCalledWith('/admin/prompt-audit/pass-retention', { expected_revision: 3, user_ids: [9, 7] })
   })
 
+  it('normalizes a legacy null Pass-retention list at the API boundary', async () => {
+    client.get.mockResolvedValue({ data: { revision: 1, user_ids: null } })
+    await expect(promptAuditAPI.getPassRetention()).resolves.toMatchObject({ revision: 1, user_ids: [] })
+
+    client.put.mockResolvedValue({ data: { revision: 2, user_ids: null } })
+    await expect(promptAuditAPI.updatePassRetention({ expected_revision: 1, user_ids: [] })).resolves.toMatchObject({ revision: 2, user_ids: [] })
+  })
+
   it('sends a temporary probe token only in the request and never invents response credentials', async () => {
     client.post.mockResolvedValue({ data: { ok: true, token_applied: true } })
     const result = await promptAuditAPI.probeEndpoint({

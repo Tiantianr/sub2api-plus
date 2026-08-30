@@ -268,7 +268,7 @@ func TestPromptServiceGuardUnavailablePolicy(t *testing.T) {
 		}
 	}
 
-	t.Run("default remains fail closed", func(t *testing.T) {
+	t.Run("explicit false remains fail closed", func(t *testing.T) {
 		metrics := NewAtomicMetrics()
 		decision, err := newService(false, &GuardError{Code: ErrorCodeUnavailable}, metrics).Evaluate(context.Background(), request)
 		require.Nil(t, decision)

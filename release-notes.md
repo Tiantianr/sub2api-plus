@@ -1,52 +1,51 @@
-Sub2API Plus v0.1.183+custom.915
+Sub2API Plus v0.1.183+custom.916
 
 ## Highlights
 
-- Retain normal Prompt Audit Pass evidence only for explicitly selected users;
-  Flag and Critical findings remain mandatory for every audited user.
-- Add a previewed Pass-only cleanup workflow with event, context, and estimated
-  retained-byte counts before irreversible deletion.
-- Let administrators explicitly allow ordinary requests when every usable
-  Guard node fails because of a remote API, timeout, or capacity problem.
+- Fix the Prompt Audit administration page blank screen introduced in `.915`
+  when the initial Pass-retention user list is empty.
+- Enable eligible Guard-unavailable request allowance by default so a remote
+  audit outage does not make every in-scope user request unavailable.
+- Preserve explicit administrator opt-out and all strict content, finding,
+  recovery, configuration, and Content Moderation boundaries.
 
 ## Changed
 
-- Add an independently versioned, multi-instance-safe Pass-retention user list;
-  users without an explicit selection default to no normal-event storage.
-- Add a default-off `allow_on_guard_unavailable` switch and a dedicated runtime
-  counter for observable failure-allowed requests.
-- Keep Guard failure allowance separate from invalid responses, incomplete
-  extraction, undecryptable credentials, known findings, Content Moderation,
-  and required user recovery; those paths continue to fail closed.
+- Treat older Prompt Audit configurations without
+  `allow_on_guard_unavailable` as enabled; an explicit false remains disabled.
+- Preserve the availability policy while Prompt Audit or synchronous blocking
+  is temporarily disabled, instead of silently clearing it.
+- Normalize legacy or malformed null Pass-retention user lists at both the API
+  client and page-state boundaries.
 
 ## Fixed
 
-- Prevent normal Pass conversations from dominating future logical backups
-  when no user has been selected for retention.
-- Ensure a failure-allowed request cannot create an Allow receipt, including if
-  its later asynchronous deep review succeeds.
+- Serialize an empty Pass-retention user list as `[]` rather than `null`.
+- Prevent `PromptAuditView` from dereferencing `user_ids.length` on a null API
+  response, with a real-child full-page regression test.
+- Keep failure-allowed requests receipt-free while continuing to fail closed
+  for invalid Guard responses, extraction failure, known findings,
+  undecryptable credentials, missing usable nodes, and required recovery.
 
 ## Compatibility and migration
 
-- Migration `241_prompt_audit_remove_global_pass_retention.sql` removes the
-  obsolete global `store_pass_events` JSON field; it does not change the SQL
-  schema or delete existing audit events.
-- The initial Pass-retention allowlist is empty. Existing Pass evidence remains
-  until an administrator separately previews and confirms cleanup.
-- `allow_on_guard_unavailable` is a backward-compatible configuration field
-  and defaults to false, preserving fail-closed behavior until explicitly
-  enabled.
+- `v0.1.183+custom.915` is invalid and must not be deployed; use `.916` for the
+  retention and Guard-availability feature set.
+- Deployments upgrading directly from `.914` apply migration
+  `241_prompt_audit_remove_global_pass_retention.sql`; it removes only the old
+  global JSON field and does not delete existing audit events.
+- Existing configurations that omit `allow_on_guard_unavailable` default to
+  true. Administrators may explicitly turn it off from Prompt Audit settings.
 - No Compose, port, certificate, proxy, or persistent-volume change is
   required. Personal images and binary archives remain Linux arm64 only.
 
 ## Known issues
 
-- Logical deletion reduces future backups but does not guarantee immediate
+- Existing Pass events and historical backups are not deleted automatically.
+- Logical event cleanup reduces future backups but does not guarantee immediate
   PostgreSQL filesystem reclamation.
-- Historical large backups and existing Pass records are not deleted by this
-  release.
-- Production deployment remains a separate operation and is not part of this
-  release publication.
+- Production deployment and configuration changes remain separate operations
+  and are not part of release publication.
 
 ## Upstream baseline
 

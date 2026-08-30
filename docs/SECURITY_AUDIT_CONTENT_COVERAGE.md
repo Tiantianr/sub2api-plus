@@ -212,7 +212,7 @@ All enabled engine paths expose `extraction_attempted`,
 `extraction_succeeded`, `extraction_empty`, and `extraction_failed` counters.
 Prompt Audit also exposes incremental Allow receipt hit, miss, write, and error
 counters. Blocking Guard failures additionally expose `failure_allowed` when
-the active, default-off `allow_on_guard_unavailable` policy lets an ordinary
+the active, default-on `allow_on_guard_unavailable` policy lets an ordinary
 request continue after all Guard nodes end in `prompt_guard_unavailable`.
 Unavailable and timeout counters still record the underlying failure.
 Every extraction, evaluation, or audit-dependency exception emits a structured
@@ -249,8 +249,10 @@ Prompt Audit block decision. Extraction failure uses a distinct dependency
 error code rather than a content category. Content Moderation external API
 availability remains separate from Prompt Guard selection semantics.
 
-Blocking Prompt Audit fails closed on Guard unavailability by default. An
-administrator may explicitly enable `allow_on_guard_unavailable`; this changes
+Blocking Prompt Audit failure-allows eligible Guard unavailability by default,
+including when an older persisted configuration lacks the field. An
+administrator may explicitly disable `allow_on_guard_unavailable` to require
+fail-closed availability. When enabled, the policy changes
 only the final action for ordinary synchronous requests after node timeout,
 connection/API failure, authentication failure, or capacity saturation.
 Missing usable nodes, undecryptable credentials, local client construction,

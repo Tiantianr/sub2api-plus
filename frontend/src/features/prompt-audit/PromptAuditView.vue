@@ -72,7 +72,7 @@
               role="status"
               class="mt-6 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-amber-900/70 dark:bg-amber-950/30 dark:text-amber-200"
             >
-              <span>{{ t('admin.promptAudit.events.passRetentionNotice', { count: passRetention.user_ids.length }) }}</span>
+              <span>{{ t('admin.promptAudit.events.passRetentionNotice', { count: passRetention.user_ids?.length || 0 }) }}</span>
               <button type="button" class="btn btn-secondary btn-sm" @click="activeTab = 'config'">
                 {{ t('admin.promptAudit.events.openConfiguration') }}
               </button>
@@ -306,8 +306,10 @@ async function loadPassRetention() {
   loading.retention = true
   loadErrors.retention = ''
   try {
-    passRetention.value = await promptAuditAPI.getPassRetention()
-    retentionUserIDs.value = canonicalUserIDs(passRetention.value.user_ids)
+    const loaded = await promptAuditAPI.getPassRetention()
+    const userIDs = canonicalUserIDs(loaded?.user_ids)
+    passRetention.value = { ...loaded, user_ids: userIDs }
+    retentionUserIDs.value = userIDs
   } catch (error) {
     loadErrors.retention = errorMessage(error, 'admin.promptAudit.errors.loadRetention')
   } finally { loading.retention = false }
@@ -336,19 +338,21 @@ async function loadInitial() {
   await Promise.allSettled([loadConfig(), loadPassRetention(), loadRuntime(), loadGroups(), loadEvents()])
 }
 
-function canonicalUserIDs(values: number[]): number[] {
-  return [...new Set(values.filter((value) => Number.isInteger(value) && value > 0))].sort((a, b) => a - b)
+function canonicalUserIDs(values: number[] | null | undefined): number[] {
+  return [...new Set((values || []).filter((value) => Number.isInteger(value) && value > 0))].sort((a, b) => a - b)
 }
 function resetPassRetention() { retentionUserIDs.value = [...(passRetention.value?.user_ids || [])] }
 async function savePassRetention() {
   if (!passRetention.value || !retentionDirty.value) return
   loading.savingRetention = true
   try {
-    passRetention.value = await promptAuditAPI.updatePassRetention({
+    const saved = await promptAuditAPI.updatePassRetention({
       expected_revision: passRetention.value.revision,
       user_ids: canonicalUserIDs(retentionUserIDs.value),
     })
-    retentionUserIDs.value = [...passRetention.value.user_ids]
+    const userIDs = canonicalUserIDs(saved?.user_ids)
+    passRetention.value = { ...saved, user_ids: userIDs }
+    retentionUserIDs.value = userIDs
     appStore.showSuccess(t('admin.promptAudit.messages.retentionSaved'))
   } catch (error) {
     appStore.showError(errorMessage(error, 'admin.promptAudit.errors.saveRetention'))
@@ -366,13 +370,12 @@ function setEnabled(value: boolean) {
     ...draft.value,
     enabled: value,
     blocking_enabled: value ? draft.value.blocking_enabled : false,
-    allow_on_guard_unavailable: value ? draft.value.allow_on_guard_unavailable : false,
   })
 }
 function setBlocking(value: boolean) {
   if (!draft.value || !draft.value.enabled) return
   if (value && !draft.value.blocking_enabled) { showBlockingConfirmation.value = true; return }
-  replaceDraft({ ...draft.value, blocking_enabled: value, allow_on_guard_unavailable: value ? draft.value.allow_on_guard_unavailable : false })
+  replaceDraft({ ...draft.value, blocking_enabled: value })
 }
 function setAllowOnGuardUnavailable(value: boolean) {
   if (!draft.value?.enabled || !draft.value.blocking_enabled) return

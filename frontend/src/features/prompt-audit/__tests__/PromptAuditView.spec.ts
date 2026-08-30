@@ -149,7 +149,7 @@ describe('PromptAuditView', () => {
     expect(wrapper.get('[data-test="enabled-toggle"]').attributes('aria-checked')).toBe('false')
     expect(wrapper.get('[data-test="blocking-toggle"]').attributes('aria-checked')).toBe('false')
     expect(wrapper.get('[data-test="blocking-toggle"]').attributes()).toHaveProperty('disabled')
-    expect(wrapper.get('[data-test="failure-allow-toggle"]').attributes('aria-checked')).toBe('false')
+    expect(wrapper.get('[data-test="failure-allow-toggle"]').attributes('aria-checked')).toBe('true')
     expect(wrapper.get('[data-test="failure-allow-toggle"]').attributes()).toHaveProperty('disabled')
   })
 

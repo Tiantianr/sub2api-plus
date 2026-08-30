@@ -703,6 +703,6 @@ func cloneActiveConfig(cfg ActiveConfig) ActiveConfig {
 }
 
 func clonePassRetentionStorage(stored passRetentionStorage) passRetentionStorage {
-	stored.UserIDs = append([]int64(nil), stored.UserIDs...)
+	stored.UserIDs = append([]int64{}, stored.UserIDs...)
 	return stored
 }

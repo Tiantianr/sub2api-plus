@@ -3,13 +3,14 @@
 ## Configuration
 
 Persist `allow_on_guard_unavailable` in the existing versioned Prompt Audit
-configuration. Its default is false. Saving it uses the existing CAS,
+configuration. Its default is true, including for persisted configurations
+that predate the field. An explicit false remains false. Saving it uses the existing CAS,
 configuration invalidation, audit metadata, and active-snapshot flow.
 
 The administration console exposes the value as a switch that is meaningful
 only while synchronous blocking is enabled. Disabling synchronous blocking or
-Prompt Audit clears the draft value so a later activation cannot silently
-inherit a failure-allow policy.
+Prompt Audit preserves the configured value so later activation retains the
+availability policy unless an administrator explicitly changes it.
 
 ## Decision boundary
 

@@ -84,14 +84,15 @@ describe('Prompt Audit view model', () => {
     expect(buildUpdateRequest(draft).allow_receipt_ttl_seconds).toBe(7200)
   })
 
-  it('defaults failure allow off and saves it only with blocking enabled', () => {
-    const legacy = { ...config(), allow_on_guard_unavailable: undefined } as unknown as PromptAuditConfig
-    expect(configToDraft(legacy).allow_on_guard_unavailable).toBe(false)
+  it('defaults failure allow on and preserves an explicit off value', () => {
+    const legacy = { ...config(), blocking_enabled: true, allow_on_guard_unavailable: undefined } as unknown as PromptAuditConfig
+    expect(configToDraft(legacy).allow_on_guard_unavailable).toBe(true)
+    expect(configToDraft({ ...config(), blocking_enabled: true, allow_on_guard_unavailable: false }).allow_on_guard_unavailable).toBe(false)
     const draft = configToDraft({ ...config(), blocking_enabled: true })
     draft.allow_on_guard_unavailable = true
     expect(buildUpdateRequest(draft).allow_on_guard_unavailable).toBe(true)
     draft.blocking_enabled = false
-    expect(buildUpdateRequest(draft).allow_on_guard_unavailable).toBe(false)
+    expect(buildUpdateRequest(draft).allow_on_guard_unavailable).toBe(true)
   })
 
   it('tracks dirty state from the full normalized save payload', () => {

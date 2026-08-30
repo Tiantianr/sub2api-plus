@@ -200,7 +200,7 @@ func DefaultStorageConfig() storageConfig {
 	return storageConfig{
 		Enabled:                 false,
 		BlockingEnabled:         false,
-		AllowOnGuardUnavailable: false,
+		AllowOnGuardUnavailable: true,
 		BlockingLatestTurnOnly:  false,
 		BlockingReviewModules:   DefaultBlockingReviewModules(),
 		DeepReviewModules:       DefaultDeepReviewModules(),

@@ -13,6 +13,9 @@ func TestPassRetentionDefaultsCanonicalizesAndIgnoresLegacyGlobalSwitch(t *testi
 	require.NoError(t, err)
 	require.Equal(t, int64(1), stored.Revision)
 	require.Empty(t, stored.UserIDs)
+	defaultJSON, err := json.Marshal(publicPassRetention(clonePassRetentionStorage(stored), ""))
+	require.NoError(t, err)
+	require.Contains(t, string(defaultJSON), `"user_ids":[]`)
 
 	stored, err = parsePassRetentionStorage(`{"revision":4,"user_ids":[9,3,9]}`)
 	require.NoError(t, err)
