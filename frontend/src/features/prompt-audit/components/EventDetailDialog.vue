@@ -131,9 +131,9 @@ function moveTab(offset: number) {
   requestAnimationFrame(() => document.getElementById(tabId(activeTab.value))?.focus())
 }
 
-const DECISIONS = new Set(['pass', 'flag', 'critical'])
-const ACTIONS = new Set(['Allow', 'Warn', 'Block'])
-const RISK_LEVELS = new Set(['low', 'medium', 'high', 'critical'])
+const DECISIONS = new Set(['pass', 'flag', 'critical', 'failed'])
+const ACTIONS = new Set(['Allow', 'Warn', 'Block', 'Error'])
+const RISK_LEVELS = new Set(['low', 'medium', 'high', 'critical', 'unknown'])
 
 function displayPrompt(event: PromptAuditEvent): string {
   return event.snapshot.full_prompt || event.snapshot.redacted_preview || '—'

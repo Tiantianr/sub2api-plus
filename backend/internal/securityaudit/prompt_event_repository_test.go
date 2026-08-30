@@ -14,7 +14,7 @@ func TestScanEventIncludesObservabilityMetadataAndFullPrompt(t *testing.T) {
 	t.Cleanup(func() { _ = db.Close() })
 
 	createdAt := time.Unix(100, 0).UTC()
-	columns := make([]string, 44)
+	columns := make([]string, 46)
 	for index := range columns {
 		columns[index] = "column"
 	}
@@ -23,7 +23,8 @@ func TestScanEventIncludesObservabilityMetadataAndFullPrompt(t *testing.T) {
 		int64(5), "group-1", "openai", "/v1/responses", "openai_responses", "gpt-test", "hash", "red***", "http",
 		"critical", "critical", "Block", `["jailbreak"]`, `["jailbreak"]`, `{"jailbreak":1}`, `{"jailbreak":"Jailbreak"}`,
 		"qwen3guard-openai", "test", "guard-1", "Primary Guard", "guard-model", "priority", 1, int64(9), 4, 27004, createdAt,
-		"203.0.113.42", 395959, 1, "blocking", 0, 100000, 3, false, "complete prompt",
+		"203.0.113.42", 395959, 1, "blocking", 0, 100000, 3, false,
+		"", "", "complete prompt",
 	)
 	mock.ExpectQuery("SELECT").WillReturnRows(rows)
 
@@ -52,4 +53,16 @@ func TestBuildEventWhereFiltersAsyncDeepExecutionMode(t *testing.T) {
 	where, args := buildEventWhere(EventFilter{ExecutionMode: " ASYNC_DEEP "}, 1)
 	require.Contains(t, where, "e.execution_mode=$1")
 	require.Equal(t, []any{"async_deep"}, args)
+}
+
+func TestBuildEventWhereLeavesDefaultFilterUnchanged(t *testing.T) {
+	where, args := buildEventWhere(EventFilter{}, 1)
+	require.Equal(t, " WHERE TRUE", where)
+	require.NotContains(t, where, "error_code")
+	require.Empty(t, args)
+
+	where, args = buildEventWhere(EventFilter{Keyword: "Prompt Audit dependency"}, 1)
+	require.Contains(t, where, "e.error_code ILIKE $1")
+	require.Contains(t, where, "e.error_message ILIKE $1")
+	require.Equal(t, []any{"%Prompt Audit dependency%"}, args)
 }

@@ -1,6 +1,6 @@
 export type PromptAuditMode = 'off' | 'async_audit' | 'async_deep' | 'blocking'
-export type PromptDecision = 'pass' | 'flag' | 'critical'
-export type PromptRiskLevel = 'low' | 'medium' | 'high' | 'critical'
+export type PromptDecision = 'pass' | 'flag' | 'critical' | 'failed'
+export type PromptRiskLevel = 'low' | 'medium' | 'high' | 'critical' | 'unknown'
 
 export interface PromptAuditReviewModules {
   system: boolean
@@ -45,6 +45,7 @@ export interface PromptAuditConfig {
   scanners: string[]
   all_groups: boolean
   group_ids: number[]
+  blocking_exempt_user_ids: number[]
   endpoints: PromptAuditEndpoint[]
   config_version: number
   updated_at: string
@@ -71,6 +72,7 @@ export interface PromptAuditUpdateRequest {
   scanners: string[]
   all_groups: boolean
   group_ids: number[]
+  blocking_exempt_user_ids: number[]
   endpoints: Array<{
     id: string
     name: string
@@ -212,7 +214,9 @@ export interface PromptAuditEvent {
   execution_mode: PromptAuditMode
   decision: PromptDecision
   risk_level: PromptRiskLevel
-  action: 'Allow' | 'Warn' | 'Block' | string
+  action: 'Allow' | 'Warn' | 'Block' | 'Error' | string
+  error_code?: string
+  error_message?: string
   categories: string[]
   matched_scanners: string[]
   scanner_scores: Record<string, number>

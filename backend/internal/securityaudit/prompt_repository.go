@@ -67,6 +67,8 @@ type Event struct {
 	InputLimit           *int               `json:"input_limit"`
 	MatchedChunkIndex    *int               `json:"matched_chunk_index"`
 	LatencyMS            int                `json:"latency_ms"`
+	ErrorCode            string             `json:"error_code,omitempty"`
+	ErrorMessage         string             `json:"error_message,omitempty"`
 	IssueSummaries       []IssueSummary     `json:"issue_summaries"`
 	CreatedAt            time.Time          `json:"created_at"`
 	FullContextAvailable bool               `json:"full_context_available"`
@@ -84,6 +86,7 @@ type JobRepository interface {
 	ReclaimStale(ctx context.Context, stagingBefore, processingBefore time.Time, limit int) (int64, error)
 	QueueStats(ctx context.Context) (QueueStats, error)
 	RecordBlocking(ctx context.Context, snapshot PromptSnapshot, configVersion int64, result *NormalizedResult, retainPassEvidence bool) (*Event, error)
+	RecordFailureEvent(ctx context.Context, job *Job, code string) (*Event, error)
 }
 
 type PostgreSQLRepository struct {
@@ -288,6 +291,74 @@ func (r *PostgreSQLRepository) QueueStats(ctx context.Context) (QueueStats, erro
 	return stats, rows.Err()
 }
 
+func (r *PostgreSQLRepository) RecordBlockingFailure(ctx context.Context, snapshot PromptSnapshot, configVersion int64, code string) (*Event, error) {
+	if r == nil || r.db == nil {
+		return nil, errors.New("prompt audit database unavailable")
+	}
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = tx.Rollback() }()
+	job, err := insertJob(ctx, tx, snapshot.Redacted(), ModeBlocking, configVersion, "failed", 1)
+	if err != nil {
+		return nil, err
+	}
+	code, message := sanitizeStoredError(code)
+	result, err := tx.ExecContext(ctx, `
+		UPDATE prompt_audit_jobs SET attempts=1,last_error_code=$2,last_error_message=$3,updated_at=NOW()
+		WHERE id=$1`, job.ID, code, message)
+	if err := requireOneRow(result, err, ErrLeaseLost); err != nil {
+		return nil, err
+	}
+	event, err := insertFailureEvent(ctx, tx, job, code)
+	if err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+	return event, nil
+}
+
+func (r *PostgreSQLRepository) RecordFailureEvent(ctx context.Context, job *Job, code string) (*Event, error) {
+	if r == nil || r.db == nil {
+		return nil, errors.New("prompt audit database unavailable")
+	}
+	if job == nil || job.ID <= 0 {
+		return nil, errors.New("prompt audit failure event requires job")
+	}
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = tx.Rollback() }()
+	var status string
+	if err := tx.QueryRowContext(ctx, `SELECT status FROM prompt_audit_jobs WHERE id=$1 FOR UPDATE`, job.ID).Scan(&status); errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrLeaseLost
+	} else if err != nil {
+		return nil, err
+	}
+	if status != "failed" {
+		return nil, ErrLeaseLost
+	}
+	var exists bool
+	if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM prompt_audit_events WHERE job_id=$1)`, job.ID).Scan(&exists); err != nil {
+		return nil, err
+	}
+	if exists {
+		return nil, ErrLeaseLost
+	}
+	event, err := insertFailureEvent(ctx, tx, job, code)
+	if err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+	return event, nil
+}
+
 func (r *PostgreSQLRepository) RecordBlocking(ctx context.Context, snapshot PromptSnapshot, configVersion int64, result *NormalizedResult, retainPassEvidence bool) (*Event, error) {
 	if result == nil {
 		return nil, errors.New("prompt guard result required")
@@ -347,6 +418,46 @@ func insertJob(ctx context.Context, queryer sqlQueryer, snapshot PromptSnapshot,
 		snapshot.RedactedPreview, snapshot.PromptLength, snapshot.MessageCount, normalizeStage(snapshot.Stage),
 		string(mode), configVersion, status, maxAttempts, snapshot.ClientIP)
 	return scanJob(row)
+}
+
+func insertFailureEvent(ctx context.Context, queryer sqlQueryer, job *Job, code string) (*Event, error) {
+	if job == nil {
+		return nil, errors.New("prompt audit failure event requires job")
+	}
+	code, message := sanitizeStoredError(code)
+	snapshot := failureEventSnapshot(job.Snapshot)
+	row := queryer.QueryRowContext(ctx, `
+		INSERT INTO prompt_audit_events (
+			job_id,request_id,user_id,username_snapshot,user_email_snapshot,api_key_id,api_key_name_snapshot,
+			group_id,group_name,provider,endpoint,protocol,model,prompt_hash,redacted_preview,stage,
+			decision,risk_level,action,categories,matched_scanners,scanner_scores,scanner_evidence,
+			scanner_backend,scanner_version,guard_endpoint_id,policy_id,policy_version,config_version,chunk_total,latency_ms,
+			full_prompt,client_ip,prompt_length,message_count,execution_mode,queue_delay_ms,input_limit,matched_chunk_index,
+			full_prompt_truncated,guard_endpoint_name,guard_model,error_code,error_message
+		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,
+			$20::jsonb,$21::jsonb,$22::jsonb,$23::jsonb,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35,
+			$36,$37,$38,$39,$40,$41,$42,$43,$44)
+		RETURNING `+eventDetailColumns("prompt_audit_events"),
+		job.ID, snapshot.RequestID, nullableID(snapshot.UserID), snapshot.UsernameSnapshot, snapshot.UserEmailSnapshot,
+		nullableID(snapshot.APIKeyID), snapshot.APIKeyNameSnapshot, snapshot.GroupID, snapshot.GroupName,
+		snapshot.Provider, snapshot.Endpoint, snapshot.Protocol, snapshot.Model, snapshot.PromptHash,
+		snapshot.RedactedPreview, normalizeStage(snapshot.Stage), string(EventFailed), string(RiskUnknown), string(ActionError),
+		[]byte("[]"), []byte("[]"), []byte("{}"), []byte("{}"), "qwen3guard-openai", "",
+		"", "priority", 0, job.ConfigVersion, 0, 0,
+		"", snapshot.ClientIP, snapshot.PromptLength, snapshot.MessageCount, string(job.ExecutionMode), queueDelayMilliseconds(job),
+		nil, nil, snapshot.FullPromptTruncated, "", "", code, message)
+	return scanEvent(row, true)
+}
+
+func failureEventSnapshot(snapshot PromptSnapshot) PromptSnapshot {
+	snapshot = snapshot.Redacted()
+	snapshot.FullPrompt = ""
+	snapshot.FullPromptTruncated = snapshot.PromptLength > 0
+	snapshot.FullContextCiphertext = ""
+	snapshot.FullContextHash = ""
+	snapshot.FullContextBytes = 0
+	snapshot.FullContextSegmentCount = 0
+	return snapshot
 }
 
 func insertEvent(ctx context.Context, queryer sqlQueryer, jobID int64, snapshot PromptSnapshot, executionMode Mode, configVersion int64, queueDelayMS int, result *NormalizedResult, retainEvidence bool) (*Event, error) {

@@ -1,65 +1,60 @@
-Sub2API Plus v0.1.183+custom.918
+Sub2API Plus v0.1.183+custom.919
 
 ## Highlights
 
-- Wait for an in-progress Prompt Audit recovery instead of returning an
-  immediate recovery-state 503 to concurrent requests.
-- Send a rate-limited P0 Ops email after five consecutive Prompt Audit pool
-  failures, with successful pool outcomes resetting the streak.
-- Reduce Prompt Audit hot-path memory and CPU cost for large request bodies and
-  UTF-8 Guard chunks without reducing audited content.
+- Show synchronous Guard failures and terminal asynchronous Prompt Audit
+  failures in the existing event list with stable, safe reasons.
+- Add blocking-exempt users who remain fully audited and visible while Prompt
+  Audit findings do not reject their requests.
+- Enforce selected-group scope before every Prompt Audit review, queue,
+  recovery, and final enforcement path.
 
 ## Changed
 
-- Recovery claim acquisition now uses one atomic Redis operation with
-  exponential waiting backoff. The exact current claim owner must match the
-  exact finding version before recovery can clear.
-- Only network/read failures, timeout/capacity, 401/403, 429, and 5xx remain
-  eligible for configured Guard failure allowance. Deterministic 400/404-class
-  errors stay fail closed.
-- Prompt Audit pool alerts reuse the existing Ops recipients, templates,
-  severity filtering, silencing, and hourly email limiter. Client cancellation
-  and service shutdown do not count as pool failures.
-- Synchronous Content Moderation and Prompt Audit share the frozen request body
-  read-only; the asynchronous boundary retains the only deep copy.
-- UTF-8 chunking now slices at rune boundaries without building a full rune
-  array or copying every chunk.
+- Blocking-exempt users preserve the original Critical, Flag, risk, and Guard
+  action in stored events. Only the Prompt Audit gateway enforcement decision
+  is converted to a non-blocking Flag.
+- Existing recovery findings pause while a user is exempt or outside selected
+  group scope and resume if the policy later applies again.
+- Prompt Audit configuration accepts up to 100 blocking-exempt users and
+  preserves the current list when an older client omits the additive field.
+- Failed events retain only a redacted request snapshot, stable error code, and
+  bounded generic reason. They never retain raw Guard errors or full context.
 
 ## Fixed
 
-- Prevent claim contention from being reported as unavailable recovery state.
-- Prevent an expired or replaced recovery owner from clearing a finding owned
-  by another request.
-- Prevent deterministic Guard client/configuration errors from silently
-  bypassing Prompt Audit through failure allowance.
-- Prevent caller cancellation from producing false consecutive-pool-failure
-  email alerts.
-- Clarify Prompt Audit Block responses without exposing raw Guard evidence,
-  prompt content, tool values, or recovery tokens.
+- Prevent pending recovery state from causing Prompt Audit review and events
+  for a group that is not selected.
+- Prevent an in-progress recovery Allow from clearing its finding after the
+  user becomes exempt or the request group leaves scope.
+- Prevent stale queued work for a removed group from calling Guard or creating
+  an audit event.
+- Prevent active queue jobs from being deleted when an administrator removes
+  related event history.
 
 ## Compatibility and migration
 
-- **Before upgrading production, manually disable Prompt Audit synchronous
-  blocking.** New and missing configurations already default to
-  `blocking_enabled=false`, but this release intentionally does not overwrite
-  an existing persisted `true` value.
-- Asynchronous Prompt Audit may remain enabled while synchronous blocking is
-  off. Pending recovery findings are retained and resume if blocking is enabled
-  again.
-- No SQL migration is added. Existing finding and claim Redis keys remain
-  compatible; claim operations become atomic after the binary upgrade.
-- Roll back to `v0.1.183+custom.917` if required. Its published assets and image
-  remain immutable.
+- Migration 243 adds bounded `error_code` and `error_message` event columns,
+  permits `failed / unknown / Error`, and backfills terminal failed jobs that
+  do not already have events. The migration is forward-only and idempotent.
+- `blocking_exempt_user_ids` is an additive field in the existing versioned
+  Prompt Audit JSON configuration and defaults to an empty list.
+- Existing recovery findings and Allow receipts are not cleared by this
+  upgrade.
+- Roll back to `v0.1.183+custom.918` if required. The additive schema remains;
+  `.918` does not display the new failure reasons or blocking-exempt controls.
 - No Compose, port, certificate, proxy, or persistent-volume change is
   required. Personal images and binary archives remain Linux arm64 only.
 
 ## Known issues
 
-- Publishing this release does not change production Prompt Audit settings.
-  Upgrading while the existing synchronous-blocking toggle remains on preserves
-  that enabled intent and its fail-closed dependency behavior.
-- Existing full Pass evidence and historical backups are not deleted
-  automatically; cleanup still requires explicit preview and confirmation.
+- Blocking exemption applies only to Prompt Audit findings. Content Moderation
+  remains independently configured and may still block the same user.
+- Extraction, encryption, invalid Guard output, recovery-store errors, and
+  Guard availability continue to follow the existing fail-closed or configured
+  failure-allow policy for blocking-exempt users.
+- Publishing this release does not change production Prompt Audit groups,
+  blocking exemptions, Content Moderation settings, or runtime deployment.
 - Production deployment and configuration changes remain separate operations
   and are not part of release publication.
 

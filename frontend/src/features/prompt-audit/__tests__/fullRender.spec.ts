@@ -20,7 +20,7 @@ const config = (): PromptAuditConfig => ({
   enabled: true, blocking_enabled: true, allow_on_guard_unavailable: false, blocking_latest_turn_only: false,
   blocking_review_modules: { ...DEFAULT_BLOCKING_REVIEW_MODULES }, deep_review_modules: { ...DEFAULT_DEEP_REVIEW_MODULES },
   allow_receipt_ttl_seconds: 3600, effective_mode: 'blocking', strategy: 'priority', worker_count: 32,
-  queue_capacity: 32768, scanners: SCANNER_CATALOG.map(({ id }) => id), all_groups: false, group_ids: [4, 5, 7, 13],
+  queue_capacity: 32768, scanners: SCANNER_CATALOG.map(({ id }) => id), all_groups: false, group_ids: [4, 5, 7, 13], blocking_exempt_user_ids: [],
   endpoints: [{ id: 'guard-1', name: 'Guard', protocol: 'openai_compatible', base_url: 'https://guard.example.test/v1', model: 'guard', timeout_ms: 3000, input_limit: 200000, enabled: true, has_token: true, token_status: 'configured' }],
   config_version: 55, updated_at: '2026-08-30T00:00:00Z', updated_by: 1, change_summary: '{}',
 })

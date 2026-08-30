@@ -43,7 +43,7 @@ func openPromptAuditIntegrationDB(t *testing.T) *sql.DB {
 		);
 	`)
 	require.NoError(t, err)
-	for _, name := range []string{"181_prompt_audit.sql", "182_prompt_audit_full_prompt.sql", "234_prompt_audit_observability.sql", "235_prompt_audit_client_ip_index_notx.sql", "238_prompt_audit_event_contexts.sql", "239_prompt_audit_deep_review.sql", "240_prompt_audit_events_mode_index_notx.sql", "242_prompt_audit_guard_node_snapshot.sql"} {
+	for _, name := range []string{"181_prompt_audit.sql", "182_prompt_audit_full_prompt.sql", "234_prompt_audit_observability.sql", "235_prompt_audit_client_ip_index_notx.sql", "238_prompt_audit_event_contexts.sql", "239_prompt_audit_deep_review.sql", "240_prompt_audit_events_mode_index_notx.sql", "242_prompt_audit_guard_node_snapshot.sql", "243_prompt_audit_failure_events.sql"} {
 		migration, err := os.ReadFile(filepath.Join("..", "..", "migrations", name))
 		require.NoError(t, err)
 		// The migration runner can retry an interrupted deployment; the migration
@@ -306,6 +306,131 @@ func TestPromptAuditDatabaseKeepsLightweightPassWithoutFullEvidence(t *testing.T
 	page, err := repo.ListEvents(ctx, EventFilter{}, 1, 20)
 	require.NoError(t, err)
 	require.Equal(t, int64(2), page.Total)
+}
+
+func TestPromptAuditFailureEventsPersistSafeReasonsAndTerminalAsyncFailure(t *testing.T) {
+	db := openPromptAuditIntegrationDB(t)
+	repo := NewPostgreSQLRepository(db)
+	ctx := context.Background()
+	const canary = "RAW_GUARD_RESPONSE_AND_PROMPT_CANARY"
+
+	blocking := integrationSnapshot("blocking-failure")
+	blocking.FullPrompt = "complete prompt " + canary
+	blocking.FullContextCiphertext = "encrypted-context-" + canary
+	blockingEvent, err := repo.RecordBlockingFailure(ctx, blocking, 7, ErrorCodeUnavailable)
+	require.NoError(t, err)
+	require.Equal(t, EventFailed, blockingEvent.Decision)
+	require.Equal(t, RiskUnknown, blockingEvent.RiskLevel)
+	require.Equal(t, ActionError, blockingEvent.Action)
+	require.Equal(t, ErrorCodeUnavailable, blockingEvent.ErrorCode)
+	require.Equal(t, stableErrorMessage(ErrorCodeUnavailable), blockingEvent.ErrorMessage)
+	require.Empty(t, blockingEvent.Snapshot.FullPrompt)
+	require.False(t, blockingEvent.FullContextAvailable)
+	_, err = repo.GetEventContext(ctx, blockingEvent.ID)
+	require.ErrorIs(t, err, ErrEventContextNotFound)
+
+	var blockingRow, jobRow string
+	require.NoError(t, db.QueryRow(`SELECT row_to_json(e)::text FROM prompt_audit_events e WHERE id=$1`, blockingEvent.ID).Scan(&blockingRow))
+	require.NoError(t, db.QueryRow(`SELECT row_to_json(j)::text FROM prompt_audit_jobs j WHERE id=$1`, blockingEvent.JobID).Scan(&jobRow))
+	require.NotContains(t, blockingRow, canary)
+	require.NotContains(t, jobRow, canary)
+
+	page, err := repo.ListEvents(ctx, EventFilter{Decision: string(EventFailed), Keyword: "dependency"}, 1, 20)
+	require.NoError(t, err)
+	require.Equal(t, int64(1), page.Total)
+	require.Len(t, page.Items, 1)
+
+	async := integrationSnapshot("async-failure")
+	job, err := repo.CreateStagingWithCapacity(ctx, async, ModeAsync, 7, 2, 10)
+	require.NoError(t, err)
+	require.NoError(t, repo.PublishQueued(ctx, job.ID))
+	claimed, ok, err := repo.ClaimNextJob(ctx, time.Now().Add(time.Second))
+	require.NoError(t, err)
+	require.True(t, ok)
+	require.NoError(t, repo.Retry(ctx, claimed.ID, claimed.ClaimVersion, time.Now().Add(-time.Second), ErrorCodeUnavailable, "raw retry message"))
+
+	page, err = repo.ListEvents(ctx, EventFilter{Decision: string(EventFailed)}, 1, 20)
+	require.NoError(t, err)
+	require.Equal(t, int64(1), page.Total, "retry must not create a failure event")
+
+	claimed, ok, err = repo.ClaimNextJob(ctx, time.Now().Add(time.Second))
+	require.NoError(t, err)
+	require.True(t, ok)
+	require.NoError(t, repo.Fail(ctx, claimed.ID, claimed.ClaimVersion, ErrorCodeInvalidResponse, "raw failure message"))
+	asyncEvent, err := repo.RecordFailureEvent(ctx, claimed, ErrorCodeInvalidResponse)
+	require.NoError(t, err)
+	require.Equal(t, EventFailed, asyncEvent.Decision)
+	require.Equal(t, ErrorCodeInvalidResponse, asyncEvent.ErrorCode)
+	require.Equal(t, stableErrorMessage(ErrorCodeInvalidResponse), asyncEvent.ErrorMessage)
+	_, err = repo.RecordFailureEvent(ctx, claimed, ErrorCodeInvalidResponse)
+	require.ErrorIs(t, err, ErrLeaseLost)
+
+	deleted, err := repo.DeleteEvent(ctx, asyncEvent.ID)
+	require.NoError(t, err)
+	require.Equal(t, int64(1), deleted.DeletedEvents)
+	require.Equal(t, int64(1), deleted.DeletedJobs)
+	var remaining int
+	require.NoError(t, db.QueryRow(`SELECT COUNT(*) FROM prompt_audit_jobs WHERE id=$1`, claimed.ID).Scan(&remaining))
+	require.Zero(t, remaining)
+}
+
+func TestPromptServicePersistsBlockingFailureEventsWithoutChangingDecision(t *testing.T) {
+	db := openPromptAuditIntegrationDB(t)
+	repo := NewPostgreSQLRepository(db)
+
+	run := func(t *testing.T, requestID string, allow bool, scanErr *GuardError) (*PromptDecision, *Event, error) {
+		t.Helper()
+		metrics := NewAtomicMetrics()
+		state := newFakeAllowReceiptPayload()
+		cfg := ActiveConfig{
+			RiskControlEnabled: true, Enabled: true, BlockingEnabled: true,
+			AllowOnGuardUnavailable: allow, AllGroups: true, ConfigVersion: 7,
+			Scanners: AllScannerIDs,
+			Endpoints: []ActiveEndpoint{{
+				ID: "guard-1", Name: "Primary Guard", Model: "guard-model",
+				Enabled: true, TimeoutMS: 1000, InputLimit: 4096,
+			}},
+		}
+		service := &PromptService{
+			config: &fakeConfigStore{active: true, cfg: cfg}, repo: repo,
+			evaluator: newGuardEvaluator(PromptScannerFunc(func(context.Context, ActiveEndpoint, string, []string) (*NormalizedResult, error) {
+				return nil, scanErr
+			}), repo, metrics, 2, 2),
+			state: state, receipts: state, metrics: metrics, background: context.Background(),
+		}
+		decision, err := service.Evaluate(context.Background(), Request{
+			RequestID: requestID, Provider: "openai", Endpoint: "/v1/responses",
+			Protocol: "openai_responses", Model: "gpt-test",
+			Body: []byte(`{"input":"review this request"}`),
+		})
+		service.enqueueWG.Wait()
+		page, listErr := repo.ListEvents(context.Background(), EventFilter{RequestID: requestID, Decision: string(EventFailed)}, 1, 20)
+		require.NoError(t, listErr)
+		require.Equal(t, int64(1), page.Total)
+		require.Len(t, page.Items, 1)
+		return decision, page.Items[0], err
+	}
+
+	t.Run("eligible outage is allowed and recorded", func(t *testing.T) {
+		decision, event, err := run(t, "failure-allowed", true, &GuardError{
+			Code: ErrorCodeUnavailable, Retryable: true, FailureAllowEligible: true,
+		})
+		require.NoError(t, err)
+		require.NotNil(t, decision)
+		require.True(t, decision.FailureAllowed)
+		require.Equal(t, ErrorCodeUnavailable, event.ErrorCode)
+		require.Equal(t, stableErrorMessage(ErrorCodeUnavailable), event.ErrorMessage)
+	})
+
+	t.Run("invalid response remains blocked and recorded", func(t *testing.T) {
+		decision, event, err := run(t, "failure-blocked", true, &GuardError{
+			Code: ErrorCodeInvalidResponse,
+		})
+		require.Nil(t, decision)
+		require.Error(t, err)
+		require.Equal(t, ErrorCodeInvalidResponse, event.ErrorCode)
+		require.Equal(t, stableErrorMessage(ErrorCodeInvalidResponse), event.ErrorMessage)
+	})
 }
 
 func TestPromptAuditDatabasePersistsFullPromptOnEventsOnly(t *testing.T) {

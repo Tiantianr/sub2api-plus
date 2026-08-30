@@ -463,7 +463,8 @@ func (m *ConfigManager) buildNextStorage(current storageConfig, req UpdateConfig
 		Strategy:               strings.TrimSpace(req.Strategy), WorkerCount: req.WorkerCount,
 		QueueCapacity: req.QueueCapacity, Scanners: append([]string(nil), req.Scanners...),
 		AllGroups: req.AllGroups, GroupIDs: append([]int64(nil), req.GroupIDs...),
-		ConfigVersion: current.ConfigVersion, UpdatedBy: actorID,
+		BlockingExemptUserIDs: append([]int64(nil), current.BlockingExemptUserIDs...),
+		ConfigVersion:         current.ConfigVersion, UpdatedBy: actorID,
 		Endpoints: make([]StorageEndpoint, 0, len(req.Endpoints)),
 	}
 	if req.BlockingReviewModules != nil {
@@ -474,6 +475,9 @@ func (m *ConfigManager) buildNextStorage(current storageConfig, req UpdateConfig
 	}
 	if req.AllowReceiptTTLSeconds != nil {
 		next.AllowReceiptTTLSeconds = *req.AllowReceiptTTLSeconds
+	}
+	if req.BlockingExemptUserIDs != nil {
+		next.BlockingExemptUserIDs = append([]int64(nil), (*req.BlockingExemptUserIDs)...)
 	}
 	for _, endpoint := range req.Endpoints {
 		baseURL, err := NormalizeBaseURL(endpoint.BaseURL)
@@ -690,6 +694,7 @@ func (m *ConfigManager) currentRetentionLoadError() string {
 func cloneStorageConfig(cfg storageConfig) storageConfig {
 	cfg.Scanners = append([]string(nil), cfg.Scanners...)
 	cfg.GroupIDs = append([]int64(nil), cfg.GroupIDs...)
+	cfg.BlockingExemptUserIDs = append([]int64(nil), cfg.BlockingExemptUserIDs...)
 	cfg.Endpoints = append([]StorageEndpoint(nil), cfg.Endpoints...)
 	return cfg
 }
@@ -697,6 +702,7 @@ func cloneStorageConfig(cfg storageConfig) storageConfig {
 func cloneActiveConfig(cfg ActiveConfig) ActiveConfig {
 	cfg.Scanners = append([]string(nil), cfg.Scanners...)
 	cfg.GroupIDs = append([]int64(nil), cfg.GroupIDs...)
+	cfg.BlockingExemptUserIDs = append([]int64(nil), cfg.BlockingExemptUserIDs...)
 	cfg.PassRetentionUserIDs = append([]int64(nil), cfg.PassRetentionUserIDs...)
 	cfg.Endpoints = append([]ActiveEndpoint(nil), cfg.Endpoints...)
 	return cfg

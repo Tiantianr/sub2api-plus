@@ -346,10 +346,12 @@ func buildEventWhere(filter EventFilter, firstIndex int) (string, []any) {
 	}
 	if filter.Keyword != "" {
 		add(` AND (e.request_id ILIKE $%d OR e.client_ip ILIKE $%d OR e.prompt_hash ILIKE $%d OR e.redacted_preview ILIKE $%d
-			OR e.username_snapshot ILIKE $%d OR e.user_email_snapshot ILIKE $%d OR e.api_key_name_snapshot ILIKE $%d)`, "%"+TrimRunes(filter.Keyword, 128)+"%")
+			OR e.username_snapshot ILIKE $%d OR e.user_email_snapshot ILIKE $%d OR e.api_key_name_snapshot ILIKE $%d
+			OR e.error_code ILIKE $%d OR e.error_message ILIKE $%d)`, "%"+TrimRunes(filter.Keyword, 128)+"%")
 		// The clause has several placeholders but add only supplied one. Rebuild it with one shared placeholder.
 		clauses[len(clauses)-1] = fmt.Sprintf(` AND (e.request_id ILIKE $%[1]d OR e.client_ip ILIKE $%[1]d OR e.prompt_hash ILIKE $%[1]d OR e.redacted_preview ILIKE $%[1]d
-			OR e.username_snapshot ILIKE $%[1]d OR e.user_email_snapshot ILIKE $%[1]d OR e.api_key_name_snapshot ILIKE $%[1]d)`, firstIndex+len(args)-1)
+			OR e.username_snapshot ILIKE $%[1]d OR e.user_email_snapshot ILIKE $%[1]d OR e.api_key_name_snapshot ILIKE $%[1]d
+			OR e.error_code ILIKE $%[1]d OR e.error_message ILIKE $%[1]d)`, firstIndex+len(args)-1)
 	}
 	if filter.StartAt != nil {
 		add(" AND e.created_at >= $%d", filter.StartAt.UTC())
@@ -369,7 +371,7 @@ func eventColumns(alias string) string {
 			%[1]s.guard_endpoint_id,%[1]s.guard_endpoint_name,%[1]s.guard_model,%[1]s.policy_id,%[1]s.policy_version,%[1]s.config_version,
 		%[1]s.chunk_total,%[1]s.latency_ms,%[1]s.created_at,%[1]s.client_ip,%[1]s.prompt_length,
 		%[1]s.message_count,%[1]s.execution_mode,%[1]s.queue_delay_ms,%[1]s.input_limit,
-		%[1]s.matched_chunk_index,%[1]s.full_prompt_truncated`, alias)
+		%[1]s.matched_chunk_index,%[1]s.full_prompt_truncated,%[1]s.error_code,%[1]s.error_message`, alias)
 }
 
 // eventDetailColumns adds the full prompt, which can be large, so it is only
@@ -392,7 +394,8 @@ func scanEvent(row rowScanner, withFullPrompt ...bool) (*Event, error) {
 		&event.ScannerVersion, &event.GuardEndpointID, &event.GuardEndpointName, &event.GuardModel, &event.PolicyID, &event.PolicyVersion,
 		&event.ConfigVersion, &event.ChunkTotal, &event.LatencyMS, &event.CreatedAt, &event.Snapshot.ClientIP,
 		&event.Snapshot.PromptLength, &event.Snapshot.MessageCount, &event.ExecutionMode, &queueDelayMS,
-		&inputLimit, &matchedChunkIndex, &event.Snapshot.FullPromptTruncated}
+		&inputLimit, &matchedChunkIndex, &event.Snapshot.FullPromptTruncated,
+		&event.ErrorCode, &event.ErrorMessage}
 	if len(withFullPrompt) > 0 && withFullPrompt[0] {
 		dest = append(dest, &event.Snapshot.FullPrompt)
 	}
@@ -444,7 +447,7 @@ func deleteOrphanJobs(ctx context.Context, tx *sql.Tx, jobIDs []int64) (int64, e
 		return 0, nil
 	}
 	result, err := tx.ExecContext(ctx, `DELETE FROM prompt_audit_jobs j
-		WHERE j.id=ANY($1) AND j.status <> 'processing'
+		WHERE j.id=ANY($1) AND j.status IN ('done','failed')
 		AND NOT EXISTS (SELECT 1 FROM prompt_audit_events e WHERE e.job_id=j.id)`, pq.Array(jobIDs))
 	if err != nil {
 		return 0, err

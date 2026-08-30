@@ -28,6 +28,7 @@ const (
 	DefaultAllowReceiptTTLSeconds = 3600
 	MinAllowReceiptTTLSeconds     = 60
 	MaxAllowReceiptTTLSeconds     = 86400
+	MaxBlockingExemptUsers        = 100
 )
 
 type SecretEncryptor interface {
@@ -80,6 +81,7 @@ type storageConfig struct {
 	Scanners                []string          `json:"scanners"`
 	AllGroups               bool              `json:"all_groups"`
 	GroupIDs                []int64           `json:"group_ids"`
+	BlockingExemptUserIDs   []int64           `json:"blocking_exempt_user_ids"`
 	Endpoints               []StorageEndpoint `json:"endpoints"`
 	ConfigVersion           int64             `json:"config_version"`
 	UpdatedAt               time.Time         `json:"updated_at"`
@@ -123,6 +125,7 @@ type ActiveConfig struct {
 	Scanners               []string
 	AllGroups              bool
 	GroupIDs               []int64
+	BlockingExemptUserIDs  []int64
 	Endpoints              []ActiveEndpoint
 	ConfigVersion          int64
 	UpdatedAt              time.Time
@@ -158,6 +161,7 @@ type PublicConfig struct {
 	Scanners                []string         `json:"scanners"`
 	AllGroups               bool             `json:"all_groups"`
 	GroupIDs                []int64          `json:"group_ids"`
+	BlockingExemptUserIDs   []int64          `json:"blocking_exempt_user_ids"`
 	Endpoints               []PublicEndpoint `json:"endpoints"`
 	ConfigVersion           int64            `json:"config_version"`
 	UpdatedAt               time.Time        `json:"updated_at"`
@@ -193,6 +197,7 @@ type UpdateConfigRequest struct {
 	Scanners                []string         `json:"scanners"`
 	AllGroups               bool             `json:"all_groups"`
 	GroupIDs                []int64          `json:"group_ids"`
+	BlockingExemptUserIDs   *[]int64         `json:"blocking_exempt_user_ids"`
 	Endpoints               []UpdateEndpoint `json:"endpoints"`
 }
 
@@ -211,6 +216,7 @@ func DefaultStorageConfig() storageConfig {
 		Scanners:                append([]string(nil), AllScannerIDs...),
 		AllGroups:               true,
 		GroupIDs:                []int64{},
+		BlockingExemptUserIDs:   []int64{},
 		Endpoints:               []StorageEndpoint{},
 		ConfigVersion:           1,
 	}
@@ -255,6 +261,7 @@ func normalizeStorageConfig(cfg *storageConfig) {
 	}
 	cfg.Scanners = canonicalScannerIDs(cfg.Scanners)
 	cfg.GroupIDs = canonicalInt64s(cfg.GroupIDs)
+	cfg.BlockingExemptUserIDs = canonicalInt64s(cfg.BlockingExemptUserIDs)
 	// Preserve an invalid blocking-without-audit combination so validation can
 	// reject it instead of silently changing administrator intent.
 	for i := range cfg.Endpoints {
@@ -297,6 +304,9 @@ func validateStorageConfig(cfg storageConfig) error {
 	}
 	if !cfg.AllGroups && len(cfg.GroupIDs) == 0 {
 		return infraerrors.BadRequest("prompt_audit_groups_required", "指定分组模式至少需要选择一个分组")
+	}
+	if len(cfg.BlockingExemptUserIDs) > MaxBlockingExemptUsers {
+		return infraerrors.BadRequest("prompt_audit_blocking_exempt_user_limit", "免阻塞用户数量超出限制")
 	}
 	if len(cfg.Scanners) == 0 {
 		return infraerrors.BadRequest("prompt_audit_scanners_required", "至少需要启用一个风险分类")
@@ -364,6 +374,16 @@ func validateUpdateConfigRequest(req UpdateConfigRequest) error {
 			}
 		}
 	}
+	if req.BlockingExemptUserIDs != nil {
+		if len(*req.BlockingExemptUserIDs) > MaxBlockingExemptUsers {
+			return infraerrors.BadRequest("prompt_audit_blocking_exempt_user_limit", "免阻塞用户数量超出限制")
+		}
+		for _, userID := range *req.BlockingExemptUserIDs {
+			if userID <= 0 {
+				return infraerrors.BadRequest("prompt_audit_invalid_blocking_exempt_user", "免阻塞用户 ID 无效")
+			}
+		}
+	}
 	for _, endpoint := range req.Endpoints {
 		if endpoint.TimeoutMS < MinTimeoutMS || endpoint.TimeoutMS > MaxTimeoutMS {
 			return infraerrors.BadRequest("prompt_audit_invalid_timeout", "审计节点超时超出允许范围")
@@ -396,6 +416,14 @@ func (cfg ActiveConfig) IncludesGroup(groupID *int64) bool {
 	return i < len(cfg.GroupIDs) && cfg.GroupIDs[i] == *groupID
 }
 
+func (cfg ActiveConfig) IsBlockingExempt(userID int64) bool {
+	if userID <= 0 {
+		return false
+	}
+	i := sort.Search(len(cfg.BlockingExemptUserIDs), func(i int) bool { return cfg.BlockingExemptUserIDs[i] >= userID })
+	return i < len(cfg.BlockingExemptUserIDs) && cfg.BlockingExemptUserIDs[i] == userID
+}
+
 func (cfg ActiveConfig) EnabledEndpoints() []ActiveEndpoint {
 	result := make([]ActiveEndpoint, 0, len(cfg.Endpoints))
 	for _, ep := range cfg.Endpoints {
@@ -425,6 +453,7 @@ func PublicFromStorage(cfg storageConfig, riskControlEnabled bool, invalidTokenE
 	}
 	scanners := append([]string{}, cfg.Scanners...)
 	groupIDs := append([]int64{}, cfg.GroupIDs...)
+	exemptUserIDs := append([]int64{}, cfg.BlockingExemptUserIDs...)
 	endpoints := make([]PublicEndpoint, 0, len(cfg.Endpoints))
 	for _, ep := range cfg.Endpoints {
 		hasToken := strings.TrimSpace(ep.TokenCiphertext) != ""
@@ -449,7 +478,7 @@ func PublicFromStorage(cfg storageConfig, riskControlEnabled bool, invalidTokenE
 		AllowReceiptTTLSeconds: cfg.AllowReceiptTTLSeconds,
 		EffectiveMode:          active.EffectiveMode(), Strategy: cfg.Strategy, WorkerCount: cfg.WorkerCount,
 		QueueCapacity: cfg.QueueCapacity, Scanners: scanners, AllGroups: cfg.AllGroups,
-		GroupIDs: groupIDs, Endpoints: endpoints, ConfigVersion: cfg.ConfigVersion,
+		GroupIDs: groupIDs, BlockingExemptUserIDs: exemptUserIDs, Endpoints: endpoints, ConfigVersion: cfg.ConfigVersion,
 		UpdatedAt: cfg.UpdatedAt, UpdatedBy: cfg.UpdatedBy, ChangeSummary: cfg.ChangeSummary,
 	}
 }
@@ -464,7 +493,7 @@ func ActiveFromStorage(cfg storageConfig, riskControlEnabled bool, encryptor Sec
 		AllowReceiptTTLSeconds:  cfg.AllowReceiptTTLSeconds,
 		Strategy:                cfg.Strategy, WorkerCount: cfg.WorkerCount,
 		QueueCapacity: cfg.QueueCapacity, Scanners: append([]string(nil), cfg.Scanners...), AllGroups: cfg.AllGroups,
-		GroupIDs: append([]int64(nil), cfg.GroupIDs...), ConfigVersion: cfg.ConfigVersion,
+		GroupIDs: append([]int64(nil), cfg.GroupIDs...), BlockingExemptUserIDs: append([]int64(nil), cfg.BlockingExemptUserIDs...), ConfigVersion: cfg.ConfigVersion,
 		UpdatedAt: cfg.UpdatedAt, UpdatedBy: cfg.UpdatedBy, ChangeSummary: cfg.ChangeSummary,
 		Endpoints: make([]ActiveEndpoint, 0, len(cfg.Endpoints)),
 	}
@@ -510,10 +539,21 @@ func changeSummary(cfg storageConfig) string {
 		AllGroups               bool          `json:"all_groups"`
 		GroupCount              int           `json:"group_count"`
 		GroupHash               string        `json:"group_hash"`
-	}{cfg.Enabled, cfg.BlockingEnabled, cfg.AllowOnGuardUnavailable, cfg.BlockingLatestTurnOnly, cfg.BlockingReviewModules, cfg.DeepReviewModules, cfg.AllowReceiptTTLSeconds, len(cfg.Endpoints), len(cfg.Scanners), cfg.AllGroups, len(cfg.GroupIDs), ""}
+		BlockingExemptUserCount int           `json:"blocking_exempt_user_count"`
+		BlockingExemptUserHash  string        `json:"blocking_exempt_user_hash"`
+	}{
+		Enabled: cfg.Enabled, BlockingEnabled: cfg.BlockingEnabled, AllowOnGuardUnavailable: cfg.AllowOnGuardUnavailable,
+		BlockingLatestTurnOnly: cfg.BlockingLatestTurnOnly, BlockingReviewModules: cfg.BlockingReviewModules,
+		DeepReviewModules: cfg.DeepReviewModules, AllowReceiptTTLSeconds: cfg.AllowReceiptTTLSeconds,
+		EndpointCount: len(cfg.Endpoints), ScannerCount: len(cfg.Scanners), AllGroups: cfg.AllGroups,
+		GroupCount: len(cfg.GroupIDs), BlockingExemptUserCount: len(cfg.BlockingExemptUserIDs),
+	}
 	rawGroups, _ := json.Marshal(cfg.GroupIDs)
 	digest := sha256.Sum256(rawGroups)
 	summary.GroupHash = hex.EncodeToString(digest[:])
+	rawExemptUsers, _ := json.Marshal(cfg.BlockingExemptUserIDs)
+	exemptDigest := sha256.Sum256(rawExemptUsers)
+	summary.BlockingExemptUserHash = hex.EncodeToString(exemptDigest[:])
 	raw, _ := json.Marshal(summary)
 	return string(raw)
 }

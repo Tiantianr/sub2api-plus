@@ -26,6 +26,7 @@
           <option value="pass">{{ t('admin.promptAudit.decisions.pass') }}</option>
           <option value="flag">{{ t('admin.promptAudit.decisions.flag') }}</option>
           <option value="critical">{{ t('admin.promptAudit.decisions.critical') }}</option>
+          <option value="failed">{{ t('admin.promptAudit.decisions.failed') }}</option>
         </select>
       </label>
       <label class="text-xs text-gray-600 dark:text-dark-200">
@@ -36,6 +37,7 @@
           <option value="medium">{{ t('admin.promptAudit.riskLevels.medium') }}</option>
           <option value="high">{{ t('admin.promptAudit.riskLevels.high') }}</option>
           <option value="critical">{{ t('admin.promptAudit.riskLevels.critical') }}</option>
+          <option value="unknown">{{ t('admin.promptAudit.riskLevels.unknown') }}</option>
         </select>
       </label>
       <label class="text-xs text-gray-600 dark:text-dark-200">
@@ -89,7 +91,7 @@
         <tbody class="divide-y divide-gray-100 bg-white dark:divide-dark-700 dark:bg-transparent">
           <tr v-if="loading"><td colspan="11" class="px-4 py-12 text-center text-gray-500" aria-busy="true">{{ t('common.loading') }}</td></tr>
           <tr v-else-if="events.length === 0"><td colspan="11" class="px-4 py-12 text-center text-gray-500">{{ t('admin.promptAudit.events.empty') }}</td></tr>
-          <tr v-for="event in events" v-else :key="event.id" :data-test="`event-${event.id}`" class="align-top hover:bg-gray-50/70 dark:hover:bg-dark-800/70">
+          <tr v-for="event in events" v-else :key="event.id" :data-test="`event-${event.id}`" class="align-top hover:bg-gray-50/70 dark:hover:bg-dark-800/70" :class="isFailed(event) ? 'bg-red-50/40 dark:bg-red-950/10' : ''">
             <td class="px-3 py-3"><input type="checkbox" :checked="selectedIds.includes(event.id)" :aria-label="t('admin.promptAudit.events.selectEvent', { id: event.id })" @change="toggleOne(event.id)" /></td>
             <td class="whitespace-nowrap px-3 py-3 text-xs text-gray-600 dark:text-dark-300">{{ formatDate(event.created_at) }}</td>
             <td class="px-3 py-3">
@@ -135,8 +137,15 @@
               <p v-if="event.guard_endpoint_name && event.guard_endpoint_id" class="mt-1 truncate font-mono text-xs text-gray-400" :title="event.guard_endpoint_id">{{ event.guard_endpoint_id }}</p>
             </td>
             <td class="px-3 py-3">
-              <span class="rounded-full px-2 py-0.5 text-xs font-medium" :class="decisionClass(event.decision)">{{ formatDecisionRisk(event.decision, event.risk_level) }}</span>
-              <p class="mt-2 max-w-48 truncate text-xs text-gray-500" :title="formatCategories(event.categories)">{{ formatCategories(event.categories) }}</p>
+              <template v-if="isFailed(event)">
+                <span class="rounded-full bg-red-100 px-2 py-0.5 text-xs font-medium text-red-700 dark:bg-red-950/50 dark:text-red-300">{{ translateDecision(event.decision) }}</span>
+                <p class="mt-2 max-w-52 text-xs font-medium text-red-700 dark:text-red-300">{{ failureReason(event) }}</p>
+                <p v-if="event.error_code" class="mt-1 max-w-52 truncate font-mono text-xs text-gray-600 dark:text-dark-300" :title="event.error_code">{{ event.error_code }}</p>
+              </template>
+              <template v-else>
+                <span class="rounded-full px-2 py-0.5 text-xs font-medium" :class="decisionClass(event.decision)">{{ formatDecisionRisk(event.decision, event.risk_level) }}</span>
+                <p class="mt-2 max-w-48 truncate text-xs text-gray-500" :title="formatCategories(event.categories)">{{ formatCategories(event.categories) }}</p>
+              </template>
             </td>
             <td class="whitespace-nowrap px-3 py-3 text-xs text-gray-600 dark:text-dark-300">
               <p>{{ t('admin.promptAudit.events.queueDelay') }} · {{ formatDuration(event.queue_delay_ms) }}</p>
@@ -257,12 +266,12 @@ function formatMode(mode?: string): string {
   return label === key ? mode : label
 }
 function decisionClass(decision: string): string {
-  if (decision === 'critical') return 'bg-red-100 text-red-700 dark:bg-red-950/50 dark:text-red-300'
+  if (decision === 'failed' || decision === 'critical') return 'bg-red-100 text-red-700 dark:bg-red-950/50 dark:text-red-300'
   if (decision === 'flag') return 'bg-amber-100 text-amber-700 dark:bg-amber-950/50 dark:text-amber-300'
   return 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-300'
 }
-const DECISIONS = new Set(['pass', 'flag', 'critical'])
-const RISK_LEVELS = new Set(['low', 'medium', 'high', 'critical'])
+const DECISIONS = new Set(['pass', 'flag', 'critical', 'failed'])
+const RISK_LEVELS = new Set(['low', 'medium', 'high', 'critical', 'unknown'])
 
 function translateDecision(decision: string): string {
   return DECISIONS.has(decision) ? t(`admin.promptAudit.decisions.${decision}`) : decision
@@ -274,6 +283,18 @@ function translateCategory(category: string): string {
   return SCANNER_CATALOG.some((scanner) => scanner.id === category)
     ? t(`admin.promptAudit.scanners.${category}`)
     : category
+}
+function isFailed(event: PromptAuditEvent): boolean {
+  return event.decision === 'failed'
+}
+function failureReason(event: PromptAuditEvent): string {
+  const code = event.error_code
+  if (code) {
+    const key = `admin.promptAudit.events.failureReasons.${code}`
+    const label = t(key)
+    if (label !== key) return label
+  }
+  return event.error_message || code || t('admin.promptAudit.events.failureReasonFallback')
 }
 function formatDecisionRisk(decision: string, riskLevel: string): string {
   return `${translateDecision(decision)} · ${translateRiskLevel(riskLevel)}`

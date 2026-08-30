@@ -230,7 +230,16 @@ func (s *PromptService) Evaluate(ctx context.Context, req Request) (*PromptDecis
 	if cfg.EffectiveMode() != ModeBlocking {
 		return &PromptDecision{Kind: DecisionAllow, AllowNextStage: true}, nil
 	}
-	stateToken, deepRequired, claimToken, stateErr := s.acquireRequiredDeepReview(ctx, req)
+	if !cfg.IncludesGroup(req.GroupID) {
+		return &PromptDecision{Kind: DecisionAllow, AllowNextStage: true}, nil
+	}
+	blockingExempt := cfg.IsBlockingExempt(req.UserID)
+	var stateToken, claimToken string
+	var deepRequired bool
+	var stateErr error
+	if !blockingExempt {
+		stateToken, deepRequired, claimToken, stateErr = s.acquireRequiredDeepReview(ctx, req)
+	}
 	if stateErr != nil {
 		if errors.Is(stateErr, context.Canceled) || errors.Is(stateErr, context.DeadlineExceeded) {
 			s.observeRecoveryRetained(req, DecisionUnavailable, ErrorCodeDeepReviewState)
@@ -242,9 +251,6 @@ func (s *PromptService) Evaluate(ctx context.Context, req Request) (*PromptDecis
 	}
 	if claimToken != "" {
 		defer s.releaseRequiredDeepReviewClaim(req, claimToken)
-	}
-	if !deepRequired && !cfg.IncludesGroup(req.GroupID) {
-		return &PromptDecision{Kind: DecisionAllow, AllowNextStage: true}, nil
 	}
 	var snapshot PromptSnapshot
 	var diagnostic promptExtractionDiagnostic
@@ -320,7 +326,9 @@ func (s *PromptService) Evaluate(ctx context.Context, req Request) (*PromptDecis
 		if deepRequired {
 			s.observeRecoveryRetained(req, DecisionUnavailable, guardErrorCode(err))
 		}
-		if !deepRequired && cfg.AllowOnGuardUnavailable && guardFailureAllowEligible(err) {
+		failureAllowed := !deepRequired && cfg.AllowOnGuardUnavailable && guardFailureAllowEligible(err)
+		s.recordBlockingFailure(ctx, snapshot, cfg, guardErrorCode(err), failureAllowed)
+		if failureAllowed {
 			if s.metrics != nil {
 				s.metrics.IncFailureAllowed()
 			}
@@ -354,6 +362,45 @@ func guardFailureAllowEligible(err error) bool {
 	return errors.As(err, &guardErr) && guardErr.Code == ErrorCodeUnavailable && guardErr.FailureAllowEligible
 }
 
+func (s *PromptService) recordBlockingFailure(ctx context.Context, snapshot PromptSnapshot, cfg ActiveConfig, code string, bestEffort bool) {
+	if s == nil || s.repo == nil || s.repo.db == nil || ctx.Err() != nil {
+		return
+	}
+	snapshot = failureEventSnapshot(snapshot)
+	if !bestEffort {
+		s.recordBlockingFailureNow(ctx, snapshot, cfg, code)
+		return
+	}
+	s.lifecycleMu.Lock()
+	background := s.background
+	s.lifecycleMu.Unlock()
+	if background == nil {
+		return
+	}
+	s.enqueueWG.Add(1)
+	go func() {
+		defer s.enqueueWG.Done()
+		recordCtx, cancel := context.WithTimeout(background, 2*time.Second)
+		defer cancel()
+		s.recordBlockingFailureNow(recordCtx, snapshot, cfg, code)
+	}()
+}
+
+func (s *PromptService) recordBlockingFailureNow(ctx context.Context, snapshot PromptSnapshot, cfg ActiveConfig, code string) {
+	if s == nil || s.repo == nil || s.repo.db == nil || ctx.Err() != nil {
+		return
+	}
+	if _, err := s.repo.RecordBlockingFailure(ctx, snapshot, cfg.ConfigVersion, code); err == nil {
+		return
+	}
+	if s.metrics != nil {
+		s.metrics.IncRecordFailed()
+	}
+	LogWarn(EventFailureRecordFailed, mergeLogFields(snapshotLogFields(snapshot), map[string]any{
+		"config_version": cfg.ConfigVersion, "status": "failed", "error_code": "failure_event_record_failed", "error_kind": "audit_dependency",
+	}))
+}
+
 func (s *PromptService) commitAllowReceipts(ctx context.Context, decision *PromptDecision) {
 	if s == nil || decision == nil || decision.Kind != DecisionAllow || decision.allowReceipt == nil {
 		return
@@ -379,6 +426,11 @@ func (s *PromptService) deepReviewRequired(ctx context.Context, userID int64) (s
 }
 
 func (s *PromptService) pendingRecoveryDecision(ctx context.Context, req Request) (*PromptDecision, error) {
+	if s != nil && s.config != nil {
+		if cfg, ok := s.config.Active(); ok && (!cfg.IncludesGroup(req.GroupID) || cfg.IsBlockingExempt(req.UserID)) {
+			return nil, nil
+		}
+	}
 	_, required, err := s.deepReviewRequired(ctx, req.UserID)
 	if err != nil {
 		s.observeRecoveryStateFailure(req, ErrorCodeDeepReviewState)
@@ -506,6 +558,10 @@ func (s *PromptService) finishRequiredDeepReview(ctx context.Context, req Reques
 	}
 	decision.DeepReviewed = true
 	if decision.Kind == DecisionAllow {
+		cfg, active := s.config.Active()
+		if !active || cfg.EffectiveMode() != ModeBlocking || !cfg.IncludesGroup(req.GroupID) || cfg.IsBlockingExempt(req.UserID) {
+			return decision, nil
+		}
 		cleared, err := s.state.ClearClaimed(ctx, req.UserID, stateToken, claimToken)
 		if err != nil || !cleared {
 			if err == nil {

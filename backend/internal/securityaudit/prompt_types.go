@@ -77,6 +77,7 @@ const (
 	EventPass     EventDecision = "pass"
 	EventFlag     EventDecision = "flag"
 	EventCritical EventDecision = "critical"
+	EventFailed   EventDecision = "failed"
 )
 
 type RiskLevel string
@@ -86,6 +87,7 @@ const (
 	RiskMedium   RiskLevel = "medium"
 	RiskHigh     RiskLevel = "high"
 	RiskCritical RiskLevel = "critical"
+	RiskUnknown  RiskLevel = "unknown"
 )
 
 type Action string
@@ -94,6 +96,7 @@ const (
 	ActionAllow Action = "Allow"
 	ActionWarn  Action = "Warn"
 	ActionBlock Action = "Block"
+	ActionError Action = "Error"
 )
 
 type Request struct {

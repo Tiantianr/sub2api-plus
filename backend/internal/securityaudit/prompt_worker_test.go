@@ -94,6 +94,9 @@ type fakeJobRepository struct {
 	recordBlockingResult             *NormalizedResult
 	recordBlockingRetainPassEvidence bool
 	recordBlockingErr                error
+	recordFailureJobs                []int64
+	recordFailureCodes               []string
+	recordFailureErr                 error
 }
 
 func (r *fakeJobRepository) record(value string) {
@@ -183,6 +186,18 @@ func (r *fakeJobRepository) RecordBlocking(_ context.Context, snapshot PromptSna
 	r.recordBlockingCalls++
 	r.recordBlockingSnapshot, r.recordBlockingResult, r.recordBlockingRetainPassEvidence = snapshot, result, retainPassEvidence
 	return nil, r.recordBlockingErr
+}
+func (r *fakeJobRepository) RecordFailureEvent(_ context.Context, job *Job, code string) (*Event, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if job != nil {
+		r.recordFailureJobs = append(r.recordFailureJobs, job.ID)
+	}
+	r.recordFailureCodes = append(r.recordFailureCodes, code)
+	if r.recordFailureErr != nil {
+		return nil, r.recordFailureErr
+	}
+	return &Event{ID: int64(len(r.recordFailureCodes)), Decision: EventFailed, ErrorCode: code, ErrorMessage: stableErrorMessage(code)}, nil
 }
 
 type fakePayloadStore struct {
@@ -406,6 +421,30 @@ func TestEnqueuerSkipsOffOutOfScopeAndNoText(t *testing.T) {
 	}
 }
 
+func TestWorkerDropsJobWhoseGroupLeftScopeWithoutGuardOrEvent(t *testing.T) {
+	groupID := int64(7)
+	cfg := asyncConfig()
+	cfg.ConfigVersion++
+	cfg.AllGroups = false
+	cfg.GroupIDs = []int64{9}
+	repo := &fakeJobRepository{}
+	payload := &fakePayloadStore{values: map[int64]string{51: "must not scan"}}
+	scans := 0
+	runner := NewRunner(&fakeConfigStore{active: true, cfg: cfg}, repo, payload, PromptScannerFunc(func(context.Context, ActiveEndpoint, string, []string) (*NormalizedResult, error) {
+		scans++
+		return nil, errors.New("unexpected scan")
+	}), NewAtomicMetrics())
+	job := workerJob(1, 3)
+	job.Snapshot.GroupID = &groupID
+
+	require.NoError(t, runner.processJob(context.Background(), 0, cfg, job))
+	require.Zero(t, scans)
+	require.Equal(t, 1, repo.failed)
+	require.Equal(t, "group_out_of_scope", repo.failedCode)
+	require.Empty(t, repo.recordFailureCodes)
+	require.NotContains(t, payload.values, job.ID)
+}
+
 func TestEnqueuerRecordsAcceptedDroppedAndSkippedMetrics(t *testing.T) {
 	t.Run("accepted increments enqueued", func(t *testing.T) {
 		metrics := NewAtomicMetrics()
@@ -576,10 +615,13 @@ func TestWorkerRetryBackoffTerminalFailureAndFailover(t *testing.T) {
 				require.Equal(t, 1, repo.retried)
 				require.Equal(t, now.Add(tt.wantBackoff), repo.retryAt)
 				require.Empty(t, payload.deleted)
+				require.Empty(t, repo.recordFailureCodes)
 			} else {
 				require.Equal(t, 1, repo.failed)
 				require.Equal(t, tt.err.Code, repo.failedCode)
 				require.Equal(t, []int64{51}, payload.deleted)
+				require.Equal(t, []int64{51}, repo.recordFailureJobs)
+				require.Equal(t, []string{tt.err.Code}, repo.recordFailureCodes)
 			}
 			snapshot := metrics.Snapshot()
 			require.Equal(t, int64(1), snapshot.Total)
@@ -605,6 +647,23 @@ func TestWorkerRetryBackoffTerminalFailureAndFailover(t *testing.T) {
 	runner := NewRunner(&fakeConfigStore{cfg: cfg, active: true}, repo, payload, scanner, metrics)
 	require.NoError(t, runner.processJob(context.Background(), 0, cfg, workerJob(1, 3)))
 	require.Equal(t, int64(1), metrics.Snapshot().Failovers)
+}
+
+func TestWorkerCancellationDoesNotPersistFailureEvent(t *testing.T) {
+	repo := &fakeJobRepository{}
+	runner := NewRunner(&fakeConfigStore{cfg: asyncConfig(), active: true}, repo,
+		&fakePayloadStore{values: map[int64]string{51: "abc"}},
+		PromptScannerFunc(func(context.Context, ActiveEndpoint, string, []string) (*NormalizedResult, error) {
+			return nil, &GuardError{Code: ErrorCodeUnavailable, Retryable: true}
+		}), NewAtomicMetrics())
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	err := runner.finishFailure(ctx, workerJob(1, 3), &GuardError{
+		Code: ErrorCodeUnavailable, Retryable: true, Cause: context.Canceled,
+	})
+	require.Error(t, err)
+	require.Empty(t, repo.recordFailureCodes)
 }
 
 func TestWorkerPersistenceFailuresUpdateRuntimeErrorTimestamp(t *testing.T) {
@@ -666,6 +725,7 @@ func TestWorkerPanicLeaseLossAndLifecycleAreContained(t *testing.T) {
 		require.NotContains(t, message, "canary")
 		require.Equal(t, errorAt, *runner.LastErrorAt())
 		require.Equal(t, 1, repo.failed)
+		require.Equal(t, []string{"worker_panic"}, repo.recordFailureCodes)
 	})
 
 	t.Run("lease loss", func(t *testing.T) {
@@ -852,6 +912,26 @@ func TestAsyncDeepBlockMarksUserBeforeCompletingJob(t *testing.T) {
 	require.Equal(t, 1, repo.completeCount)
 	require.Equal(t, []string{"state_require", "complete", "payload_delete"}, trace)
 	require.Equal(t, int64(1), metrics.AuditSnapshot().RecoveryRequiredAsync)
+}
+
+func TestAsyncDeepBlockForExemptUserStillCompletesCriticalEventWithoutRecovery(t *testing.T) {
+	trace := []string{}
+	payload := &fakePayloadStore{trace: &trace, values: map[int64]string{51: "deep blocked input"}, states: map[int64]string{42: "existing"}}
+	repo := &fakeJobRepository{trace: &trace}
+	cfg := asyncConfig()
+	cfg.BlockingExemptUserIDs = []int64{42}
+	runner := NewRunner(&fakeConfigStore{active: true, cfg: cfg}, repo, payload, PromptScannerFunc(func(context.Context, ActiveEndpoint, string, []string) (*NormalizedResult, error) {
+		return &NormalizedResult{Decision: EventCritical, RiskLevel: RiskCritical, Action: ActionBlock, ScannerScores: map[string]float64{}, ScannerEvidence: map[string]string{}}, nil
+	}), NewAtomicMetrics())
+	job := &Job{
+		ID: 51, Snapshot: PromptSnapshot{UserID: 42, PromptLength: 18}, ExecutionMode: ModeAsyncDeep,
+		Status: "processing", Attempts: 1, MaxAttempts: 3, ClaimVersion: 7, ConfigVersion: cfg.ConfigVersion,
+	}
+
+	require.NoError(t, runner.processJob(context.Background(), 0, cfg, job))
+	require.Equal(t, "existing", payload.states[42])
+	require.Equal(t, 1, repo.completeCount)
+	require.Equal(t, []string{"complete", "payload_delete"}, trace)
 }
 
 func TestAsyncDeepBlockFailsJobWhenRecoveryStateCannotBeWritten(t *testing.T) {

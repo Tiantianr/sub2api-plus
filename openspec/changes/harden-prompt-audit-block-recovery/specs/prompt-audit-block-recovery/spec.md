@@ -3,14 +3,16 @@
 ### Requirement: Synchronous Prompt Audit Blocks must persist user recovery
 
 The system SHALL persist user-scoped recovery state when synchronous Prompt
-Audit Blocks an authenticated request. API-key, group, and client-controlled
-session identity changes MUST NOT avoid the next recovery review. Exact Allow
-SHALL clear the state immediately.
+Audit Blocks an authenticated non-exempt request. API-key and client-controlled
+session identity changes MUST NOT avoid the next recovery review. Enforcement
+MAY pause outside configured Prompt Audit group scope or while the user is
+blocking-exempt, without clearing the state. Exact Allow SHALL clear the state
+immediately when recovery enforcement applies.
 
 #### Scenario: Blocked user changes request identity
 
 - **WHEN** synchronous Prompt Audit Blocks an authenticated user's request
-- **AND** the user's next request changes API key, group, or session identity
+- **AND** the user's next in-scope request changes API key or session identity
 - **THEN** the next request SHALL remain subject to recovery
 
 #### Scenario: First recovery review allows
@@ -45,7 +47,8 @@ time of the recovery request.
 
 The system SHALL clear recovery for any content-bearing request type when its
 currently submitted canonical context completes uncached deep review with exact
-Allow. No other result may clear or bypass the recovery state. Removed prior
+Allow. No other review result may clear the recovery state. Configured group
+scope and blocking exemption MAY pause enforcement without clearing it. Removed prior
 content SHALL NOT be reattached to the recovery input. The non-expiring finding
 token MUST remain separate from the bounded in-progress recovery claim.
 
@@ -108,9 +111,9 @@ exact state version it claimed.
 ### Requirement: Administrative mode changes must not clear recovery state
 
 The system SHALL retain user-level recovery state when an administrator
-disables risk control, Prompt Audit, or synchronous blocking. Enforcement MAY
-pause while blocking is not effective and MUST resume when blocking becomes
-effective again.
+disables risk control, Prompt Audit, or synchronous blocking, changes group
+scope, or makes the user blocking-exempt. Enforcement MAY pause while blocking
+does not apply and MUST resume when it applies again.
 
 #### Scenario: Blocking is re-enabled
 
@@ -148,9 +151,10 @@ dependencies.
 
 ### Requirement: Every selected synchronous Block must trigger recovery
 
-A synchronous aggregate Block SHALL write user-level recovery regardless of
-which source selected by the active blocking policy caused the result. Prompt
-Audit recovery MUST NOT create Content Moderation punishment state.
+A synchronous aggregate Block for an in-scope, non-exempt user SHALL write
+user-level recovery regardless of which source selected by the active blocking
+policy caused the result. Prompt Audit recovery MUST NOT create Content
+Moderation punishment state.
 
 #### Scenario: Selected non-user source Blocks
 

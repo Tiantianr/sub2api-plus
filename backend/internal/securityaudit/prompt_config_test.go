@@ -46,6 +46,7 @@ func TestDefaultConfigIsOff(t *testing.T) {
 	publicJSON, err := json.Marshal(PublicFromStorage(storage, true, nil))
 	require.NoError(t, err)
 	require.Contains(t, string(publicJSON), `"group_ids":[]`)
+	require.Contains(t, string(publicJSON), `"blocking_exempt_user_ids":[]`)
 	require.Contains(t, string(publicJSON), `"endpoints":[]`)
 
 	explicitClosed, err := ParseStorageConfig(`{"allow_on_guard_unavailable":false}`)
@@ -80,9 +81,37 @@ func TestReviewModuleConfigRoundTrip(t *testing.T) {
 	require.Equal(t, cacheTTL, PublicFromStorage(next, true, nil).AllowReceiptTTLSeconds)
 }
 
+func TestBlockingExemptUsersRoundTripAndValidation(t *testing.T) {
+	manager := &ConfigManager{encryptor: prefixEncryptor{}, encryptionKeyConfigured: true}
+	request := UpdateConfigRequest{
+		ExpectedConfigVersion: 1, Strategy: "priority", WorkerCount: 1, QueueCapacity: 10,
+		Scanners: []string{"pii"}, AllGroups: true, BlockingExemptUserIDs: &[]int64{9, 3, 9},
+	}
+	next, err := manager.buildNextStorage(DefaultStorageConfig(), request, 7)
+	require.NoError(t, err)
+	require.Equal(t, []int64{3, 9}, next.BlockingExemptUserIDs)
+	require.True(t, ActiveConfig{BlockingExemptUserIDs: next.BlockingExemptUserIDs}.IsBlockingExempt(9))
+	require.False(t, ActiveConfig{BlockingExemptUserIDs: next.BlockingExemptUserIDs}.IsBlockingExempt(8))
+	require.Equal(t, []int64{3, 9}, PublicFromStorage(next, true, nil).BlockingExemptUserIDs)
+	require.Contains(t, changeSummary(next), `"blocking_exempt_user_count":2`)
+	require.NotContains(t, changeSummary(next), `"blocking_exempt_user_ids"`)
+
+	request.BlockingExemptUserIDs = &[]int64{0}
+	_, err = manager.buildNextStorage(DefaultStorageConfig(), request, 7)
+	require.Equal(t, "prompt_audit_invalid_blocking_exempt_user", infraerrors.Reason(err))
+	tooMany := make([]int64, MaxBlockingExemptUsers+1)
+	for index := range tooMany {
+		tooMany[index] = int64(index + 1)
+	}
+	request.BlockingExemptUserIDs = &tooMany
+	_, err = manager.buildNextStorage(DefaultStorageConfig(), request, 7)
+	require.Equal(t, "prompt_audit_blocking_exempt_user_limit", infraerrors.Reason(err))
+}
+
 func TestReviewModuleConfigMissingUpdateFieldsPreservesCurrentValues(t *testing.T) {
 	manager := &ConfigManager{encryptor: prefixEncryptor{}, encryptionKeyConfigured: true}
 	current := DefaultStorageConfig()
+	current.BlockingExemptUserIDs = []int64{7}
 	request := UpdateConfigRequest{
 		ExpectedConfigVersion: 1, Strategy: "priority", WorkerCount: 1, QueueCapacity: 10,
 		Scanners: []string{"pii"}, AllGroups: true,
@@ -92,6 +121,7 @@ func TestReviewModuleConfigMissingUpdateFieldsPreservesCurrentValues(t *testing.
 	require.Equal(t, current.BlockingReviewModules, next.BlockingReviewModules)
 	require.Equal(t, current.DeepReviewModules, next.DeepReviewModules)
 	require.Equal(t, current.AllowReceiptTTLSeconds, next.AllowReceiptTTLSeconds)
+	require.Equal(t, []int64{7}, next.BlockingExemptUserIDs)
 }
 
 func TestModuleAllowCacheTTLDefaultsForOldConfigAndRejectsInvalidUpdate(t *testing.T) {
@@ -553,6 +583,7 @@ func TestUpdateConfigStrictBoundsAndKnownValues(t *testing.T) {
 		{name: "unknown scanner", mutate: func(req *UpdateConfigRequest) { req.Scanners = []string{"made_up"} }, reason: "prompt_audit_invalid_scanner"},
 		{name: "group required", mutate: func(req *UpdateConfigRequest) { req.AllGroups = false; req.GroupIDs = nil }, reason: "prompt_audit_groups_required"},
 		{name: "group positive", mutate: func(req *UpdateConfigRequest) { req.AllGroups = false; req.GroupIDs = []int64{0} }, reason: "prompt_audit_invalid_group"},
+		{name: "blocking exempt user positive", mutate: func(req *UpdateConfigRequest) { req.BlockingExemptUserIDs = &[]int64{0} }, reason: "prompt_audit_invalid_blocking_exempt_user"},
 		{name: "timeout low", mutate: func(req *UpdateConfigRequest) { req.Endpoints[0].TimeoutMS = MinTimeoutMS - 1 }, reason: "prompt_audit_invalid_timeout"},
 		{name: "timeout high", mutate: func(req *UpdateConfigRequest) { req.Endpoints[0].TimeoutMS = MaxTimeoutMS + 1 }, reason: "prompt_audit_invalid_timeout"},
 		{name: "input low", mutate: func(req *UpdateConfigRequest) { req.Endpoints[0].InputLimit = MinInputLimit - 1 }, reason: "prompt_audit_invalid_input_limit"},

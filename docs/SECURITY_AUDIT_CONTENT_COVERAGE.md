@@ -84,6 +84,24 @@ Prompt Audit rejects it; async mode records it without affecting forwarding.
 Unknown sibling keys remain ignored only when their containing object is fully
 classified by recognized fields.
 
+## Prompt Audit Scope And Blocking Exemptions
+
+Prompt Audit group scope is evaluated before synchronous review, asynchronous
+enqueue, recovery claiming, and the final recovery fence. A request using an
+unselected group does not create a Prompt Audit event. Any existing user-level
+recovery finding remains stored while the user is outside scope and becomes
+enforceable again when the user returns through a selected group.
+
+Administrators may select up to 100 authenticated users whose in-scope requests
+remain fully reviewed and visible in the event list but are not blocked by
+valid Prompt Audit findings. Critical and Flag events preserve the Guard result
+and ordinary evidence policy. Synchronous and asynchronous findings do not
+create recovery state for an exempt user; an existing recovery finding remains
+stored and resumes if the exemption is removed. Extraction, encryption,
+invalid-response, Guard outage, and recovery-store failures retain their
+existing failure policy. This exemption does not change Content Moderation,
+which has independent scope and enforcement configuration.
+
 ## Engine Selection
 
 Both engines consume the same canonical document:
@@ -92,7 +110,7 @@ Both engines consume the same canonical document:
 | --- | --- |
 | Content Moderation | Scans only current direct-user text and images. Chat and Anthropic require an explicit `user` role; Responses, Live, and Gemini also accept their protocol-defined roleless user forms. Direct Alpha Search queries, embedding strings, and media prompts remain eligible. Instructions, system/developer context, reusable prompt variables, assistant/model messages, reasoning, tool definitions/calls/results, approval responses, and tool-produced images are excluded so platform or external content is not attributed to the user. |
 | Prompt Audit async / async-deep | Selects user turns plus configured instructions/system/developer context, assistant/model messages, reasoning, reusable prompt variables, tool definitions, tool-call arguments, and tool outputs. An async-only current user turn is mandatory. Async-deep under blocking may omit current, historical, and automatic segments with valid per-segment Allow receipts, including the same request's trusted handoff. |
-| Prompt Audit blocking | Scans direct user text marked `Current` unless an unexpired blocking Allow receipt certifies the same user, policy, source, and receipt-normalized canonical text. Every historical user turn has the same receipt requirement; misses are synchronously reviewed so client-controlled role ordering cannot hide unreviewed text. Configuration independently adds the same source modules. `blocking_latest_turn_only` remains a compatibility field and does not override module selection. Any aggregate Block writes user-level deep-review state before returning 403. A user carrying that requirement is synchronously reviewed with the active async-deep module selection and all receipts bypassed, regardless of API key, group, or client session identity. |
+| Prompt Audit blocking | Scans direct user text marked `Current` unless an unexpired blocking Allow receipt certifies the same user, policy, source, and receipt-normalized canonical text. Every historical user turn has the same receipt requirement; misses are synchronously reviewed so client-controlled role ordering cannot hide unreviewed text. Configuration independently adds the same source modules. `blocking_latest_turn_only` remains a compatibility field and does not override module selection. Any in-scope, non-exempt aggregate Block writes user-level deep-review state before returning 403. A non-exempt user carrying that requirement is synchronously reviewed with the active async-deep module selection and all receipts bypassed regardless of API key or client session identity, but only while the request remains in configured group scope. |
 
 Sharing a canonical document does not mean that the engines select identical
 segments. Content Moderation preserves the `v0.1.177+custom.003` attribution
@@ -190,6 +208,14 @@ Historical events without a name fall back to endpoint ID; their model is
 displayed from the already stored Qwen3Guard scanner version without rewriting
 historical rows.
 
+Synchronous Guard failures and terminal asynchronous Prompt Audit failures
+create lightweight `failed` events in the same administration list. A failure
+event stores the existing redacted request snapshot plus only a stable error
+code and generic safe message. It never stores `full_prompt`, encrypted complete
+context, endpoint URLs, credentials, raw Guard responses, or the underlying
+dependency error string. Migration 243 backfills terminal failed jobs that have
+redacted job metadata; historical synchronous failures cannot be reconstructed.
+
 The administration cleanup shortcut is fixed to Pass events and requires a
 displayed server preview with an explicit time range, snapshot high water,
 administrator-bound confirmation token, context count, and estimated stored
@@ -197,10 +223,12 @@ content bytes. Cleanup reuses event cascade deletion and never deletes Allow
 receipts. The estimate describes future logical-backup reduction; it does not
 promise immediate filesystem reclamation.
 
-Blocking Allow starts a best-effort `async_deep` job only after Content
+Blocking Allow, including an allowed finding for a blocking-exempt user, starts
+a best-effort `async_deep` job only after Content
 Moderation and Prompt Guard both permit the request. A synchronous aggregate
 Block writes a versioned per-user Redis requirement before returning 403; an
-asynchronous deep Block writes the same state before its job completes. The
+asynchronous deep Block writes the same state before its job completes unless
+the user is currently blocking-exempt. The
 next request uses the active configured deep modules synchronously, bypasses
 all receipts, and may clear only the exact finding version it observed after
 complete Allow. The non-expiring finding token is never replaced by an
@@ -209,13 +237,16 @@ recovery requests from stealing ownership; lease expiry after a process failure
 does not clear the finding. Flag, Block, empty selection, dependency failure,
 and a newer concurrent finding keep the non-expiring requirement and prevent
 upstream access. Historical `review:` requirement tokens from older runtimes
-remain recoverable as finding versions. The state is independent of API key,
-group, and client session identity. It does not create a Content Moderation
+remain recoverable as finding versions. The state is independent of API key
+and client session identity. Group scope and blocking exemptions pause
+enforcement without clearing state. It does not create a Content Moderation
 hash, violation count, or automatic penalty.
-Coordinator performs a final state fence before an ordinary combined Allow can
-persist receipts, enqueue deep review, or return to the upstream path. Explicit
-administrator disabling of risk control, Prompt Audit, or blocking mode pauses
-enforcement without clearing the Redis state; re-enabling blocking resumes it.
+Coordinator performs a final state fence before an applicable ordinary combined
+Allow can persist receipts, enqueue deep review, or return to the upstream path.
+Explicit administrator disabling of risk control, Prompt Audit, or blocking
+mode, selecting a different group scope, or making the user blocking-exempt
+pauses enforcement without clearing the Redis state; making blocking applicable
+again resumes it.
 Requests that already completed the final audit gate cannot be retroactively
 cancelled.
 
