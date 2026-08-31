@@ -1,69 +1,53 @@
-Sub2API Plus v0.1.183+custom.921
+Sub2API Plus v0.1.183+custom.922
 
 ## Highlights
 
-- Prevent every final `prompt_guard_unavailable` outcome from blocking the
-  current request, including deterministic Guard 4xx responses, missing nodes,
-  recovery review outages, and asynchronous admission dependency failures.
-- Redact credentials and direct identifiers immediately before every external
-  Guard API request without changing canonical hashes, encrypted evidence,
-  Allow receipts, or recovery state.
+- Make local Codex subscription quota authoritative across HTTP, SSE, and
+  WebSocket responses, including accounts that enable automatic passthrough.
+- Expose real upstream default Codex quota only for automatic-passthrough
+  accounts when local quota is disabled; hide it for every other account.
 
 ## Changed
 
-- Prompt Audit availability is now a fixed gateway invariant rather than an
-  administrator option. The obsolete `allow_on_guard_unavailable` field and UI
-  switch are removed; older stored or submitted values are ignored.
-- Failure-allowed requests keep safe failure events and metrics, never receive
-  a Safe result or Allow receipt, retain existing recovery findings, and attempt
-  best-effort asynchronous review with receipt writes suppressed.
-- External Guard requests replace recognizable Bearer/JWT/API credentials,
-  email addresses, telephone numbers, checksum-valid Chinese identity numbers
-  and bank cards, and valid IPv4/IPv6 addresses with typed placeholders.
-- A value-free local PII signal affects a non-Safe Guard result only when `pii`
-  is enabled. Guard Safe and disabled PII remain unchanged.
+- Client-facing default quota now follows one account-aware `local`, `upstream`,
+  or `hidden` policy after generic response-header filtering.
+- Native Responses, converted Chat and Messages, raw compatibility, Compact,
+  Embeddings, Alpha Search, Images, protocol-error, and upstream-error paths
+  apply the same final quota policy before committing a response.
+- Default `codex.rate_limits` WebSocket events are replaced with local windows,
+  preserved for automatic passthrough, or suppressed. Named model-specific
+  limit families and binary frames remain unchanged.
 
 ## Fixed
 
-- Prevent a safe earlier chunk followed by a deterministic Guard 4xx from
-  returning a user-visible Prompt Audit 503.
-- Prevent missing Guard capacity, scanner construction failures, and required
-  recovery Guard outages from blocking the current request.
-- Prevent database, payload, queue-capacity, or queue-publication unavailability
-  during blocking-exempt admission from returning `prompt_guard_unavailable`.
-- Prevent recognized credentials and direct identifiers from being copied into
-  external Guard request content.
+- Prevent a generic response-header allowance from exposing a shared OAuth or
+  API-key account's real default Codex quota.
+- Prevent an upstream WebSocket quota event from replacing an enabled local
+  subscription quota after the client upgrade response.
+- Prevent converted, media, error, and first-output failover paths from using a
+  quota source inconsistent with the final selected account and local policy.
 
 ## Compatibility and migration
 
 - No database migration, dependency, port, Compose, certificate, proxy, or
   persistent-volume change is required.
-- Existing Prompt Audit scanner IDs, group scope, blocking exemptions, evidence
-  retention, endpoint priority, and Content Moderation configuration remain
-  unchanged.
-- Older clients may still submit `allow_on_guard_unavailable`; the server
-  ignores the unknown field. The public configuration no longer returns it.
-- Roll back to `v0.1.183+custom.920` if required. The rollback restores the
-  configurable narrow failure-allow policy and sends original selected prompt
-  chunks to Guard endpoints without the new outbound identifier redaction.
+- Existing local Codex quota settings and subscription accounting remain
+  unchanged. The dedicated `/backend-api/wham/usage` route remains local-only.
+- Clients using non-passthrough accounts may stop receiving upstream default
+  Primary and Secondary quota fields; this is the intended privacy boundary.
+- Roll back to `v0.1.183+custom.921` if required. The rollback restores generic
+  eligible upstream quota-header passthrough and unmodified in-band WebSocket
+  quota events when the local view does not replace them.
 - Personal images and binary archives remain Linux arm64 only.
 
 ## Known issues
 
-- Strictly invalid Guard responses, incomplete canonical extraction, encryption
-  failures, configuration-version races, known Guard findings, and Content
-  Moderation decisions retain their independent fail-closed behavior.
-- Free-form names and postal addresses are not redacted locally because
-  regex-only detection would create unacceptable false positives.
-- Canonical prompt content remains available only through the existing internal
-  encrypted evidence and retention controls; this release changes the external
-  Guard copy, not administrator evidence policy.
-- A Prompt Audit dependency outage can let the current request continue without
-  completing asynchronous review. Failure events, metrics, and the existing
-  five-consecutive-pool-failure email alert remain observable.
-- Publishing this release does not change production Prompt Audit groups,
-  enabled scanners, blocking exemptions, Content Moderation settings, email
-  settings, or runtime deployment.
+- Codex App API-key calls to `account/rateLimits/read` remain outside the
+  gateway compatibility path.
+- Named model-specific metered-limit events remain visible independently from
+  the default quota policy.
+- Real upstream default quota requires the selected account to enable OpenAI
+  automatic passthrough; response-header configuration alone cannot expose it.
 - Production deployment and configuration changes remain separate operations
   and are not part of release publication.
 
