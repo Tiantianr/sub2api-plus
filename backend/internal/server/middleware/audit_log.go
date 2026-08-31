@@ -52,7 +52,7 @@ func SkipAudit(c *gin.Context) {
 // scalar, non-secret operation summaries. Request bodies and arbitrary maps
 // are never accepted through this channel.
 var auditExtraAllowedKeys = map[string]struct{}{
-	"result": {}, "error_code": {}, "enabled": {}, "blocking_enabled": {}, "allow_on_guard_unavailable": {},
+	"result": {}, "error_code": {}, "enabled": {}, "blocking_enabled": {},
 	"config_version": {}, "endpoint_count": {}, "scanner_count": {},
 	"all_groups": {}, "group_count": {}, "guard_endpoint_id": {},
 	"http_status": {}, "latency_ms": {}, "token_applied": {}, "retryable": {},

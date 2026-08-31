@@ -53,9 +53,10 @@ export function cloneData<T>(value: T): T {
 }
 
 export function configToDraft(config: PromptAuditConfig): PromptAuditDraft {
+  const normalized = cloneData(config) as PromptAuditConfig & { allow_on_guard_unavailable?: boolean }
+  delete normalized.allow_on_guard_unavailable
   return {
-    ...cloneData(config),
-    allow_on_guard_unavailable: config.allow_on_guard_unavailable ?? true,
+    ...normalized,
     blocking_review_modules: { ...DEFAULT_BLOCKING_REVIEW_MODULES, ...(config.blocking_review_modules ?? {}) },
     deep_review_modules: { ...DEFAULT_DEEP_REVIEW_MODULES, ...(config.deep_review_modules ?? {}) },
     allow_receipt_ttl_seconds: config.allow_receipt_ttl_seconds ?? DEFAULT_ALLOW_RECEIPT_TTL_SECONDS,
@@ -92,7 +93,6 @@ export function buildUpdateRequest(draft: PromptAuditDraft): PromptAuditUpdateRe
     expected_config_version: draft.config_version,
     enabled: draft.enabled,
     blocking_enabled: draft.enabled && draft.blocking_enabled,
-    allow_on_guard_unavailable: draft.allow_on_guard_unavailable,
     blocking_latest_turn_only: draft.blocking_latest_turn_only,
     blocking_review_modules: cloneData(draft.blocking_review_modules),
     deep_review_modules: cloneData(draft.deep_review_modules),

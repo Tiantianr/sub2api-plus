@@ -172,7 +172,7 @@ func TestBatchImagePromptGuardRunsBeforePersistenceOrBilling(t *testing.T) {
 
 func TestSecurityAuditBlockingFailuresLeaveAllDownstreamCountersAtZero(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	for _, kind := range []securityaudit.DecisionKind{securityaudit.DecisionBlock, securityaudit.DecisionUnavailable, securityaudit.DecisionInvalid} {
+	for _, kind := range []securityaudit.DecisionKind{securityaudit.DecisionBlock, securityaudit.DecisionInvalid} {
 		t.Run(string(kind), func(t *testing.T) {
 			promptDecision := promptGuardDecision(kind)
 			engine := &handlerPromptEngine{mode: securityaudit.ModeBlocking, decision: &securityaudit.PromptDecision{
@@ -205,4 +205,27 @@ func TestSecurityAuditBlockingFailuresLeaveAllDownstreamCountersAtZero(t *testin
 			require.Equal(t, promptDecision.HTTPStatus, recorder.Code)
 		})
 	}
+}
+
+func TestSecurityAuditPromptUnavailableContinuesToDownstreamStages(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	engine := &handlerPromptEngine{mode: securityaudit.ModeBlocking, decision: &securityaudit.PromptDecision{
+		Kind: securityaudit.DecisionUnavailable, ErrorCode: securityaudit.ErrorCodeUnavailable,
+	}}
+	coordinator := securityaudit.NewCoordinator(nil, engine)
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(`{"model":"gpt-test","messages":[{"role":"user","content":"guard me"}]}`))
+	groupID := int64(3)
+	apiKey := &service.APIKey{ID: 9, UserID: 7, GroupID: &groupID, Group: &service.Group{ID: groupID, Platform: service.PlatformOpenAI}}
+	decision := runSecurityAudit(
+		c, nil, coordinator, nil, apiKey, middleware2.AuthSubject{UserID: 7, Concurrency: 2},
+		service.ContentModerationProtocolOpenAIChat, "gpt-test",
+		[]byte(`{"messages":[{"role":"user","content":"guard me"}]}`), "http",
+	)
+	require.NotNil(t, decision)
+	require.Equal(t, securityaudit.DecisionAllow, decision.Kind)
+	require.True(t, decision.AllowNextStage)
+	require.True(t, decision.Prompt.FailureAllowed)
+	require.Empty(t, recorder.Header().Get("Content-Type"))
 }

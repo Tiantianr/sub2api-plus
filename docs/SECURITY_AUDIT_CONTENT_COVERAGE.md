@@ -207,6 +207,27 @@ or partial hit, `guard_input`, event prompt metadata, hashes, and chunk counts
 describe only the receipt misses; every selected canonical source segment
 remains in encrypted context for review.
 
+Every external OpenAI-compatible Guard call creates its outbound content only
+after canonical extraction and chunk selection. Recognizable credentials,
+emails, telephone numbers, checksum-valid Chinese identity numbers and bank
+cards, and valid IPv4/IPv6 addresses are replaced with fixed typed placeholders
+before JSON request construction. The matched value, a plaintext-derived hash,
+and partial identifiers such as an email domain or numeric suffix are never
+sent. Requests without a match reuse the original chunk; matched requests build
+one ephemeral redacted string without pooling, caching, logging, or persisting a
+value mapping. This boundary is shared by synchronous review, asynchronous
+workers, retries, and failover.
+
+Outbound identifier matches retain only a local boolean PII signal. Guard Safe
+remains Safe. For a non-Safe result, the signal adds effective `pii` metadata
+only when `pii` is enabled in the request's scanner allowlist, using the existing
+PII score and elevated-category decision policy. Credential matches alone never
+create PII. Free-form names and postal addresses are not claimed as locally
+recognized because regex-only detection would introduce unacceptable false
+positives. Prompt hashes, Allow receipts, encrypted complete context, recovery,
+and retained administrator evidence continue to use the original canonical
+content.
+
 Full Pass evidence retention is independently selected by authenticated user
 ID and defaults to an empty selection. Every completed Pass result still
 creates a lightweight list event containing its redacted preview and decision
@@ -252,15 +273,20 @@ all receipts, and may clear only the exact finding version it observed after
 complete Allow. The non-expiring finding token is never replaced by an
 in-progress request. A separate per-user Redis claim lease prevents concurrent
 recovery requests from stealing ownership; lease expiry after a process failure
-does not clear the finding. Flag, Block, empty selection, dependency failure,
-and a newer concurrent finding keep the non-expiring requirement and prevent
-upstream access. Historical `review:` requirement tokens from older runtimes
+does not clear the finding. Flag, Block, empty selection, security dependency
+failure, and a newer concurrent finding keep the non-expiring requirement.
+Final `prompt_guard_unavailable` outcomes release the temporary claim and allow
+the current request without clearing the finding or creating an Allow receipt.
+Historical `review:` requirement tokens from older runtimes
 remain recoverable as finding versions. The state is independent of API key
 and client session identity. Group scope and blocking exemptions pause
 enforcement without clearing state. It does not create a Content Moderation
 hash, violation count, or automatic penalty.
 Coordinator performs a final state fence before an applicable ordinary combined
 Allow can persist receipts, enqueue deep review, or return to the upstream path.
+A failure-allowed Prompt Audit unavailable result skips that fence only for the
+current request; the finding remains stored and asynchronous review is attempted
+with receipt writes suppressed.
 Explicit administrator disabling of risk control, Prompt Audit, or blocking
 mode, selecting a different group scope, or making the user blocking-exempt
 pauses enforcement without clearing the Redis state; making blocking applicable
@@ -273,9 +299,8 @@ cancelled.
 All enabled engine paths expose `extraction_attempted`,
 `extraction_succeeded`, `extraction_empty`, and `extraction_failed` counters.
 Prompt Audit also exposes incremental Allow receipt hit, miss, write, and error
-counters. Blocking Guard failures additionally expose `failure_allowed` when
-the active, default-on `allow_on_guard_unavailable` policy lets an ordinary
-request continue after all Guard nodes end in `prompt_guard_unavailable`.
+counters. Blocking Guard failures additionally expose `failure_allowed` whenever
+a final `prompt_guard_unavailable` result lets the current request continue.
 Unavailable and timeout counters still record the underlying failure.
 Recovery-state failures remain fail closed and use their stable
 `prompt_guard_deep_review_state_unavailable` code plus a recovery-specific
@@ -284,9 +309,10 @@ An occupied recovery claim is not a recovery-state failure: concurrent requests
 wait within their request context and never replace the owner or finding token.
 Only the current claim owner may compare-and-delete its exact finding token;
 an expired or replaced owner fails closed and cannot clear a newer recovery.
-Eligible Guard outages are limited to network/read failures, timeout/capacity,
-401/403, 429, and 5xx. Deterministic request/configuration 4xx responses such as
-400 or 404 remain fail closed and cannot enter failure-allow.
+Guard HTTP status and retryability affect ordered node failover but never user
+admission after the final stable result is `prompt_guard_unavailable`.
+Deterministic 4xx, 401/403, 429, 5xx, network/read failures, timeout/capacity,
+missing usable nodes, and Prompt Audit admission dependencies all failure-allow.
 Every extraction, evaluation, or audit-dependency exception emits a structured
 log containing request ID, endpoint, protocol, stage, a stable error
 code/reason, available byte counts, and bounded incomplete reasons. Extraction
@@ -314,31 +340,26 @@ shutdown, and runtime health failures.
 | Content Moderation observe | Record failure; evaluate any selected extracted content; otherwise allow |
 | Content Moderation pre-block | Return `content_moderation_unavailable` for incomplete extraction, hash-store failure, missing required API credentials, or synchronous text/image API failure; do not count it as a policy violation. |
 | Prompt Audit async | Record failure; enqueue successfully extracted content or skip an empty snapshot; never affect request forwarding |
-| Prompt Audit blocking-exempt | Fail closed on incomplete extraction, encryption, database admission, payload storage, or queue publication. After admission, retry Guard failures and record one safe terminal failed event without retroactively blocking the request. |
-| Prompt Audit blocking | Reject malformed or incomplete content before Guard/upstream; allow only a completely recognized media/control-only empty text selection. |
+| Prompt Audit blocking-exempt | Fail closed on incomplete extraction, encryption, or a configuration-version mismatch. Database, payload, queue-capacity, and publication unavailability do not block the current request; any created staging failure remains visible. After admission, retry Guard failures and record one safe terminal failed event without retroactively blocking the request. |
+| Prompt Audit blocking | Reject malformed or incomplete content before Guard/upstream; allow only a completely recognized media/control-only empty text selection. Any final `prompt_guard_unavailable` result continues without a Safe result or Allow receipt. |
 
 A confirmed policy match continues to use `content_policy_violation` or the
 Prompt Audit block decision. Extraction failure uses a distinct dependency
 error code rather than a content category. Content Moderation external API
 availability remains separate from Prompt Guard selection semantics.
 
-Blocking Prompt Audit failure-allows eligible Guard unavailability by default,
-including when an older persisted configuration lacks the field. An
-administrator may explicitly disable `allow_on_guard_unavailable` to require
-fail-closed availability. When enabled, the policy changes
-only the final action for ordinary synchronous requests after node timeout,
-connection/API failure, authentication failure, or capacity saturation.
-Missing usable nodes, undecryptable credentials, local client construction,
-and scanner wiring failures are not eligible. A failure-allowed request has no
-Safe result and creates no Allow receipt, including if its best-effort
-asynchronous deep review later succeeds. Strictly invalid Guard responses,
-partial or failed content extraction, encryption/configuration failure, known
-Flag or Block results, Content Moderation failure, and required user recovery
-remain fail closed. Required recovery also retains its Redis state when Guard
-is unavailable. The structured `prompt_guard.failure_allowed` event and
-runtime counter make every use observable; best-effort asynchronous deep
-review may still be queued after the request passes the independent final
-recovery fence.
+Blocking Prompt Audit always failure-allows a final
+`prompt_guard_unavailable`; availability is not administrator-configurable and
+cannot produce a user-facing gateway 503. A failure-allowed request has no Safe
+result and creates no Allow receipt, including if its best-effort asynchronous
+deep review later succeeds. Strictly invalid Guard responses, partial or failed
+content extraction, encryption/configuration-version failure, known Flag or
+Block results, and Content Moderation decisions retain their existing
+fail-closed behavior. Required recovery keeps its Redis finding when Guard is
+unavailable, releases the temporary claim, and does not fence the current
+failure-allowed request. The structured `prompt_guard.failure_allowed` event
+and runtime counter make every use observable; best-effort asynchronous deep
+review may still be queued with receipt writes suppressed.
 
 Deterministic structured serialization is part of extraction. Sanitization or
 JSON serialization failure sets `Incomplete`; async audit may retain extracted

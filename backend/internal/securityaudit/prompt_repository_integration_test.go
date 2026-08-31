@@ -385,13 +385,13 @@ func TestPromptServicePersistsBlockingFailureEventsWithoutChangingDecision(t *te
 	db := openPromptAuditIntegrationDB(t)
 	repo := NewPostgreSQLRepository(db)
 
-	run := func(t *testing.T, requestID string, allow bool, scanErr *GuardError) (*PromptDecision, *Event, error) {
+	run := func(t *testing.T, requestID string, scanErr *GuardError) (*PromptDecision, *Event, error) {
 		t.Helper()
 		metrics := NewAtomicMetrics()
 		state := newFakeAllowReceiptPayload()
 		cfg := ActiveConfig{
 			RiskControlEnabled: true, Enabled: true, BlockingEnabled: true,
-			AllowOnGuardUnavailable: allow, AllGroups: true, ConfigVersion: 7,
+			AllGroups: true, ConfigVersion: 7,
 			Scanners: AllScannerIDs,
 			Endpoints: []ActiveEndpoint{{
 				ID: "guard-1", Name: "Primary Guard", Model: "guard-model",
@@ -419,8 +419,8 @@ func TestPromptServicePersistsBlockingFailureEventsWithoutChangingDecision(t *te
 	}
 
 	t.Run("eligible outage is allowed and recorded", func(t *testing.T) {
-		decision, event, err := run(t, "failure-allowed", true, &GuardError{
-			Code: ErrorCodeUnavailable, Retryable: true, FailureAllowEligible: true,
+		decision, event, err := run(t, "failure-allowed", &GuardError{
+			Code: ErrorCodeUnavailable, Retryable: true,
 		})
 		require.NoError(t, err)
 		require.NotNil(t, decision)
@@ -430,7 +430,7 @@ func TestPromptServicePersistsBlockingFailureEventsWithoutChangingDecision(t *te
 	})
 
 	t.Run("invalid response remains blocked and recorded", func(t *testing.T) {
-		decision, event, err := run(t, "failure-blocked", true, &GuardError{
+		decision, event, err := run(t, "failure-blocked", &GuardError{
 			Code: ErrorCodeInvalidResponse,
 		})
 		require.Nil(t, decision)

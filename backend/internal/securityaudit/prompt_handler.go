@@ -286,11 +286,10 @@ func configAuditFields(request UpdateConfigRequest, saved *PublicConfig) map[str
 	}
 	return map[string]any{
 		"enabled": request.Enabled, "blocking_enabled": request.BlockingEnabled,
-		"allow_on_guard_unavailable": request.AllowOnGuardUnavailable,
-		"blocking_latest_turn_only":  request.BlockingLatestTurnOnly,
-		"blocking_review_modules":    request.BlockingReviewModules,
-		"deep_review_modules":        request.DeepReviewModules,
-		"config_version":             version, "endpoint_count": len(request.Endpoints),
+		"blocking_latest_turn_only": request.BlockingLatestTurnOnly,
+		"blocking_review_modules":   request.BlockingReviewModules,
+		"deep_review_modules":       request.DeepReviewModules,
+		"config_version":            version, "endpoint_count": len(request.Endpoints),
 		"scanner_count": len(request.Scanners), "all_groups": request.AllGroups,
 		"group_count": len(request.GroupIDs), "blocking_exempt_user_count": len(canonicalInt64s(exemptUserIDs)),
 	}

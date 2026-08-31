@@ -327,7 +327,7 @@ func TestGuardEvaluatorPoolOutcomeObserverIgnoresParentCancellation(t *testing.T
 	require.Empty(t, outcomes)
 
 	evaluator = newGuardEvaluator(PromptScannerFunc(func(context.Context, ActiveEndpoint, string, []string) (*NormalizedResult, error) {
-		return nil, &GuardError{Code: ErrorCodeUnavailable, Retryable: true, FailureAllowEligible: true}
+		return nil, &GuardError{Code: ErrorCodeUnavailable, Retryable: true}
 	}), nil, metrics, 1, 1)
 	_, err = evaluator.Evaluate(context.Background(), guardConfig(ActiveEndpoint{ID: "one", Enabled: true, TimeoutMS: 1000, InputLimit: 100}), PromptSnapshot{ScanText: "input", PromptLength: 5})
 	require.Error(t, err)

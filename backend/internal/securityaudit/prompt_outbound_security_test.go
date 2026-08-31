@@ -89,15 +89,14 @@ func TestOpenAICompatibleScannerFollowsRedirectAndRejectsOversize(t *testing.T) 
 
 func TestOpenAICompatibleScannerClassifiesHTTPConnectionAndTimeoutFailures(t *testing.T) {
 	tests := []struct {
-		name                 string
-		status               int
-		retryable            bool
-		failureAllowEligible bool
+		name      string
+		status    int
+		retryable bool
 	}{
-		{name: "authentication", status: http.StatusUnauthorized, failureAllowEligible: true},
-		{name: "forbidden", status: http.StatusForbidden, failureAllowEligible: true},
-		{name: "rate limited", status: http.StatusTooManyRequests, retryable: true, failureAllowEligible: true},
-		{name: "server failure", status: http.StatusBadGateway, retryable: true, failureAllowEligible: true},
+		{name: "authentication", status: http.StatusUnauthorized},
+		{name: "forbidden", status: http.StatusForbidden},
+		{name: "rate limited", status: http.StatusTooManyRequests, retryable: true},
+		{name: "server failure", status: http.StatusBadGateway, retryable: true},
 		{name: "bad request", status: http.StatusBadRequest},
 		{name: "not found", status: http.StatusNotFound},
 	}
@@ -113,7 +112,6 @@ func TestOpenAICompatibleScannerClassifiesHTTPConnectionAndTimeoutFailures(t *te
 			require.Equal(t, ErrorCodeUnavailable, guardErr.Code)
 			require.Equal(t, tt.status, guardErr.HTTPStatus)
 			require.Equal(t, tt.retryable, guardErr.Retryable)
-			require.Equal(t, tt.failureAllowEligible, guardErr.FailureAllowEligible)
 			require.NotContains(t, err.Error(), server.URL)
 		})
 	}
@@ -125,7 +123,6 @@ func TestOpenAICompatibleScannerClassifiesHTTPConnectionAndTimeoutFailures(t *te
 	var connectionErr *GuardError
 	require.ErrorAs(t, err, &connectionErr)
 	require.True(t, connectionErr.Retryable)
-	require.True(t, connectionErr.FailureAllowEligible)
 
 	timeout := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		time.Sleep(100 * time.Millisecond)
@@ -137,13 +134,11 @@ func TestOpenAICompatibleScannerClassifiesHTTPConnectionAndTimeoutFailures(t *te
 	require.ErrorAs(t, err, &timeoutErr)
 	require.True(t, timeoutErr.Retryable)
 	require.True(t, timeoutErr.Timeout)
-	require.True(t, timeoutErr.FailureAllowEligible)
 
 	_, err = NewOpenAICompatibleScanner().Scan(context.Background(), ActiveEndpoint{ID: "invalid-config", BaseURL: "://invalid", Model: DefaultGuardModel, TimeoutMS: 100}, "hello", AllScannerIDs)
 	var configErr *GuardError
 	require.ErrorAs(t, err, &configErr)
 	require.Equal(t, ErrorCodeUnavailable, configErr.Code)
-	require.False(t, configErr.FailureAllowEligible)
 }
 
 func TestPromptAuditProbeModelsFallbackAndResponseSafety(t *testing.T) {

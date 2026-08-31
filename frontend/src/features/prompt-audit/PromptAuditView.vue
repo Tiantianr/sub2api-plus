@@ -107,14 +107,6 @@
         <div class="flex flex-wrap items-center gap-x-5 gap-y-2">
           <SaveToggle :label="t('admin.promptAudit.saveBar.enabled')" :model-value="draft.enabled" data-test="enabled-toggle" @update:model-value="setEnabled" />
           <SaveToggle :label="t('admin.promptAudit.saveBar.blocking')" :model-value="draft.blocking_enabled" :disabled="!draft.enabled" data-test="blocking-toggle" @update:model-value="setBlocking" />
-          <SaveToggle
-            :label="t('admin.promptAudit.saveBar.allowOnGuardUnavailable')"
-            :model-value="draft.allow_on_guard_unavailable"
-            :disabled="!draft.enabled || !draft.blocking_enabled"
-            :title="t('admin.promptAudit.saveBar.allowOnGuardUnavailableHint')"
-            data-test="failure-allow-toggle"
-            @update:model-value="setAllowOnGuardUnavailable"
-          />
         </div>
         <div class="flex items-center gap-3">
           <span class="text-sm" :class="dirty ? 'text-amber-700 dark:text-amber-300' : 'text-gray-500 dark:text-dark-400'">
@@ -376,10 +368,6 @@ function setBlocking(value: boolean) {
   if (!draft.value || !draft.value.enabled) return
   if (value && !draft.value.blocking_enabled) { showBlockingConfirmation.value = true; return }
   replaceDraft({ ...draft.value, blocking_enabled: value })
-}
-function setAllowOnGuardUnavailable(value: boolean) {
-  if (!draft.value?.enabled || !draft.value.blocking_enabled) return
-  replaceDraft({ ...draft.value, allow_on_guard_unavailable: value })
 }
 function confirmBlocking() {
   showBlockingConfirmation.value = false

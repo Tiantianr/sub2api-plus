@@ -34,7 +34,6 @@ func TestDefaultConfigIsOff(t *testing.T) {
 	storage, err := ParseStorageConfig("")
 	require.NoError(t, err)
 	require.False(t, storage.Enabled)
-	require.True(t, storage.AllowOnGuardUnavailable)
 	require.False(t, storage.BlockingLatestTurnOnly)
 	require.Equal(t, DefaultBlockingReviewModules(), storage.BlockingReviewModules)
 	require.Equal(t, DefaultDeepReviewModules(), storage.DeepReviewModules)
@@ -49,9 +48,11 @@ func TestDefaultConfigIsOff(t *testing.T) {
 	require.Contains(t, string(publicJSON), `"blocking_exempt_user_ids":[]`)
 	require.Contains(t, string(publicJSON), `"endpoints":[]`)
 
-	explicitClosed, err := ParseStorageConfig(`{"allow_on_guard_unavailable":false}`)
+	legacy, err := ParseStorageConfig(`{"allow_on_guard_unavailable":false}`)
 	require.NoError(t, err)
-	require.False(t, explicitClosed.AllowOnGuardUnavailable)
+	legacyJSON, err := json.Marshal(legacy)
+	require.NoError(t, err)
+	require.NotContains(t, string(legacyJSON), "allow_on_guard_unavailable")
 }
 
 func TestReviewModuleConfigRoundTrip(t *testing.T) {
@@ -128,7 +129,6 @@ func TestModuleAllowCacheTTLDefaultsForOldConfigAndRejectsInvalidUpdate(t *testi
 	storage, err := ParseStorageConfig(`{"enabled":false,"worker_count":1,"queue_capacity":10,"all_groups":true,"scanners":["pii"],"config_version":7}`)
 	require.NoError(t, err)
 	require.Equal(t, DefaultAllowReceiptTTLSeconds, storage.AllowReceiptTTLSeconds)
-	require.True(t, storage.AllowOnGuardUnavailable, "configurations that predate the field must default to failure allow")
 
 	manager := &ConfigManager{encryptor: prefixEncryptor{}, encryptionKeyConfigured: true}
 	invalid := MinAllowReceiptTTLSeconds - 1
@@ -143,7 +143,7 @@ func TestModuleAllowCacheTTLDefaultsForOldConfigAndRejectsInvalidUpdate(t *testi
 func TestBlockingLatestTurnOnlyConfigRoundTrip(t *testing.T) {
 	manager := &ConfigManager{encryptor: prefixEncryptor{}, encryptionKeyConfigured: true}
 	request := UpdateConfigRequest{
-		ExpectedConfigVersion: 1, Enabled: true, BlockingEnabled: true, AllowOnGuardUnavailable: true, BlockingLatestTurnOnly: true,
+		ExpectedConfigVersion: 1, Enabled: true, BlockingEnabled: true, BlockingLatestTurnOnly: true,
 		Strategy: "priority", WorkerCount: 1, QueueCapacity: 10, Scanners: []string{"pii"}, AllGroups: true,
 		Endpoints: []UpdateEndpoint{{
 			ID: "guard-1", Name: "Guard", Protocol: "openai_compatible", BaseURL: "http://127.0.0.1:8080",
@@ -153,17 +153,14 @@ func TestBlockingLatestTurnOnlyConfigRoundTrip(t *testing.T) {
 	next, err := manager.buildNextStorage(DefaultStorageConfig(), request, 9)
 	require.NoError(t, err)
 	require.True(t, next.BlockingLatestTurnOnly)
-	require.True(t, next.AllowOnGuardUnavailable)
-	require.Contains(t, changeSummary(next), `"allow_on_guard_unavailable":true`)
+	require.NotContains(t, changeSummary(next), `"allow_on_guard_unavailable"`)
 	require.Contains(t, changeSummary(next), `"blocking_latest_turn_only":true`)
 
 	active, err := ActiveFromStorage(next, true, prefixEncryptor{})
 	require.NoError(t, err)
 	require.True(t, active.BlockingLatestTurnOnly)
-	require.True(t, active.AllowOnGuardUnavailable)
 	public := PublicFromStorage(next, true, nil)
 	require.True(t, public.BlockingLatestTurnOnly)
-	require.True(t, public.AllowOnGuardUnavailable)
 }
 
 func TestConfigRejectsBlockingWithoutAudit(t *testing.T) {
@@ -326,7 +323,7 @@ func TestConfigManagerUndecryptableTokenKeepsConfigVisibleAndRecoverable(t *test
 	require.Equal(t, int64(9), activeVersion)
 }
 
-func TestConfigManagerUndecryptableTokenStillFailsClosedForBlockingIntent(t *testing.T) {
+func TestConfigManagerUndecryptableTokenDoesNotBlockForGuardUnavailability(t *testing.T) {
 	persisted := `{"enabled":true,"blocking_enabled":true,"allow_on_guard_unavailable":true,"config_version":9,"endpoints":[{"id":"g1","name":"Guard","protocol":"openai_compatible","base_url":"http://127.0.0.1:8080","model":"m","token_ciphertext":"undecryptable","timeout_ms":1000,"input_limit":1000,"enabled":true}]}`
 	manager := NewConfigManager(nil, staticSettingRepository{values: map[string]string{
 		SettingKeyPromptAuditConfig: persisted,
@@ -340,11 +337,11 @@ func TestConfigManagerUndecryptableTokenStillFailsClosedForBlockingIntent(t *tes
 		Protocol: "openai_chat_completions",
 		Body:     []byte(`{"messages":[{"role":"user","content":"hi"}]}`),
 	})
-	require.Error(t, err, "blocking intent with no usable endpoint must not let requests pass unaudited")
-	require.Nil(t, decision)
-	var guardErr *GuardError
-	require.ErrorAs(t, err, &guardErr)
-	require.Equal(t, ErrorCodeUnavailable, guardErr.Code)
+	require.NoError(t, err)
+	require.True(t, decision.AllowNextStage)
+	require.True(t, decision.FailureAllowed)
+	require.Equal(t, ErrorCodeUnavailable, decision.ErrorCode)
+	require.Nil(t, decision.Result)
 }
 
 func TestBuildNextStoragePreserveReplaceAndClearToken(t *testing.T) {
@@ -450,7 +447,7 @@ func TestConfigManagerStaleWeakerSnapshotFailsClosedWhenBlockingExpected(t *test
 	require.Nil(t, decision)
 	var guardErr *GuardError
 	require.ErrorAs(t, err, &guardErr)
-	require.Equal(t, ErrorCodeUnavailable, guardErr.Code)
+	require.Equal(t, ErrorCodeConfigUnavailable, guardErr.Code)
 }
 
 type errorSettingRepository struct{ staticSettingRepository }
@@ -509,7 +506,7 @@ func TestConfigManagerStartupLoadFailureFailsClosedWhenBlockingIntended(t *testi
 	require.Nil(t, decision)
 	var guardErr *GuardError
 	require.ErrorAs(t, err, &guardErr)
-	require.Equal(t, ErrorCodeUnavailable, guardErr.Code)
+	require.Equal(t, ErrorCodeConfigUnavailable, guardErr.Code)
 }
 
 func TestConfigManagerUntrustedClearsOnSuccessfulDisable(t *testing.T) {

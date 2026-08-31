@@ -66,7 +66,7 @@ export default {
       title: 'Full Pass evidence', description: 'Every Pass appears as a lightweight event. Only selected users retain full prompts and complete conversations; Flag and Critical findings always retain full evidence.',
       revision: 'Evidence revision v{revision}', selectedCount: 'Full Pass evidence retained for {count} users', limitHint: 'Select up to 100 users. A larger scope requires reevaluating full-evidence storage cost.', save: 'Save evidence users', loadDegraded: 'The evidence configuration could not be loaded. Lightweight Pass events continue, but the active empty list retains no new full Pass evidence.',
     },
-    saveBar: { enabled: 'Enable prompt audit', blocking: 'Synchronous blocking', allowOnGuardUnavailable: 'Allow when Guard is unavailable', allowOnGuardUnavailableHint: 'Enabled by default. Only Guard timeout, connection, or API unavailability is allowed. Findings, invalid responses, extraction failures, and required recovery still block. Failure allows never create Allow receipts.', blockingLatestTurnOnly: 'Synchronous blocking prioritizes current user input', dirty: 'Unsaved changes', synced: 'Configuration synced' },
+    saveBar: { enabled: 'Enable prompt audit', blocking: 'Synchronous blocking', blockingLatestTurnOnly: 'Synchronous blocking prioritizes current user input', dirty: 'Unsaved changes', synced: 'Configuration synced' },
     blockingConfirm: {
       title: 'Enable synchronous blocking?',
       message: 'Applicable requests wait for Guard before account selection, billing, or upstream access, then enter asynchronous deep review after allow. Any synchronous or deep Block requires the user’s next request to pass synchronous deep review.',

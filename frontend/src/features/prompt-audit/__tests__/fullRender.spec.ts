@@ -17,7 +17,7 @@ vi.mock('vue-i18n', async () => {
 })
 
 const config = (): PromptAuditConfig => ({
-  enabled: true, blocking_enabled: true, allow_on_guard_unavailable: false, blocking_latest_turn_only: false,
+  enabled: true, blocking_enabled: true, blocking_latest_turn_only: false,
   blocking_review_modules: { ...DEFAULT_BLOCKING_REVIEW_MODULES }, deep_review_modules: { ...DEFAULT_DEEP_REVIEW_MODULES },
   allow_receipt_ttl_seconds: 3600, effective_mode: 'blocking', strategy: 'priority', worker_count: 32,
   queue_capacity: 32768, scanners: SCANNER_CATALOG.map(({ id }) => id), all_groups: false, group_ids: [4, 5, 7, 13], blocking_exempt_user_ids: [],
