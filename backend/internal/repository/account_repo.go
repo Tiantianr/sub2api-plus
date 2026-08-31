@@ -2542,6 +2542,12 @@ func (r *accountRepository) UpdateExtra(ctx context.Context, id int64, updates m
 	return nil
 }
 
+// StoreAccountUsageObservation persists account-usage UI observations without
+// widening the main service repository contract for read-only consumers.
+func (r *accountRepository) StoreAccountUsageObservation(ctx context.Context, accountID int64, updates map[string]any) error {
+	return r.UpdateExtra(ctx, accountID, updates)
+}
+
 func lockAndMatchProbeProxyIdentity(ctx context.Context, client *dbent.Client, account *service.Account) (bool, error) {
 	if account.ProxyID == nil {
 		return true, nil

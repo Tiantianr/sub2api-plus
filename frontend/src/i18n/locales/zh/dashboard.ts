@@ -287,6 +287,8 @@ export default {
     accountCost: '成本',
     userBilled: '用户扣费',
     accountBilled: '账号计费',
+    weeklyLimitEstimateShort: '预估 {value}',
+    weeklyLimitEstimateTooltip: '周限平台预估 {estimate}（{sampled} / {basis} x 100，7d 到达 {observed}% 时采样）',
     resetNow: '现在',
     resetPending: '待刷新',
     accountMultiplier: '账号倍率',

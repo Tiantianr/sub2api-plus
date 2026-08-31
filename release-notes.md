@@ -1,53 +1,55 @@
-Sub2API Plus v0.1.183+custom.922
+Sub2API Plus v0.1.183+custom.923
 
 ## Highlights
 
-- Make local Codex subscription quota authoritative across HTTP, SSE, and
-  WebSocket responses, including accounts that enable automatic passthrough.
-- Expose real upstream default Codex quota only for automatic-passthrough
-  accounts when local quota is disabled; hide it for every other account.
+- Estimate the full OpenAI OAuth seven-day platform limit when the displayed
+  utilization advances to a new integer percentage.
+- Show the frozen account-cost estimate directly on the OAuth account list's
+  7d row, with the sampled cost and proportional formula available on hover.
 
 ## Changed
 
-- Client-facing default quota now follows one account-aware `local`, `upstream`,
-  or `hidden` policy after generic response-header filtering.
-- Native Responses, converted Chat and Messages, raw compatibility, Compact,
-  Embeddings, Alpha Search, Images, protocol-error, and upstream-error paths
-  apply the same final quota policy before committing a response.
-- Default `codex.rate_limits` WebSocket events are replaced with local windows,
-  preserved for automatic passthrough, or suppressed. Named model-specific
-  limit families and binary frames remain unchanged.
+- The first eligible usage observation records only the current percentage
+  baseline. A later percentage increase estimates the limit as the sampled
+  platform account cost divided by the previous observed percentage, times
+  100; user-billed cost is never used.
+- The estimate remains frozen while the displayed percentage is unchanged.
+  Skipped percentages use the last observed percentage as the basis.
+- Seven-day reset anchors tolerate up to 15 minutes of drift. A new window or
+  a utilization decrease clears the old estimate and establishes a new
+  baseline.
+- Per-account serialization prevents concurrent row and batch refreshes from
+  replacing an already frozen estimate with a later cost sample.
 
 ## Fixed
 
-- Prevent a generic response-header allowance from exposing a shared OAuth or
-  API-key account's real default Codex quota.
-- Prevent an upstream WebSocket quota event from replacing an enabled local
-  subscription quota after the client upgrade response.
-- Prevent converted, media, error, and first-output failover paths from using a
-  quota source inconsistent with the final selected account and local policy.
+- Invalid, incomplete, or non-finite stored estimates are hidden instead of
+  being rendered in the account list.
+- A failure to persist the observational estimate remains non-blocking for the
+  underlying OpenAI usage query.
 
 ## Compatibility and migration
 
-- No database migration, dependency, port, Compose, certificate, proxy, or
-  persistent-volume change is required.
-- Existing local Codex quota settings and subscription accounting remain
-  unchanged. The dedicated `/backend-api/wham/usage` route remains local-only.
-- Clients using non-passthrough accounts may stop receiving upstream default
-  Primary and Secondary quota fields; this is the intended privacy boundary.
-- Roll back to `v0.1.183+custom.921` if required. The rollback restores generic
-  eligible upstream quota-header passthrough and unmodified in-band WebSocket
-  quota events when the local view does not replace them.
+- No database migration, dependency, configuration, port, Compose,
+  certificate, proxy, or persistent-volume change is required.
+- Existing accounts establish their first baseline on the first eligible 7d
+  usage query after upgrade. No estimate is shown until a later percentage
+  increase is observed.
+- The snapshot is stored under the account Extra key
+  `codex_7d_limit_estimate`; it does not alter user billing, account cost, or
+  upstream quota state.
+- Roll back to `v0.1.183+custom.922` if required. The rollback removes the
+  estimate marker and stops updating its observational Extra snapshot; any
+  existing snapshot remains inert account metadata.
 - Personal images and binary archives remain Linux arm64 only.
 
 ## Known issues
 
-- Codex App API-key calls to `account/rateLimits/read` remain outside the
-  gateway compatibility path.
-- Named model-specific metered-limit events remain visible independently from
-  the default quota policy.
-- Real upstream default quota requires the selected account to enable OpenAI
-  automatic passthrough; response-header configuration alone cannot expose it.
+- The value is a proportional estimate based on locally recorded platform
+  account cost and OpenAI's integer utilization display; it is not an upstream
+  declaration of the account's exact monetary limit.
+- No estimate is produced when the previous observed percentage is zero or a
+  positive platform account cost is unavailable.
 - Production deployment and configuration changes remain separate operations
   and are not part of release publication.
 

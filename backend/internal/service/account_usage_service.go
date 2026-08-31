@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log"
 	"log/slog"
+	"math"
 	"math/rand/v2"
 	"net/http"
 	"strings"
@@ -84,6 +85,13 @@ type accountWindowStatsBatchReader interface {
 	GetAccountWindowStatsBatch(ctx context.Context, accountIDs []int64, startTime time.Time) (map[int64]*usagestats.AccountStats, error)
 }
 
+// accountUsageObservationStore is a narrow optional capability implemented by
+// the production account repository. Focused readers and legacy test doubles
+// can omit it without turning an observational UI feature into a hard failure.
+type accountUsageObservationStore interface {
+	StoreAccountUsageObservation(ctx context.Context, accountID int64, updates map[string]any) error
+}
+
 // apiUsageCache 缓存从 Anthropic API 获取的使用率数据（utilization, resets_at）
 // 同时支持缓存错误响应（负缓存），防止 429 等错误导致的重试风暴
 type apiUsageCache struct {
@@ -105,15 +113,20 @@ type antigravityUsageCache struct {
 }
 
 const (
-	apiCacheTTL         = 3 * time.Minute
-	apiErrorCacheTTL    = 1 * time.Minute        // 负缓存 TTL：429 等错误缓存 1 分钟
-	antigravityErrorTTL = 1 * time.Minute        // Antigravity 错误缓存 TTL（可恢复错误）
-	apiQueryMaxJitter   = 800 * time.Millisecond // 用量查询最大随机延迟
-	windowStatsCacheTTL = 1 * time.Minute
-	openAIProbeCacheTTL = 10 * time.Minute
-	grokProbeRetryTTL   = 1 * time.Minute
-	grokFreeQuotaWindow = 24 * time.Hour
+	apiCacheTTL                        = 3 * time.Minute
+	apiErrorCacheTTL                   = 1 * time.Minute        // 负缓存 TTL：429 等错误缓存 1 分钟
+	antigravityErrorTTL                = 1 * time.Minute        // Antigravity 错误缓存 TTL（可恢复错误）
+	apiQueryMaxJitter                  = 800 * time.Millisecond // 用量查询最大随机延迟
+	windowStatsCacheTTL                = 1 * time.Minute
+	openAIProbeCacheTTL                = 10 * time.Minute
+	openAIWeeklyEstimateResetTolerance = 15 * time.Minute
+	grokProbeRetryTTL                  = 1 * time.Minute
+	grokFreeQuotaWindow                = 24 * time.Hour
 )
+
+const openAIWeeklyLimitEstimateExtraKey = "codex_7d_limit_estimate"
+
+const openAIWeeklyLimitEstimateLockCount = 64
 
 // UsageCache 封装账户使用量相关的缓存
 type UsageCache struct {
@@ -144,14 +157,31 @@ type WindowStats struct {
 	UserCost     float64 `json:"user_cost"`
 }
 
+// AccountCostLimitEstimate uses only the account/platform cost shown as A in
+// the account list. It deliberately excludes user-billed cost.
+type AccountCostLimitEstimate struct {
+	EstimatedCost   float64 `json:"estimated_cost"`
+	SampledCost     float64 `json:"sampled_cost"`
+	BasisPercent    int     `json:"basis_percent"`
+	ObservedPercent int     `json:"observed_percent"`
+	SampledAt       string  `json:"sampled_at"`
+}
+
+type openAIWeeklyLimitEstimateSnapshot struct {
+	WindowResetAt       string                    `json:"window_reset_at"`
+	LastObservedPercent int                       `json:"last_observed_percent"`
+	Estimate            *AccountCostLimitEstimate `json:"estimate,omitempty"`
+}
+
 // UsageProgress 使用量进度
 type UsageProgress struct {
-	Utilization      float64      `json:"utilization"`            // 使用率百分比 (0-100+，100表示100%)
-	ResetsAt         *time.Time   `json:"resets_at"`              // 重置时间
-	RemainingSeconds int          `json:"remaining_seconds"`      // 距重置剩余秒数
-	WindowStats      *WindowStats `json:"window_stats,omitempty"` // 窗口期统计（从窗口开始到当前的使用量）
-	UsedRequests     int64        `json:"used_requests,omitempty"`
-	LimitRequests    int64        `json:"limit_requests,omitempty"`
+	Utilization              float64                   `json:"utilization"`                           // 使用率百分比 (0-100+，100表示100%)
+	ResetsAt                 *time.Time                `json:"resets_at"`                             // 重置时间
+	RemainingSeconds         int                       `json:"remaining_seconds"`                     // 距重置剩余秒数
+	WindowStats              *WindowStats              `json:"window_stats,omitempty"`                // 窗口期统计（从窗口开始到当前的使用量）
+	AccountCostLimitEstimate *AccountCostLimitEstimate `json:"account_cost_limit_estimate,omitempty"` // 账号成本口径的窗口限额估算
+	UsedRequests             int64                     `json:"used_requests,omitempty"`
+	LimitRequests            int64                     `json:"limit_requests,omitempty"`
 }
 
 // AntigravityModelQuota Antigravity 单个模型的配额信息
@@ -304,6 +334,8 @@ type AccountUsageService struct {
 	agentIdentityTaskMu     sync.Mutex
 	agentIdentityWS         agentIdentityWSConnectionInvalidator
 	openAIIdentityResolver  *OpenAIGatewayService
+	openAIWeeklyEstimate    sync.Map // accountID -> *openAIWeeklyLimitEstimateSnapshot
+	openAIWeeklyEstimateMu  [openAIWeeklyLimitEstimateLockCount]sync.Mutex
 }
 
 func (s *AccountUsageService) applyOpenAIOutboundIdentity(ctx context.Context, account *Account, headers http.Header, useCodexIdentity bool) {
@@ -786,8 +818,158 @@ func (s *AccountUsageService) getOpenAIUsage(ctx context.Context, account *Accou
 		}
 		usage.SevenDay.WindowStats = windowStatsFromAccountStats(stats)
 	}
+	s.attachOpenAIWeeklyLimitEstimate(ctx, account, usage.SevenDay, now)
 
 	return usage, nil
+}
+
+func (s *AccountUsageService) attachOpenAIWeeklyLimitEstimate(
+	ctx context.Context,
+	account *Account,
+	weekly *UsageProgress,
+	now time.Time,
+) {
+	if s == nil || s.accountRepo == nil || account == nil || weekly == nil || weekly.WindowStats == nil || weekly.ResetsAt == nil {
+		return
+	}
+
+	store, canPersist := s.accountRepo.(accountUsageObservationStore)
+	if !canPersist {
+		estimate, _, _ := observeOpenAIWeeklyLimitEstimate(account.Extra, weekly, now)
+		weekly.AccountCostLimitEstimate = estimate
+		return
+	}
+
+	lock := &s.openAIWeeklyEstimateMu[uint64(account.ID)%openAIWeeklyLimitEstimateLockCount]
+	lock.Lock()
+	defer lock.Unlock()
+
+	extra := account.Extra
+	if cached, ok := s.openAIWeeklyEstimate.Load(account.ID); ok {
+		extra = map[string]any{openAIWeeklyLimitEstimateExtraKey: cached}
+	}
+	estimate, snapshot, changed := observeOpenAIWeeklyLimitEstimate(extra, weekly, now)
+	weekly.AccountCostLimitEstimate = estimate
+	if !changed || snapshot == nil {
+		if snapshot != nil {
+			s.openAIWeeklyEstimate.Store(account.ID, snapshot)
+		}
+		return
+	}
+	if err := store.StoreAccountUsageObservation(ctx, account.ID, map[string]any{openAIWeeklyLimitEstimateExtraKey: snapshot}); err != nil {
+		slog.Warn("openai_weekly_limit_estimate_persist_failed", "account_id", account.ID, "error", err)
+		return
+	}
+	s.openAIWeeklyEstimate.Store(account.ID, snapshot)
+	if account.Extra == nil {
+		account.Extra = make(map[string]any)
+	}
+	account.Extra[openAIWeeklyLimitEstimateExtraKey] = snapshot
+}
+
+func observeOpenAIWeeklyLimitEstimate(
+	extra map[string]any,
+	weekly *UsageProgress,
+	now time.Time,
+) (*AccountCostLimitEstimate, *openAIWeeklyLimitEstimateSnapshot, bool) {
+	if weekly == nil || weekly.WindowStats == nil || weekly.ResetsAt == nil ||
+		math.IsNaN(weekly.Utilization) || math.IsInf(weekly.Utilization, 0) || weekly.Utilization < 0 {
+		return nil, nil, false
+	}
+
+	roundedPercent := math.Round(weekly.Utilization)
+	if roundedPercent > 100 {
+		roundedPercent = 100
+	}
+	observedPercent := int(roundedPercent)
+	resetAt := weekly.ResetsAt.UTC()
+	snapshot := decodeOpenAIWeeklyLimitEstimateSnapshot(extra)
+	if snapshot == nil || !sameOpenAIWeeklyEstimateWindow(snapshot.WindowResetAt, resetAt) {
+		return nil, &openAIWeeklyLimitEstimateSnapshot{
+			WindowResetAt:       resetAt.Format(time.RFC3339),
+			LastObservedPercent: observedPercent,
+		}, true
+	}
+
+	if observedPercent < snapshot.LastObservedPercent {
+		return nil, &openAIWeeklyLimitEstimateSnapshot{
+			WindowResetAt:       resetAt.Format(time.RFC3339),
+			LastObservedPercent: observedPercent,
+		}, true
+	}
+	if observedPercent == snapshot.LastObservedPercent {
+		return cloneAccountCostLimitEstimate(snapshot.Estimate), snapshot, false
+	}
+
+	basisPercent := snapshot.LastObservedPercent
+	sampledCost := weekly.WindowStats.Cost
+	if basisPercent <= 0 || sampledCost <= 0 || math.IsNaN(sampledCost) || math.IsInf(sampledCost, 0) {
+		snapshot.LastObservedPercent = observedPercent
+		snapshot.Estimate = nil
+		return nil, snapshot, true
+	}
+
+	estimate := &AccountCostLimitEstimate{
+		EstimatedCost:   sampledCost / float64(basisPercent) * 100,
+		SampledCost:     sampledCost,
+		BasisPercent:    basisPercent,
+		ObservedPercent: observedPercent,
+		SampledAt:       now.UTC().Format(time.RFC3339),
+	}
+	snapshot.LastObservedPercent = observedPercent
+	snapshot.Estimate = estimate
+	return cloneAccountCostLimitEstimate(estimate), snapshot, true
+}
+
+func decodeOpenAIWeeklyLimitEstimateSnapshot(extra map[string]any) *openAIWeeklyLimitEstimateSnapshot {
+	if len(extra) == 0 {
+		return nil
+	}
+	raw, ok := extra[openAIWeeklyLimitEstimateExtraKey]
+	if !ok || raw == nil {
+		return nil
+	}
+	payload, err := json.Marshal(raw)
+	if err != nil {
+		return nil
+	}
+	var snapshot openAIWeeklyLimitEstimateSnapshot
+	if err := json.Unmarshal(payload, &snapshot); err != nil || snapshot.WindowResetAt == "" ||
+		snapshot.LastObservedPercent < 0 || snapshot.LastObservedPercent > 100 {
+		return nil
+	}
+	if snapshot.Estimate != nil && !validAccountCostLimitEstimate(snapshot.Estimate) {
+		snapshot.Estimate = nil
+	}
+	return &snapshot
+}
+
+func sameOpenAIWeeklyEstimateWindow(raw string, resetAt time.Time) bool {
+	stored, err := time.Parse(time.RFC3339, strings.TrimSpace(raw))
+	if err != nil {
+		return false
+	}
+	delta := stored.Sub(resetAt)
+	if delta < 0 {
+		delta = -delta
+	}
+	return delta <= openAIWeeklyEstimateResetTolerance
+}
+
+func validAccountCostLimitEstimate(estimate *AccountCostLimitEstimate) bool {
+	return estimate != nil && estimate.EstimatedCost > 0 && estimate.SampledCost > 0 &&
+		estimate.BasisPercent > 0 && estimate.ObservedPercent > estimate.BasisPercent &&
+		!math.IsNaN(estimate.EstimatedCost) && !math.IsInf(estimate.EstimatedCost, 0) &&
+		!math.IsNaN(estimate.SampledCost) && !math.IsInf(estimate.SampledCost, 0) &&
+		strings.TrimSpace(estimate.SampledAt) != ""
+}
+
+func cloneAccountCostLimitEstimate(estimate *AccountCostLimitEstimate) *AccountCostLimitEstimate {
+	if !validAccountCostLimitEstimate(estimate) {
+		return nil
+	}
+	copy := *estimate
+	return &copy
 }
 
 func shouldRefreshOpenAICodexSnapshot(account *Account, usage *UsageInfo, now time.Time) bool {

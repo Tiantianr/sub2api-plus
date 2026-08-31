@@ -7,7 +7,9 @@ vi.mock('vue-i18n', async () => {
   return {
     ...actual,
     useI18n: () => ({
-      t: (key: string) => key
+      t: (key: string, params?: Record<string, unknown>) => params
+        ? `${key} ${Object.values(params).join(' ')}`
+        : key
     })
   }
 })
@@ -145,5 +147,36 @@ describe('UsageProgressBar', () => {
     expect(wrapper.text()).toContain('120%')
     expect(wrapper.get('.h-1\\.5 > div').attributes('style')).toContain('width: 100%')
     expect(wrapper.get('.h-1\\.5 > div').classes()).toContain('bg-red-500')
+  })
+
+  it('仅在有效的平台周限估算存在时显示紧凑标记和公式', async () => {
+    const wrapper = mount(UsageProgressBar, {
+      props: {
+        label: '7d',
+        utilization: 7,
+        resetsAt: '2026-03-23T00:00:00Z',
+        color: 'emerald'
+      }
+    })
+
+    expect(wrapper.find('[data-testid="account-cost-limit-estimate"]').exists()).toBe(false)
+
+    await wrapper.setProps({
+      accountCostLimitEstimate: {
+        estimated_cost: 160.87 / 6 * 100,
+        sampled_cost: 160.87,
+        basis_percent: 6,
+        observed_percent: 7,
+        sampled_at: '2026-03-17T01:00:00Z'
+      }
+    })
+
+    const marker = wrapper.get('[data-testid="account-cost-limit-estimate"]')
+    expect(marker.text()).toContain('usage.weeklyLimitEstimateShort')
+    expect(marker.text()).toContain('A $2.68K')
+    expect(marker.attributes('title')).toContain('A $2681.17')
+    expect(marker.attributes('title')).toContain('A $160.87')
+    expect(marker.attributes('title')).toContain('6')
+    expect(marker.attributes('title')).toContain('7')
   })
 })
