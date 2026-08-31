@@ -30,36 +30,68 @@ MUST resume on a later in-scope request.
 ### Requirement: Selected users may be exempt from Prompt Audit finding blocks
 
 The system SHALL accept a bounded versioned list of authenticated user IDs that
-remain fully reviewed but are not blocked by valid Prompt Audit content
-findings. Stored events MUST retain the original Guard decision, risk, action,
-and evidence policy. The exemption MUST NOT change Content Moderation or Prompt
-Audit dependency-failure behavior.
+are reliably admitted to full asynchronous Prompt Audit without waiting for
+synchronous Guard. Stored events MUST retain the original Guard decision, risk,
+action, and evidence policy and MUST identify that the request was admitted as
+blocking-exempt. The exemption MUST NOT weaken Content Moderation or allow a
+request to continue when content extraction, encryption, database admission,
+payload storage, or queue publication fails.
 
 #### Scenario: Blocking-exempt user produces a Critical finding
 
 - **WHEN** an in-scope blocking-exempt user submits content that Guard classifies as Critical and Block
-- **THEN** Prompt Audit SHALL persist the Critical event with its original Block action
-- **AND** Prompt Audit SHALL allow the request to continue as a flagged finding
-- **AND** synchronous and asynchronous review SHALL NOT create user recovery state
+- **THEN** Prompt Audit SHALL reliably queue the complete deep review before upstream side effects
+- **AND** the request SHALL NOT wait for synchronous Guard
+- **AND** the request SHALL continue when Content Moderation permits it
+- **AND** Prompt Audit SHALL persist the Critical event with its original Block action
+- **AND** the event SHALL identify that the request was blocking-exempt at admission
+- **AND** asynchronous review SHALL NOT create Allow receipts or user recovery state
 
-#### Scenario: Blocking-exempt user encounters an audit failure
+#### Scenario: Blocking-exempt request cannot be reliably queued
 
-- **WHEN** an in-scope blocking-exempt user's Prompt Audit review encounters extraction failure, invalid Guard output, or an unavailable dependency
-- **THEN** the existing failure-closed or configured failure-allow policy SHALL apply unchanged
+- **WHEN** an in-scope blocking-exempt request encounters incomplete extraction, encryption failure, queue capacity exhaustion, or an unavailable admission dependency
+- **THEN** Prompt Audit SHALL fail closed before account selection, billing, concurrency acquisition, or upstream dispatch
+- **AND** synchronous Guard SHALL NOT be called
+- **AND** a payload-storage or queue-publication failure after job creation SHALL best-effort persist the existing safe failed event with the request-time exemption marker
+
+#### Scenario: Blocking-exempt asynchronous Guard fails
+
+- **WHEN** a reliably queued blocking-exempt job exhausts retries because Guard is unavailable or returns invalid output
+- **THEN** Prompt Audit SHALL persist the existing safe terminal failure event with the request-time exemption marker
+- **AND** the already admitted request SHALL NOT be retroactively blocked
+
+#### Scenario: Content Moderation blocks a blocking-exempt user
+
+- **WHEN** Content Moderation blocks a request whose user is blocking-exempt only from Prompt Audit
+- **THEN** the request SHALL remain blocked by Content Moderation
+- **AND** the queued Prompt Audit job SHALL NOT create an Allow receipt
 
 #### Scenario: Existing recovery is exempted
 
 - **WHEN** an administrator adds a user with pending recovery to `blocking_exempt_user_ids`
-- **THEN** in-scope requests SHALL continue ordinary Prompt Audit review without recovery blocking
+- **THEN** an in-scope request SHALL skip recovery claiming and synchronously admit full asynchronous review
 - **AND** the existing recovery finding SHALL remain stored
-- **AND** removing the exemption SHALL resume required recovery
+- **AND** removing the exemption SHALL resume required recovery for later requests
 
-#### Scenario: Exemption changes during recovery review
+#### Scenario: Exemption is removed after job admission
 
-- **WHEN** a recovery review starts while its user and group require enforcement
-- **AND** the user becomes blocking-exempt or the group leaves scope before exact Allow is committed
-- **THEN** the request MAY continue under the newly active policy
-- **AND** the existing recovery finding SHALL remain stored
+- **WHEN** a blocking-exempt job is admitted and the administrator later removes the user from `blocking_exempt_user_ids`
+- **THEN** that job SHALL retain its request-time exemption marker
+- **AND** its Guard finding SHALL NOT create recovery state
+- **AND** later in-scope requests SHALL use the new non-exempt policy
+
+### Requirement: Blocking exemption history must be immutable and visible
+
+The system SHALL persist a request-time blocking-exemption snapshot on Prompt
+Audit jobs and events. The existing event list SHALL display that snapshot in
+the queue/audit column and MUST NOT infer historical status from the current
+configuration.
+
+#### Scenario: Administrator views an exempt audit event
+
+- **WHEN** an event was created from a request admitted while its user was blocking-exempt
+- **THEN** the queue/audit column SHALL display both asynchronous execution and blocking-exempt status
+- **AND** changing the current exemption list SHALL NOT change the historical marker
 
 ### Requirement: Blocking exemption configuration must be bounded and auditable
 

@@ -24,6 +24,10 @@ type blockingScopePromptEngine interface {
 	BlockingApplies(req Request) bool
 }
 
+type blockingPolicyPromptEngine interface {
+	blockingPolicy(req Request) promptBlockingPolicy
+}
+
 type deepReviewPromptEngine interface {
 	EnqueueDeep(ctx context.Context, req Request) error
 }
@@ -74,8 +78,15 @@ func (c *Coordinator) Check(ctx context.Context, req Request) Decision {
 func (c *Coordinator) checkBlocking(ctx context.Context, req Request) Decision {
 	// Both synchronous engines treat the frozen request body as immutable.
 	// EnqueueDeep takes the only copy needed beyond this request lifetime.
-	legacyReq := req
-	if scoped, ok := c.prompt.(blockingScopePromptEngine); ok {
+	legacyReq, promptReq := req, req
+	if policyEngine, ok := c.prompt.(blockingPolicyPromptEngine); ok {
+		policy := policyEngine.blockingPolicy(req)
+		legacyReq.PromptTextAuthority = policy.Applies && !policy.BlockingExempt
+		promptReq.promptPolicyResolved = true
+		promptReq.promptPolicyConfigVersion = policy.ConfigVersion
+		promptReq.promptPolicyApplies = policy.Applies
+		promptReq.promptPolicyExempt = policy.BlockingExempt
+	} else if scoped, ok := c.prompt.(blockingScopePromptEngine); ok {
 		legacyReq.PromptTextAuthority = scoped.BlockingApplies(req)
 	}
 	var wg sync.WaitGroup
@@ -92,7 +103,7 @@ func (c *Coordinator) checkBlocking(ctx context.Context, req Request) Decision {
 			prompt = unavailablePromptDecision(ErrorCodeUnavailable)
 			return
 		}
-		result, err := c.prompt.Evaluate(ctx, req)
+		result, err := c.prompt.Evaluate(ctx, promptReq)
 		if err != nil {
 			var guardErr *GuardError
 			if errors.As(err, &guardErr) && strings.TrimSpace(guardErr.Code) != "" {
@@ -110,7 +121,7 @@ func (c *Coordinator) checkBlocking(ctx context.Context, req Request) Decision {
 	}()
 	wg.Wait()
 	decision := prioritize(legacy, prompt)
-	if decision.AllowNextStage {
+	if decision.AllowNextStage && (prompt == nil || !prompt.BlockingExemptAtRequest) {
 		if fence, ok := c.prompt.(recoveryFencePromptEngine); ok {
 			pending, err := fence.pendingRecoveryDecision(ctx, req)
 			if err != nil {
@@ -120,12 +131,12 @@ func (c *Coordinator) checkBlocking(ctx context.Context, req Request) Decision {
 			}
 		}
 	}
-	if decision.AllowNextStage {
+	if decision.AllowNextStage && (prompt == nil || !prompt.BlockingExemptAtRequest) {
 		if committer, ok := c.prompt.(allowReceiptCommitter); ok {
 			committer.commitAllowReceipts(ctx, prompt)
 		}
 	}
-	if decision.AllowNextStage && prompt != nil && !prompt.DeepReviewed {
+	if decision.AllowNextStage && prompt != nil && !prompt.DeepReviewed && !prompt.AsyncAuditHandled {
 		if deep, ok := c.prompt.(deepReviewPromptEngine); ok {
 			deepReq := req
 			deepReq.AllowReceiptKeys = append([]string(nil), prompt.AllowReceiptKeys...)

@@ -1,60 +1,61 @@
-Sub2API Plus v0.1.183+custom.919
+Sub2API Plus v0.1.183+custom.920
 
 ## Highlights
 
-- Show synchronous Guard failures and terminal asynchronous Prompt Audit
-  failures in the existing event list with stable, safe reasons.
-- Add blocking-exempt users who remain fully audited and visible while Prompt
-  Audit findings do not reject their requests.
-- Enforce selected-group scope before every Prompt Audit review, queue,
-  recovery, and final enforcement path.
+- Let blocking-exempt users continue after a complete Prompt Audit job is
+  reliably queued, without waiting for synchronous Guard evaluation.
+- Show an immutable request-time blocking-exempt marker in the existing event
+  list for successful and failed asynchronous reviews.
+- Enforce configured Qwen3Guard risk categories as a server-side allowlist so
+  disabled known categories cannot affect decisions or appear as findings.
 
 ## Changed
 
-- Blocking-exempt users preserve the original Critical, Flag, risk, and Guard
-  action in stored events. Only the Prompt Audit gateway enforcement decision
-  is converted to a non-blocking Flag.
-- Existing recovery findings pause while a user is exempt or outside selected
-  group scope and resume if the policy later applies again.
-- Prompt Audit configuration accepts up to 100 blocking-exempt users and
-  preserves the current list when an older client omits the additive field.
-- Failed events retain only a redacted request snapshot, stable error code, and
-  bounded generic reason. They never retain raw Guard errors or full context.
+- Blocking-exempt requests complete canonical extraction, context encryption,
+  database admission, transient payload storage, and queue publication before
+  continuing. Content Moderation remains an independent synchronous authority.
+- Asynchronous exempt jobs bypass Allow receipts and never create recovery
+  state, while stored Guard results retain their original Critical, Flag, risk,
+  action, and evidence policy.
+- Event APIs and views use persisted `matched_scanners` as the effective
+  category set. Existing database rows are not rewritten.
 
 ## Fixed
 
-- Prevent pending recovery state from causing Prompt Audit review and events
-  for a group that is not selected.
-- Prevent an in-progress recovery Allow from clearing its finding after the
-  user becomes exempt or the request group leaves scope.
-- Prevent stale queued work for a removed group from calling Guard or creating
-  an audit event.
-- Prevent active queue jobs from being deleted when an administrator removes
-  related event history.
+- Prevent blocking-exempt requests from waiting for synchronous Guard or a
+  recovery claim before upstream processing.
+- Prevent a Prompt Audit configuration race from letting Content Moderation
+  use stale shadow authority while Prompt Audit has already left blocking mode.
+- Prevent disabled known categories such as PII from producing warnings,
+  blocks, scores, evidence, issue summaries, or administration labels.
+- Persist safe failed events when payload storage or queue publication fails
+  after a staging job was created.
 
 ## Compatibility and migration
 
-- Migration 243 adds bounded `error_code` and `error_message` event columns,
-  permits `failed / unknown / Error`, and backfills terminal failed jobs that
-  do not already have events. The migration is forward-only and idempotent.
-- `blocking_exempt_user_ids` is an additive field in the existing versioned
-  Prompt Audit JSON configuration and defaults to an empty list.
-- Existing recovery findings and Allow receipts are not cleared by this
-  upgrade.
-- Roll back to `v0.1.183+custom.918` if required. The additive schema remains;
-  `.918` does not display the new failure reasons or blocking-exempt controls.
+- Migration 244 adds `blocking_exempt_at_request` to Prompt Audit jobs and
+  events with a non-null `false` default. Historical rows are not inferred or
+  backfilled from the current exemption list.
+- The Prompt Audit configuration API and its nine stable scanner IDs are
+  unchanged. Existing recovery findings and Allow receipts are not cleared.
+- Roll back to `v0.1.183+custom.919` if required. The additive schema remains;
+  `.919` waits for synchronous Guard for exempt users and may display disabled
+  known categories returned by Guard.
 - No Compose, port, certificate, proxy, or persistent-volume change is
   required. Personal images and binary archives remain Linux arm64 only.
 
 ## Known issues
 
-- Blocking exemption applies only to Prompt Audit findings. Content Moderation
-  remains independently configured and may still block the same user.
-- Extraction, encryption, invalid Guard output, recovery-store errors, and
-  Guard availability continue to follow the existing fail-closed or configured
-  failure-allow policy for blocking-exempt users.
+- Blocking exemption applies only to Prompt Audit. Content Moderation remains
+  independently configured and may still block the same user.
+- Exempt requests do not wait for Guard, but reliable admission still adds
+  database and Redis latency. Extraction, encryption, queue-capacity, payload,
+  or publication failure remains fail closed before upstream side effects.
+- Unknown categories and Unsafe output without a recognized category retain
+  the existing fail-closed behavior even when known categories are disabled.
 - Publishing this release does not change production Prompt Audit groups,
-  blocking exemptions, Content Moderation settings, or runtime deployment.
+  enabled scanners, blocking exemptions, Content Moderation settings, or
+  runtime deployment.
 - Production deployment and configuration changes remain separate operations
   and are not part of release publication.
 

@@ -236,7 +236,8 @@ func (r *Runner) processJob(ctx context.Context, workerID int, cfg ActiveConfig,
 		"action": aggregated.Action, "chunk_total": aggregated.ChunkTotal,
 		"latency_ms": aggregated.LatencyMS, "guard_endpoint_id": aggregated.GuardEndpointID, "status": "completed",
 	}))
-	if job.ExecutionMode == ModeAsyncDeep && aggregated.Action == ActionBlock && job.Snapshot.UserID > 0 && !cfg.IsBlockingExempt(job.Snapshot.UserID) {
+	if job.ExecutionMode == ModeAsyncDeep && aggregated.Action == ActionBlock && job.Snapshot.UserID > 0 &&
+		!job.Snapshot.BlockingExemptAtRequest && !cfg.IsBlockingExempt(job.Snapshot.UserID) {
 		token := fmt.Sprintf("async:%d:%d", job.ID, job.ClaimVersion)
 		if err := markDeepReviewRequired(ctx, r.state, r.metrics, job.Snapshot.UserID, token, ModeAsyncDeep, baseFields); err != nil {
 			return r.finishFailure(ctx, job, &GuardError{Code: ErrorCodeDeepReviewState, Retryable: true, Cause: err})

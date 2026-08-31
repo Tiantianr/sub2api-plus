@@ -6,10 +6,7 @@ import (
 )
 
 func BuildIssueSummaries(result NormalizedResult) []IssueSummary {
-	resultCategories := result.Categories
-	if len(resultCategories) == 0 {
-		resultCategories = result.MatchedScanners
-	}
+	resultCategories := result.MatchedScanners
 	summaries := make([]IssueSummary, 0, len(resultCategories)+len(result.UnknownCategories))
 	for _, category := range resultCategories {
 		definition, ok := ScannerCatalog[category]

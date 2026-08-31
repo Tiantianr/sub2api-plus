@@ -914,17 +914,16 @@ func TestAsyncDeepBlockMarksUserBeforeCompletingJob(t *testing.T) {
 	require.Equal(t, int64(1), metrics.AuditSnapshot().RecoveryRequiredAsync)
 }
 
-func TestAsyncDeepBlockForExemptUserStillCompletesCriticalEventWithoutRecovery(t *testing.T) {
+func TestAsyncDeepBlockWithRequestTimeExemptionStillCompletesCriticalEventWithoutRecovery(t *testing.T) {
 	trace := []string{}
 	payload := &fakePayloadStore{trace: &trace, values: map[int64]string{51: "deep blocked input"}, states: map[int64]string{42: "existing"}}
 	repo := &fakeJobRepository{trace: &trace}
 	cfg := asyncConfig()
-	cfg.BlockingExemptUserIDs = []int64{42}
 	runner := NewRunner(&fakeConfigStore{active: true, cfg: cfg}, repo, payload, PromptScannerFunc(func(context.Context, ActiveEndpoint, string, []string) (*NormalizedResult, error) {
 		return &NormalizedResult{Decision: EventCritical, RiskLevel: RiskCritical, Action: ActionBlock, ScannerScores: map[string]float64{}, ScannerEvidence: map[string]string{}}, nil
 	}), NewAtomicMetrics())
 	job := &Job{
-		ID: 51, Snapshot: PromptSnapshot{UserID: 42, PromptLength: 18}, ExecutionMode: ModeAsyncDeep,
+		ID: 51, Snapshot: PromptSnapshot{UserID: 42, PromptLength: 18, BlockingExemptAtRequest: true}, ExecutionMode: ModeAsyncDeep,
 		Status: "processing", Attempts: 1, MaxAttempts: 3, ClaimVersion: 7, ConfigVersion: cfg.ConfigVersion,
 	}
 

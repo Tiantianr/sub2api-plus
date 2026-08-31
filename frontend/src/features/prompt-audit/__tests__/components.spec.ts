@@ -163,8 +163,8 @@ describe('Prompt Audit components', () => {
 
   it('keeps identity fields separate, supports selection, and opens filter deletion from the toolbar', async () => {
     const event: PromptAuditEvent = {
-      id: 1, job_id: 1, execution_mode: 'async_audit', decision: 'critical', risk_level: 'critical', action: 'Block', categories: ['pii'], matched_scanners: ['pii'], scanner_scores: { pii: 1 }, scanner_evidence: { pii: 'redacted' }, scanner_backend: 'qwen3guard-openai', scanner_version: '1', guard_endpoint_id: 'guard-1', guard_endpoint_name: 'Primary Guard', guard_model: 'guard-model', policy_id: 'priority', policy_version: 1, config_version: 1, chunk_total: 1, queue_delay_ms: 2500, input_limit: 500000, matched_chunk_index: 1, latency_ms: 10, issue_summaries: [], created_at: '2026-07-16T00:00:00Z', full_context_available: false,
-      snapshot: { request_id: 'req-1', client_ip: '203.0.113.42', user_id: 1, username: 'alice', user_email: 'alice@example.test', api_key_id: 2, api_key_name: 'alice-key', group_id: 3, group_name: 'Alpha', provider: 'openai', endpoint: '/v1/chat/completions', protocol: 'openai_chat', model: 'gpt-test', prompt_hash: 'a'.repeat(64), redacted_preview: 'redacted preview', full_prompt: 'full prompt text', full_prompt_truncated: false, prompt_length: 10, message_count: 1, stage: 'http' },
+      id: 1, job_id: 1, execution_mode: 'async_audit', decision: 'critical', risk_level: 'critical', action: 'Block', categories: ['pii', 'jailbreak'], matched_scanners: ['jailbreak'], scanner_scores: { pii: 1, jailbreak: 1 }, scanner_evidence: { pii: 'PII', jailbreak: 'Jailbreak' }, scanner_backend: 'qwen3guard-openai', scanner_version: '1', guard_endpoint_id: 'guard-1', guard_endpoint_name: 'Primary Guard', guard_model: 'guard-model', policy_id: 'priority', policy_version: 1, config_version: 1, chunk_total: 1, queue_delay_ms: 2500, input_limit: 500000, matched_chunk_index: 1, latency_ms: 10, issue_summaries: [], created_at: '2026-07-16T00:00:00Z', full_context_available: false,
+      snapshot: { request_id: 'req-1', client_ip: '203.0.113.42', user_id: 1, username: 'alice', user_email: 'alice@example.test', api_key_id: 2, api_key_name: 'alice-key', group_id: 3, group_name: 'Alpha', provider: 'openai', endpoint: '/v1/chat/completions', protocol: 'openai_chat', model: 'gpt-test', prompt_hash: 'a'.repeat(64), redacted_preview: 'redacted preview', full_prompt: 'full prompt text', full_prompt_truncated: false, prompt_length: 10, message_count: 1, stage: 'http', blocking_exempt_at_request: true },
     }
     const wrapper = mount(EventWorkspace, {
       props: { events: [event], total: 1, page: 1, pageSize: 20, filters: emptyEventFilters(), selectedIds: [], loading: false, error: '' },
@@ -174,9 +174,11 @@ describe('Prompt Audit components', () => {
     expect(wrapper.text()).toContain('alice@example.test')
     expect(wrapper.text()).toContain('alice-key')
     expect(wrapper.text()).toContain('admin.promptAudit.decisions.critical · admin.promptAudit.riskLevels.critical')
-    expect(wrapper.text()).toContain('admin.promptAudit.scanners.pii')
+    expect(wrapper.get('[data-test="event-1"]').text()).toContain('admin.promptAudit.scanners.jailbreak')
+    expect(wrapper.get('[data-test="event-1"]').text()).not.toContain('admin.promptAudit.scanners.pii')
     expect(wrapper.text()).toContain('203.0.113.42')
     expect(wrapper.text()).toContain('2.50 s')
+    expect(wrapper.get('[data-test="blocking-exempt-at-request"]').text()).toContain('admin.promptAudit.events.blockingExemptAtRequest')
     expect(wrapper.get('[data-test="audit-node"]').text()).toContain('Primary Guard')
     expect(wrapper.get('[data-test="audit-node"]').text()).toContain('guard-model')
     expect(wrapper.get('[data-test="audit-node"]').text()).toContain('guard-1')
@@ -341,9 +343,9 @@ describe('Prompt Audit components', () => {
   it('shows the full unredacted prompt and structured guard return on the risks tab', async () => {
     const event: PromptAuditEvent = {
       id: 1, job_id: 1, execution_mode: 'blocking', decision: 'critical', risk_level: 'critical', action: 'Block',
-      categories: ['sexual_content_or_sexual_acts'], matched_scanners: ['sexual_content_or_sexual_acts'],
-      scanner_scores: { sexual_content_or_sexual_acts: 1 },
-      scanner_evidence: { sexual_content_or_sexual_acts: 'Sexual Content or Sexual Acts' },
+      categories: ['pii', 'sexual_content_or_sexual_acts'], matched_scanners: ['sexual_content_or_sexual_acts'],
+      scanner_scores: { pii: 1, sexual_content_or_sexual_acts: 1 },
+      scanner_evidence: { pii: 'PII', sexual_content_or_sexual_acts: 'Sexual Content or Sexual Acts' },
       scanner_backend: 'qwen3guard-openai', scanner_version: 'qwen3guard', guard_endpoint_id: 'guard-1', guard_endpoint_name: 'Primary Guard', guard_model: 'guard-model',
       policy_id: 'priority', policy_version: 1, config_version: 1, chunk_total: 4, queue_delay_ms: 0, input_limit: 100000, matched_chunk_index: 3, latency_ms: 12,
       issue_summaries: [{
@@ -380,6 +382,7 @@ describe('Prompt Audit components', () => {
     expect(wrapper.get('[data-test="risk-prompt-full"]').classes()).toContain('overflow-auto')
     expect(wrapper.get('[data-test="risk-guard-return"]').text()).toContain('"decision": "admin.promptAudit.decisions.critical"')
     expect(wrapper.get('[data-test="risk-guard-return"]').text()).toContain('admin.promptAudit.scanners.sexual_content_or_sexual_acts')
+    expect(wrapper.get('[data-test="risk-guard-return"]').text()).not.toContain('admin.promptAudit.scanners.pii')
     expect(wrapper.get('[data-test="risk-issue"]').text()).toContain('admin.promptAudit.scanners.sexual_content_or_sexual_acts')
     expect(wrapper.text()).toContain('Primary Guard')
     expect(wrapper.text()).toContain('guard-model')

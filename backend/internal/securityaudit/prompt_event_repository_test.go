@@ -14,17 +14,17 @@ func TestScanEventIncludesObservabilityMetadataAndFullPrompt(t *testing.T) {
 	t.Cleanup(func() { _ = db.Close() })
 
 	createdAt := time.Unix(100, 0).UTC()
-	columns := make([]string, 46)
+	columns := make([]string, 47)
 	for index := range columns {
 		columns[index] = "column"
 	}
 	rows := sqlmock.NewRows(columns).AddRow(
 		int64(1), int64(2), "request-1", int64(3), "alice", "alice@example.test", int64(4), "key-1",
 		int64(5), "group-1", "openai", "/v1/responses", "openai_responses", "gpt-test", "hash", "red***", "http",
-		"critical", "critical", "Block", `["jailbreak"]`, `["jailbreak"]`, `{"jailbreak":1}`, `{"jailbreak":"Jailbreak"}`,
+		"critical", "critical", "Block", `["pii","jailbreak"]`, `["jailbreak"]`, `{"pii":1,"jailbreak":1}`, `{"pii":"PII","jailbreak":"Jailbreak"}`,
 		"qwen3guard-openai", "test", "guard-1", "Primary Guard", "guard-model", "priority", 1, int64(9), 4, 27004, createdAt,
 		"203.0.113.42", 395959, 1, "blocking", 0, 100000, 3, false,
-		"", "", "complete prompt",
+		"", "", true, "complete prompt",
 	)
 	mock.ExpectQuery("SELECT").WillReturnRows(rows)
 
@@ -38,7 +38,14 @@ func TestScanEventIncludesObservabilityMetadataAndFullPrompt(t *testing.T) {
 	require.Equal(t, 3, *event.MatchedChunkIndex)
 	require.Equal(t, "Primary Guard", event.GuardEndpointName)
 	require.Equal(t, "guard-model", event.GuardModel)
+	require.Equal(t, []string{"jailbreak"}, event.Categories)
+	require.Equal(t, []string{"jailbreak"}, event.MatchedScanners)
+	require.NotContains(t, event.ScannerScores, "pii")
+	require.NotContains(t, event.ScannerEvidence, "pii")
+	require.Len(t, event.IssueSummaries, 1)
+	require.Equal(t, "jailbreak", event.IssueSummaries[0].Category)
 	require.False(t, event.Snapshot.FullPromptTruncated)
+	require.True(t, event.Snapshot.BlockingExemptAtRequest)
 	require.Equal(t, "complete prompt", event.Snapshot.FullPrompt)
 	require.NoError(t, mock.ExpectationsWereMet())
 }

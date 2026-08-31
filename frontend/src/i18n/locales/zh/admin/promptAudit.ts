@@ -82,7 +82,7 @@ export default {
       moreConditions: '更多条件（入口 / 关键词 / 分组 / 用户）',
       filterDeletePreviewAction: '获取删除预览', filterDeletePreviewing: '正在生成预览…', filterDeleteNeedPreview: '可直接确认删除；如需提前查看匹配数量，可先获取删除预览。',
       filterDeleteConfirmInvalidRange: '请先选择有效的删除时间范围（自定义范围需开始早于结束）。', filterDeleteConfirmNoMatches: '当前筛选匹配 0 条事件，没有可删除的内容。',
-      selectAll: '选择当前页全部事件', selectEvent: '选择事件 {id}', time: '时间', identity: '用户 / 邮箱 / API Key', user: '用户名', email: '用户邮箱', apiKey: 'API Key 名称', group: '分组', route: '入口 / 模型', auditNode: '审计节点', auditModel: '审计模型', result: '判定 / 风险', durations: '排队 / 审计', queueDelay: '排队耗时', auditLatency: '审计耗时', preview: '脱敏预览', empty: '没有符合条件的事件。',
+      selectAll: '选择当前页全部事件', selectEvent: '选择事件 {id}', time: '时间', identity: '用户 / 邮箱 / API Key', user: '用户名', email: '用户邮箱', apiKey: 'API Key 名称', group: '分组', route: '入口 / 模型', auditNode: '审计节点', auditModel: '审计模型', result: '判定 / 风险', durations: '排队 / 审计', queueDelay: '排队耗时', auditLatency: '审计耗时', blockingExemptAtRequest: '免阻塞', blockingExemptAtRequestHint: '该请求未等待同步 Guard，已进入完整异步审计。', preview: '脱敏预览', empty: '没有符合条件的事件。',
       passRetentionNotice: '所有 Pass 都会显示轻量记录；当前为 {count} 名用户保存完整证据。Flag 和 Critical 问题始终保存完整证据。', openConfiguration: '前往配置',
       detailTitle: '提示词审计事件详情', tabs: { summary: '审计摘要', risks: '具体风险', technical: '技术信息' },
       promptFull: '完整送检内容（未脱敏）', downloadPrompt: '下载送检内容', downloadContext: '下载完整上下文',
