@@ -13,7 +13,6 @@ import {
 const config = (): PromptAuditConfig => ({
   enabled: true,
   blocking_enabled: false,
-  allow_on_guard_unavailable: false,
   blocking_latest_turn_only: false,
   blocking_review_modules: {
     system: true, assistant: false, reasoning: false, prompt_variables: true,
@@ -91,15 +90,11 @@ describe('Prompt Audit view model', () => {
     expect(buildUpdateRequest(draft).allow_receipt_ttl_seconds).toBe(7200)
   })
 
-  it('defaults failure allow on and preserves an explicit off value', () => {
-    const legacy = { ...config(), blocking_enabled: true, allow_on_guard_unavailable: undefined } as unknown as PromptAuditConfig
-    expect(configToDraft(legacy).allow_on_guard_unavailable).toBe(true)
-    expect(configToDraft({ ...config(), blocking_enabled: true, allow_on_guard_unavailable: false }).allow_on_guard_unavailable).toBe(false)
-    const draft = configToDraft({ ...config(), blocking_enabled: true })
-    draft.allow_on_guard_unavailable = true
-    expect(buildUpdateRequest(draft).allow_on_guard_unavailable).toBe(true)
-    draft.blocking_enabled = false
-    expect(buildUpdateRequest(draft).allow_on_guard_unavailable).toBe(true)
+  it('drops the obsolete failure-allow switch from legacy config and updates', () => {
+    const legacy = { ...config(), allow_on_guard_unavailable: false } as unknown as PromptAuditConfig
+    const draft = configToDraft(legacy)
+    expect(draft).not.toHaveProperty('allow_on_guard_unavailable')
+    expect(buildUpdateRequest(draft)).not.toHaveProperty('allow_on_guard_unavailable')
   })
 
   it('tracks dirty state from the full normalized save payload', () => {

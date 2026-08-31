@@ -205,9 +205,8 @@ func TestPromptAdminConfigRequiresVersionMapsConflictAndNeverEchoesToken(t *test
 	t.Run("success public DTO", func(t *testing.T) {
 		service := &fakePromptAdminService{save: func(_ context.Context, req UpdateConfigRequest, actorID int64) (PublicConfig, error) {
 			require.Equal(t, int64(42), actorID)
-			require.True(t, req.AllowOnGuardUnavailable)
 			require.Equal(t, canary, req.Endpoints[0].Token)
-			return PublicConfig{ConfigVersion: 8, AllowOnGuardUnavailable: true, Endpoints: []PublicEndpoint{{ID: "guard-1", HasToken: true, TokenStatus: "configured"}}}, nil
+			return PublicConfig{ConfigVersion: 8, Endpoints: []PublicEndpoint{{ID: "guard-1", HasToken: true, TokenStatus: "configured"}}}, nil
 		}}
 		response := promptAdminRequest(t, promptAdminRouter(service), http.MethodPut, "/admin/prompt-audit/config", validHandlerUpdateRequest(canary))
 		require.Equal(t, http.StatusOK, response.Code)
@@ -216,7 +215,7 @@ func TestPromptAdminConfigRequiresVersionMapsConflictAndNeverEchoesToken(t *test
 		require.NotContains(t, body, "token_ciphertext")
 		require.NotContains(t, body, `"token":`)
 		require.Contains(t, body, `"has_token":true`)
-		require.Contains(t, body, `"allow_on_guard_unavailable":true`)
+		require.NotContains(t, body, `"allow_on_guard_unavailable"`)
 	})
 }
 
@@ -295,13 +294,12 @@ func TestPromptAdminNormalizesClientIPFilter(t *testing.T) {
 
 func validHandlerUpdateRequest(token string) UpdateConfigRequest {
 	return UpdateConfigRequest{
-		ExpectedConfigVersion:   7,
-		AllowOnGuardUnavailable: true,
-		Strategy:                "priority",
-		WorkerCount:             1,
-		QueueCapacity:           10,
-		Scanners:                []string{"pii"},
-		AllGroups:               true,
+		ExpectedConfigVersion: 7,
+		Strategy:              "priority",
+		WorkerCount:           1,
+		QueueCapacity:         10,
+		Scanners:              []string{"pii"},
+		AllGroups:             true,
 		Endpoints: []UpdateEndpoint{{
 			ID: "guard-1", Name: "Guard One", Protocol: "openai_compatible",
 			BaseURL: "http://127.0.0.1:18080", Model: DefaultGuardModel, Token: token,

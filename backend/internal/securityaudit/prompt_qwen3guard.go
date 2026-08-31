@@ -59,12 +59,11 @@ var categoryAliases = map[string]string{
 }
 
 type GuardError struct {
-	Code                 string
-	HTTPStatus           int
-	Retryable            bool
-	Timeout              bool
-	FailureAllowEligible bool
-	Cause                error
+	Code       string
+	HTTPStatus int
+	Retryable  bool
+	Timeout    bool
+	Cause      error
 }
 
 func (e *GuardError) Error() string {
@@ -203,9 +202,10 @@ func (s *OpenAICompatibleScanner) Scan(ctx context.Context, endpoint ActiveEndpo
 	if err != nil {
 		return nil, &GuardError{Code: ErrorCodeUnavailable, Cause: err}
 	}
+	outboundChunk, hasPII := redactOutboundGuardText(chunk)
 	payload := map[string]any{
 		"model":       endpoint.Model,
-		"messages":    []map[string]string{{"role": "user", "content": chunk}},
+		"messages":    []map[string]string{{"role": "user", "content": outboundChunk}},
 		"temperature": 0,
 		"max_tokens":  64,
 	}
@@ -228,18 +228,17 @@ func (s *OpenAICompatibleScanner) Scan(ctx context.Context, endpoint ActiveEndpo
 		if errors.As(err, &netErr) && netErr.Timeout() {
 			timeout = true
 		}
-		return nil, &GuardError{Code: ErrorCodeUnavailable, Retryable: true, Timeout: timeout, FailureAllowEligible: true, Cause: err}
+		return nil, &GuardError{Code: ErrorCodeUnavailable, Retryable: true, Timeout: timeout, Cause: err}
 	}
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		retryable := resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode >= 500
-		failureAllowEligible := resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden || retryable
-		return nil, &GuardError{Code: ErrorCodeUnavailable, HTTPStatus: resp.StatusCode, Retryable: retryable, FailureAllowEligible: failureAllowEligible}
+		return nil, &GuardError{Code: ErrorCodeUnavailable, HTTPStatus: resp.StatusCode, Retryable: retryable}
 	}
 	limited := io.LimitReader(resp.Body, maxGuardResponseBytes+1)
 	responseBody, err := io.ReadAll(limited)
 	if err != nil {
-		return nil, &GuardError{Code: ErrorCodeUnavailable, Retryable: true, FailureAllowEligible: true, Cause: err}
+		return nil, &GuardError{Code: ErrorCodeUnavailable, Retryable: true, Cause: err}
 	}
 	if int64(len(responseBody)) > maxGuardResponseBytes {
 		return nil, &GuardError{Code: ErrorCodeInvalidResponse}
@@ -252,6 +251,7 @@ func (s *OpenAICompatibleScanner) Scan(ctx context.Context, endpoint ActiveEndpo
 	if err != nil {
 		return nil, err
 	}
+	applyOutboundPIISignal(result, hasPII, enabledScanners)
 	result.GuardEndpointID = endpoint.ID
 	result.GuardEndpointName = endpoint.Name
 	result.GuardModel = endpoint.Model

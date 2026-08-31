@@ -331,8 +331,14 @@ func TestAllowReceiptDependencyAndInvalidFailuresNeverCreateReceipts(t *testing.
 			}), nil, metrics)
 
 			decision, err := service.Evaluate(context.Background(), allowReceiptRequest(7, "user input", "system input"))
-			require.Error(t, err)
-			require.Nil(t, decision)
+			if testCase.scanErr != nil {
+				require.NoError(t, err)
+				require.True(t, decision.AllowNextStage)
+				require.True(t, decision.FailureAllowed)
+			} else {
+				require.Error(t, err)
+				require.Nil(t, decision)
+			}
 			require.Zero(t, receipts.writes)
 			require.Empty(t, receipts.values)
 		})

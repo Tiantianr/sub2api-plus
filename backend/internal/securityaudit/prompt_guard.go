@@ -66,7 +66,7 @@ func (g *GuardEvaluator) Evaluate(ctx context.Context, cfg ActiveConfig, snapsho
 		}
 		observeGuardOutcome(g.metrics, DecisionUnavailable, g.clock.Now().Sub(start), true)
 		logGuardFailure(snapshot, cfg, DecisionUnavailable, ErrorCodeUnavailable, "", g.clock.Now().Sub(start))
-		return nil, &GuardError{Code: ErrorCodeUnavailable, FailureAllowEligible: true}
+		return nil, &GuardError{Code: ErrorCodeUnavailable}
 	}
 	inputLimit := minimumInputLimit(endpoints)
 	chunks := SplitRunes(snapshot.ScanText, inputLimit)
@@ -211,7 +211,7 @@ func (g *GuardEvaluator) scanChunk(ctx context.Context, cfg ActiveConfig, endpoi
 			if g.metrics != nil {
 				g.metrics.IncBulkheadFull()
 			}
-			lastErr = &GuardError{Code: ErrorCodeUnavailable, Retryable: true, FailureAllowEligible: true}
+			lastErr = &GuardError{Code: ErrorCodeUnavailable, Retryable: true}
 			if index < len(endpoints)-1 && g.metrics != nil {
 				g.metrics.IncFailover()
 			}
@@ -231,7 +231,7 @@ func (g *GuardEvaluator) scanChunk(ctx context.Context, cfg ActiveConfig, endpoi
 		}
 		if attemptErr != nil {
 			result = nil
-			err = &GuardError{Code: ErrorCodeUnavailable, Retryable: true, Timeout: errors.Is(attemptErr, context.DeadlineExceeded), FailureAllowEligible: true, Cause: attemptErr}
+			err = &GuardError{Code: ErrorCodeUnavailable, Retryable: true, Timeout: errors.Is(attemptErr, context.DeadlineExceeded), Cause: attemptErr}
 		}
 		if err == nil && result != nil {
 			return result, nil

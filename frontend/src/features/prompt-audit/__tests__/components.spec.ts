@@ -131,7 +131,7 @@ describe('Prompt Audit components', () => {
 
   it('supports group search, stale configured groups, nine scanners, and bounded worker inputs', async () => {
     const draft: PromptAuditDraft = {
-      enabled: true, blocking_enabled: false, allow_on_guard_unavailable: false, blocking_latest_turn_only: false, effective_mode: 'async_audit', strategy: 'priority',
+      enabled: true, blocking_enabled: false, blocking_latest_turn_only: false, effective_mode: 'async_audit', strategy: 'priority',
       blocking_review_modules: { ...DEFAULT_BLOCKING_REVIEW_MODULES }, deep_review_modules: { ...DEFAULT_DEEP_REVIEW_MODULES },
       allow_receipt_ttl_seconds: 3600,
       worker_count: 4, queue_capacity: 100, scanners: SCANNER_CATALOG.map((item) => item.id), all_groups: false, group_ids: [1, 99], blocking_exempt_user_ids: [7],

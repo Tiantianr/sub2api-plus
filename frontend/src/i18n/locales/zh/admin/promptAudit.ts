@@ -66,7 +66,7 @@ export default {
       title: '通过记录完整证据', description: '所有 Pass 都会显示轻量记录。仅为这里选中的用户保存完整提示词和完整聊天；Flag 和 Critical 问题始终保存完整证据。',
       revision: '证据留存版本 v{revision}', selectedCount: '已为 {count} 名用户保存 Pass 完整证据', limitHint: '最多选择 100 名用户；如需更大范围，应重新评估完整证据的存储成本。', save: '保存完整证据用户', loadDegraded: '证据配置无法读取。Pass 轻量记录仍会保存，但当前空名单不保存新的 Pass 完整证据。',
     },
-    saveBar: { enabled: '启用提示词审计', blocking: '同步阻止', allowOnGuardUnavailable: 'Guard 不可用时放行', allowOnGuardUnavailableHint: '默认开启。仅放行 Guard 超时、连接或 API 不可用；风险命中、无效响应、提取失败和强制恢复仍会阻止。故障放行不会生成 Allow 凭据。', blockingLatestTurnOnly: '同步阻止优先审当前用户输入', dirty: '有未保存的更改', synced: '配置已同步' },
+    saveBar: { enabled: '启用提示词审计', blocking: '同步阻止', blockingLatestTurnOnly: '同步阻止优先审当前用户输入', dirty: '有未保存的更改', synced: '配置已同步' },
     blockingConfirm: {
       title: '开启同步阻止？',
       message: '适用请求会在账号选择、计费和访问上游之前等待 Guard；同步放行后还会异步深度复核。同步或深度复核 Block 后，用户下一次请求必须通过同步深度复核。',

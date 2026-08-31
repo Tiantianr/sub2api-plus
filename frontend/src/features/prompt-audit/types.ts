@@ -33,7 +33,6 @@ export interface PromptAuditEndpointDraft extends PromptAuditEndpoint {
 export interface PromptAuditConfig {
   enabled: boolean
   blocking_enabled: boolean
-  allow_on_guard_unavailable: boolean
   blocking_latest_turn_only: boolean
   blocking_review_modules: PromptAuditReviewModules
   deep_review_modules: PromptAuditReviewModules
@@ -61,7 +60,6 @@ export interface PromptAuditUpdateRequest {
   expected_config_version: number
   enabled: boolean
   blocking_enabled: boolean
-  allow_on_guard_unavailable: boolean
   blocking_latest_turn_only: boolean
   blocking_review_modules: PromptAuditReviewModules
   deep_review_modules: PromptAuditReviewModules

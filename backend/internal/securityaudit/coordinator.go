@@ -100,28 +100,32 @@ func (c *Coordinator) checkBlocking(ctx context.Context, req Request) Decision {
 	go func() {
 		defer wg.Done()
 		if c.prompt == nil {
-			prompt = unavailablePromptDecision(ErrorCodeUnavailable)
+			prompt = failureAllowedPromptDecision()
 			return
 		}
 		result, err := c.prompt.Evaluate(ctx, promptReq)
 		if err != nil {
 			var guardErr *GuardError
 			if errors.As(err, &guardErr) && strings.TrimSpace(guardErr.Code) != "" {
+				if guardErr.Code == ErrorCodeUnavailable {
+					prompt = failureAllowedPromptDecision()
+					return
+				}
 				prompt = unavailablePromptDecision(guardErr.Code)
 				return
 			}
-			prompt = unavailablePromptDecision(ErrorCodeUnavailable)
+			prompt = failureAllowedPromptDecision()
 			return
 		}
 		if result == nil {
-			prompt = unavailablePromptDecision(ErrorCodeUnavailable)
+			prompt = failureAllowedPromptDecision()
 			return
 		}
-		prompt = result
+		prompt = normalizePromptAvailability(result)
 	}()
 	wg.Wait()
 	decision := prioritize(legacy, prompt)
-	if decision.AllowNextStage && (prompt == nil || !prompt.BlockingExemptAtRequest) {
+	if decision.AllowNextStage && (prompt == nil || (!prompt.BlockingExemptAtRequest && !prompt.FailureAllowed)) {
 		if fence, ok := c.prompt.(recoveryFencePromptEngine); ok {
 			pending, err := fence.pendingRecoveryDecision(ctx, req)
 			if err != nil {
@@ -131,7 +135,7 @@ func (c *Coordinator) checkBlocking(ctx context.Context, req Request) Decision {
 			}
 		}
 	}
-	if decision.AllowNextStage && (prompt == nil || !prompt.BlockingExemptAtRequest) {
+	if decision.AllowNextStage && (prompt == nil || (!prompt.BlockingExemptAtRequest && !prompt.FailureAllowed)) {
 		if committer, ok := c.prompt.(allowReceiptCommitter); ok {
 			committer.commitAllowReceipts(ctx, prompt)
 		}
@@ -144,6 +148,27 @@ func (c *Coordinator) checkBlocking(ctx context.Context, req Request) Decision {
 			deepReq.SuppressReceiptWrite = prompt.FailureAllowed
 			_ = deep.EnqueueDeep(ctx, deepReq)
 		}
+	}
+	return decision
+}
+
+func failureAllowedPromptDecision() *PromptDecision {
+	return &PromptDecision{
+		Kind: DecisionAllow, ErrorCode: ErrorCodeUnavailable,
+		AllowNextStage: true, FailureAllowed: true,
+	}
+}
+
+func normalizePromptAvailability(decision *PromptDecision) *PromptDecision {
+	if decision != nil && decision.Kind == DecisionUnavailable && decision.ErrorCode == ErrorCodeUnavailable {
+		normalized := *decision
+		normalized.Kind = DecisionAllow
+		normalized.AllowNextStage = true
+		normalized.FailureAllowed = true
+		normalized.Result = nil
+		normalized.AllowReceiptKeys = nil
+		normalized.allowReceipt = nil
+		return &normalized
 	}
 	return decision
 }
@@ -202,7 +227,7 @@ func prioritize(legacy *LegacyDecision, prompt *PromptDecision) Decision {
 			code = ErrorCodeInvalidResponse
 		}
 		return Decision{Kind: DecisionInvalid, HTTPStatus: http.StatusServiceUnavailable, ErrorCode: code,
-			ClientMessage: "提示词安全审计暂时不可用，请稍后重试", Legacy: legacy, Prompt: prompt}
+			ClientMessage: "提示词安全审计结果无效，请稍后重试", Legacy: legacy, Prompt: prompt}
 	case DecisionUnavailable:
 		code := prompt.ErrorCode
 		if code == "" {
@@ -218,10 +243,18 @@ func prioritize(legacy *LegacyDecision, prompt *PromptDecision) Decision {
 }
 
 func promptUnavailableClientMessage(code string) string {
-	if code == ErrorCodeDeepReviewState {
+	switch code {
+	case ErrorCodeDeepReviewState:
 		return "安全审计恢复状态暂时不可用，请稍后重试"
+	case ErrorCodeConfigUnavailable:
+		return "提示词安全审计配置暂时不可用，请稍后重试"
+	case ErrorCodeExtractionFailed:
+		return "请求内容无法完成提示词安全审计，请检查请求格式后重试"
+	case ErrorCodeEncryptionKeyRequired:
+		return "提示词安全审计加密配置暂时不可用，请联系管理员"
+	default:
+		return "提示词安全审计依赖异常，请稍后重试"
 	}
-	return "提示词安全审计暂时不可用，请稍后重试"
 }
 
 func promptBlockClientMessage(prompt *PromptDecision) string {

@@ -228,19 +228,25 @@ func (s *PromptService) enqueue(req Request, mode Mode) error {
 }
 
 func (s *PromptService) Evaluate(ctx context.Context, req Request) (*PromptDecision, error) {
-	if s == nil || s.config == nil || s.evaluator == nil {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if s == nil {
+		return failureAllowedPromptDecision(), nil
+	}
+	if s.config == nil || s.evaluator == nil {
 		logPromptRequestFailure(req, DecisionUnavailable, ErrorCodeUnavailable)
-		return nil, &GuardError{Code: ErrorCodeUnavailable}
+		return s.allowPromptUnavailable(req, 0, false, false), nil
 	}
 	if s.config.BlockingActivationDegraded() {
-		logPromptRequestFailure(req, DecisionUnavailable, ErrorCodeUnavailable)
-		return nil, &GuardError{Code: ErrorCodeUnavailable}
+		logPromptRequestFailure(req, DecisionUnavailable, ErrorCodeConfigUnavailable)
+		return nil, &GuardError{Code: ErrorCodeConfigUnavailable}
 	}
 	cfg, ok := s.config.Active()
 	if !ok {
 		if s.config.EffectiveMode() == ModeBlocking {
-			logPromptRequestFailure(req, DecisionUnavailable, ErrorCodeUnavailable)
-			return nil, &GuardError{Code: ErrorCodeUnavailable}
+			logPromptRequestFailure(req, DecisionUnavailable, ErrorCodeConfigUnavailable)
+			return nil, &GuardError{Code: ErrorCodeConfigUnavailable}
 		}
 		return &PromptDecision{Kind: DecisionAllow, AllowNextStage: true}, nil
 	}
@@ -267,6 +273,9 @@ func (s *PromptService) Evaluate(ctx context.Context, req Request) (*PromptDecis
 				guardErr = &GuardError{Code: ErrorCodeUnavailable, Cause: err}
 			}
 			logPromptRequestFailure(req, DecisionUnavailable, guardErr.Code)
+			if guardErr.Code == ErrorCodeUnavailable && ctx.Err() == nil {
+				return s.allowPromptUnavailable(req, cfg.ConfigVersion, true, true), nil
+			}
 			return nil, guardErr
 		}
 		return &PromptDecision{
@@ -363,20 +372,17 @@ func (s *PromptService) Evaluate(ctx context.Context, req Request) (*PromptDecis
 		decision.allowReceipt = &allowReceiptCommit{ConfigVersion: cfg.ConfigVersion, Snapshot: snapshot}
 	}
 	if err != nil {
-		if deepRequired {
-			s.observeRecoveryRetained(req, DecisionUnavailable, guardErrorCode(err))
+		if ctx.Err() != nil {
+			return decision, err
 		}
-		failureAllowed := !deepRequired && cfg.AllowOnGuardUnavailable && guardFailureAllowEligible(err)
-		s.recordBlockingFailure(ctx, snapshot, cfg, guardErrorCode(err), failureAllowed)
+		code := guardErrorCode(err)
+		if deepRequired {
+			s.observeRecoveryRetained(req, DecisionUnavailable, code)
+		}
+		failureAllowed := code == ErrorCodeUnavailable
+		s.recordBlockingFailure(ctx, snapshot, cfg, code, failureAllowed)
 		if failureAllowed {
-			if s.metrics != nil {
-				s.metrics.IncFailureAllowed()
-			}
-			LogWarn(EventGuardFailureAllowed, mergeLogFields(requestLogFields(req), map[string]any{
-				"config_version": cfg.ConfigVersion, "decision": DecisionAllow, "status": "failure_allowed",
-				"error_code": ErrorCodeUnavailable, "upstream_dispatched": false, "billing_preconsumed": false,
-			}))
-			return &PromptDecision{Kind: DecisionAllow, ErrorCode: ErrorCodeUnavailable, AllowNextStage: true, FailureAllowed: true}, nil
+			return s.allowPromptUnavailable(req, cfg.ConfigVersion, false, false), nil
 		}
 		return decision, err
 	}
@@ -397,6 +403,20 @@ func (s *PromptService) Evaluate(ctx context.Context, req Request) (*PromptDecis
 	return s.finishRequiredDeepReview(ctx, req, stateToken, claimToken, decision)
 }
 
+func (s *PromptService) allowPromptUnavailable(req Request, configVersion int64, blockingExempt, asyncHandled bool) *PromptDecision {
+	if s != nil && s.metrics != nil {
+		s.metrics.IncFailureAllowed()
+	}
+	LogWarn(EventGuardFailureAllowed, mergeLogFields(requestLogFields(req), map[string]any{
+		"config_version": configVersion, "decision": DecisionAllow, "status": "failure_allowed",
+		"error_code": ErrorCodeUnavailable, "upstream_dispatched": false, "billing_preconsumed": false,
+	}))
+	decision := failureAllowedPromptDecision()
+	decision.BlockingExemptAtRequest = blockingExempt
+	decision.AsyncAuditHandled = asyncHandled
+	return decision
+}
+
 func (s *PromptService) enqueueBlockingExempt(ctx context.Context, req Request, cfg ActiveConfig) error {
 	if s == nil || s.enqueuer == nil {
 		return &GuardError{Code: ErrorCodeUnavailable}
@@ -408,11 +428,6 @@ func (s *PromptService) enqueueBlockingExempt(ctx context.Context, req Request, 
 		return &GuardError{Code: ErrorCodeUnavailable}
 	}
 	return s.enqueuer.EnqueueBlockingExempt(ctx, req, cfg)
-}
-
-func guardFailureAllowEligible(err error) bool {
-	var guardErr *GuardError
-	return errors.As(err, &guardErr) && guardErr.Code == ErrorCodeUnavailable && guardErr.FailureAllowEligible
 }
 
 func (s *PromptService) recordBlockingFailure(ctx context.Context, snapshot PromptSnapshot, cfg ActiveConfig, code string, bestEffort bool) {

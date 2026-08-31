@@ -104,8 +104,8 @@ func TestPromptAuditAdminOperationsUseOmittedBodiesAndAllowlistedDetails(t *test
 	router.PUT("/api/v1/admin/prompt-audit/config", func(c *gin.Context) {
 		SetAuditExtra(c, map[string]any{
 			"result": "failed", "error_code": "prompt_audit_config_conflict", "config_version": int64(9),
-			"allow_on_guard_unavailable": true,
-			"token":                      "audit-canary-secret", "raw_prompt": "audit-canary-prompt", "nested": map[string]any{"unsafe": true},
+			"allow_on_guard_unavailable": true, "token": "audit-canary-secret",
+			"raw_prompt": "audit-canary-prompt", "nested": map[string]any{"unsafe": true},
 		})
 		c.JSON(http.StatusConflict, gin.H{"ok": false})
 	})
@@ -148,7 +148,7 @@ func TestPromptAuditAdminOperationsUseOmittedBodiesAndAllowlistedDetails(t *test
 	require.Equal(t, "failed", config.Extra["result"])
 	require.Equal(t, "prompt_audit_config_conflict", config.Extra["error_code"])
 	require.EqualValues(t, 9, config.Extra["config_version"])
-	require.Equal(t, true, config.Extra["allow_on_guard_unavailable"])
+	require.NotContains(t, config.Extra, "allow_on_guard_unavailable")
 
 	probe := byAction["admin.prompt_audit.endpoint.probe"]
 	require.NotNil(t, probe)
