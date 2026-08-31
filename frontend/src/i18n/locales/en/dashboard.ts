@@ -282,6 +282,8 @@ export default {
     accountCost: 'Cost',
     userBilled: 'User billed',
     accountBilled: 'Account billed',
+    weeklyLimitEstimateShort: 'Est. {value}',
+    weeklyLimitEstimateTooltip: 'Estimated weekly platform limit {estimate} ({sampled} / {basis} x 100, sampled when 7d reached {observed}%)',
     resetNow: 'Now',
     resetPending: 'Pending refresh',
     accountMultiplier: 'Account rate',

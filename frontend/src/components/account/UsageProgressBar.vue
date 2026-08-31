@@ -51,6 +51,15 @@
       <span v-if="shouldShowResetTime" class="shrink-0 text-[10px] text-gray-400">
         {{ formatResetTime }}
       </span>
+
+      <span
+        v-if="validAccountCostLimitEstimate"
+        data-testid="account-cost-limit-estimate"
+        class="shrink-0 whitespace-nowrap rounded bg-blue-50 px-1.5 py-0.5 text-[9px] font-medium text-blue-700 dark:bg-blue-900/30 dark:text-blue-300"
+        :title="accountCostLimitEstimateTitle"
+      >
+        {{ t('usage.weeklyLimitEstimateShort', { value: formattedCompactEstimate }) }}
+      </span>
     </div>
   </div>
 </template>
@@ -59,7 +68,7 @@
 import { computed, ref, watch } from 'vue'
 import { useIntervalFn } from '@vueuse/core'
 import { useI18n } from 'vue-i18n'
-import type { WindowStats } from '@/types'
+import type { AccountCostLimitEstimate, WindowStats } from '@/types'
 import { formatCompactNumber } from '@/utils/format'
 
 const props = defineProps<{
@@ -68,6 +77,7 @@ const props = defineProps<{
   resetsAt?: string | null
   color: 'indigo' | 'emerald' | 'purple' | 'amber'
   windowStats?: WindowStats | null
+  accountCostLimitEstimate?: AccountCostLimitEstimate | null
   showNowWhenIdle?: boolean
   remainingCapacity?: boolean
 }>()
@@ -159,6 +169,41 @@ const displayPercent = computed(() => {
       : props.utilization
   )
   return percent > 999 ? '>999%' : `${percent}%`
+})
+
+const validAccountCostLimitEstimate = computed(() => {
+  const estimate = props.accountCostLimitEstimate
+  return Boolean(
+    estimate &&
+    Number.isFinite(estimate.estimated_cost) && estimate.estimated_cost > 0 &&
+    Number.isFinite(estimate.sampled_cost) && estimate.sampled_cost > 0 &&
+    Number.isInteger(estimate.basis_percent) && estimate.basis_percent > 0 &&
+    Number.isInteger(estimate.observed_percent) && estimate.observed_percent > estimate.basis_percent
+  )
+})
+
+const formatCompactUSD = (value: number): string => {
+  const abs = Math.abs(value)
+  if (abs >= 1_000_000_000) return `$${(value / 1_000_000_000).toFixed(2).replace(/\.00$/, '')}B`
+  if (abs >= 1_000_000) return `$${(value / 1_000_000).toFixed(2).replace(/\.00$/, '')}M`
+  if (abs >= 1_000) return `$${(value / 1_000).toFixed(2).replace(/\.00$/, '')}K`
+  return `$${value.toFixed(2)}`
+}
+
+const formattedCompactEstimate = computed(() => {
+  if (!validAccountCostLimitEstimate.value || !props.accountCostLimitEstimate) return ''
+  return `A ${formatCompactUSD(props.accountCostLimitEstimate.estimated_cost)}`
+})
+
+const accountCostLimitEstimateTitle = computed(() => {
+  const estimate = props.accountCostLimitEstimate
+  if (!validAccountCostLimitEstimate.value || !estimate) return ''
+  return t('usage.weeklyLimitEstimateTooltip', {
+    estimate: `A $${estimate.estimated_cost.toFixed(2)}`,
+    sampled: `A $${estimate.sampled_cost.toFixed(2)}`,
+    basis: estimate.basis_percent,
+    observed: estimate.observed_percent
+  })
 })
 
 const shouldShowResetTime = computed(() => {

@@ -321,6 +321,48 @@ describe('AccountUsageCell', () => {
     expect(wrapper.text()).toContain('7d|36|900')
   })
 
+  it('OpenAI OAuth 只把平台周限估算传给 7d 进度条', async () => {
+    getUsage.mockResolvedValue({
+      five_hour: {
+        utilization: 2,
+        resets_at: '2099-03-07T12:00:00Z',
+        remaining_seconds: 3600
+      },
+      seven_day: {
+        utilization: 7,
+        resets_at: '2099-03-13T12:00:00Z',
+        remaining_seconds: 3600,
+        account_cost_limit_estimate: {
+          estimated_cost: 160.87 / 6 * 100,
+          sampled_cost: 160.87,
+          basis_percent: 6,
+          observed_percent: 7,
+          sampled_at: '2026-09-01T00:00:00Z'
+        }
+      }
+    })
+
+    const wrapper = mount(AccountUsageCell, {
+      props: {
+        account: makeAccount({ id: 2011, platform: 'openai', type: 'oauth', extra: {} })
+      },
+      global: {
+        stubs: {
+          UsageProgressBar: {
+            props: ['label', 'accountCostLimitEstimate'],
+            template: '<div class="usage-bar">{{ label }}|{{ accountCostLimitEstimate?.basis_percent ?? "none" }}</div>'
+          },
+          AccountQuotaInfo: true
+        }
+      }
+    })
+
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('5h|none')
+    expect(wrapper.text()).toContain('7d|6')
+  })
+
   it('OpenAI OAuth 有现成快照时，手动刷新信号会触发 usage 重拉', async () => {
     getUsage.mockResolvedValue({
       five_hour: {
