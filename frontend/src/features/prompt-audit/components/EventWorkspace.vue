@@ -144,13 +144,21 @@
               </template>
               <template v-else>
                 <span class="rounded-full px-2 py-0.5 text-xs font-medium" :class="decisionClass(event.decision)">{{ formatDecisionRisk(event.decision, event.risk_level) }}</span>
-                <p class="mt-2 max-w-48 truncate text-xs text-gray-500" :title="formatCategories(event.categories)">{{ formatCategories(event.categories) }}</p>
+                <p class="mt-2 max-w-48 truncate text-xs text-gray-500" :title="formatCategories(event.matched_scanners)">{{ formatCategories(event.matched_scanners) }}</p>
               </template>
             </td>
             <td class="whitespace-nowrap px-3 py-3 text-xs text-gray-600 dark:text-dark-300">
               <p>{{ t('admin.promptAudit.events.queueDelay') }} · {{ formatDuration(event.queue_delay_ms) }}</p>
               <p class="mt-1">{{ t('admin.promptAudit.events.auditLatency') }} · {{ formatDuration(event.latency_ms) }}</p>
               <p class="mt-1 text-gray-400 dark:text-dark-500">{{ formatMode(event.execution_mode) }}</p>
+              <span
+                v-if="event.snapshot.blocking_exempt_at_request"
+                class="mt-1 inline-flex rounded-full bg-cyan-100 px-2 py-0.5 text-xs font-medium text-cyan-800 dark:bg-cyan-950/50 dark:text-cyan-200"
+                data-test="blocking-exempt-at-request"
+                :title="t('admin.promptAudit.events.blockingExemptAtRequestHint')"
+              >
+                {{ t('admin.promptAudit.events.blockingExemptAtRequest') }}
+              </span>
             </td>
             <td class="max-w-xs px-3 py-3"><p class="line-clamp-2 break-words text-gray-600 dark:text-dark-300">{{ event.snapshot.redacted_preview || '—' }}</p></td>
             <td class="whitespace-nowrap px-3 py-3 text-right">

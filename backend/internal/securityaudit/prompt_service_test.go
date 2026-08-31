@@ -210,42 +210,138 @@ func TestPromptServiceSynchronousBlockRequiresUncachedDeepRecovery(t *testing.T)
 	require.Equal(t, int64(1), metrics.AuditSnapshot().RecoveryCleared)
 }
 
-func TestPromptServiceBlockingExemptUserIsStillReviewedWithoutRecoveryBlock(t *testing.T) {
-	state := newFakeAllowReceiptPayload()
-	state.states[42] = "pending-before-exemption"
-	scans := 0
-	repo := &fakeJobRepository{}
-	guardMetrics := NewAtomicMetrics()
+func TestPromptServiceBlockingExemptUserIsReliablyQueuedWithoutSynchronousGuard(t *testing.T) {
+	trace := []string{}
+	payload := &fakePayloadStore{trace: &trace, values: map[int64]string{}, states: map[int64]string{42: "pending-before-exemption"}}
+	repo := &fakeJobRepository{trace: &trace}
+	metrics := NewAtomicMetrics()
 	cfg := ActiveConfig{
 		RiskControlEnabled: true, Enabled: true, BlockingEnabled: true, AllGroups: true,
-		BlockingExemptUserIDs: []int64{42}, Scanners: AllScannerIDs,
+		BlockingExemptUserIDs: []int64{42}, Scanners: AllScannerIDs, ConfigVersion: 7, QueueCapacity: 10,
 		Endpoints: []ActiveEndpoint{{ID: "guard-1", Enabled: true, TimeoutMS: 1000, InputLimit: 4096}},
 	}
+	config := &fakeConfigStore{active: true, cfg: cfg}
+	scans := 0
 	service := &PromptService{
-		config: &fakeConfigStore{active: true, cfg: cfg}, state: state,
+		config: config, state: payload, background: context.Background(), metrics: metrics,
+		enqueuer: NewEnqueuer(config, repo, payload, metrics),
 		evaluator: newGuardEvaluator(PromptScannerFunc(func(context.Context, ActiveEndpoint, string, []string) (*NormalizedResult, error) {
 			scans++
 			return &NormalizedResult{Decision: EventCritical, RiskLevel: RiskCritical, Action: ActionBlock, ScannerScores: map[string]float64{"jailbreak": 1}, ScannerEvidence: map[string]string{}}, nil
-		}), repo, guardMetrics, 1, 1),
+		}), repo, metrics, 1, 1),
 	}
-	request := Request{UserID: 42, Protocol: "openai_chat_completions", Body: []byte(`{"messages":[{"role":"user","content":"risky input"}]}`)}
+	request := Request{RequestID: "req-exempt", UserID: 42, Protocol: "openai_chat_completions", Body: []byte(`{"messages":[{"role":"user","content":"risky input"}]}`)}
 
-	decision, err := service.Evaluate(context.Background(), request)
-	require.NoError(t, err)
-	require.Equal(t, 1, scans, "blocking exemption must not skip Guard review")
-	require.Equal(t, DecisionFlag, decision.Kind)
+	legacy := &fakeLegacyEngine{decision: &LegacyDecision{Allowed: true}}
+	gatewayDecision := NewCoordinator(legacy, service).Check(context.Background(), request)
+	require.Equal(t, DecisionAllow, gatewayDecision.Kind)
+	require.True(t, gatewayDecision.AllowNextStage)
+	require.NotNil(t, gatewayDecision.Prompt)
+	decision := gatewayDecision.Prompt
+	require.Zero(t, scans, "blocking exemption must not call synchronous Guard")
+	require.Equal(t, DecisionAllow, decision.Kind)
 	require.True(t, decision.AllowNextStage)
-	require.Equal(t, EventCritical, decision.Result.Decision)
-	require.Equal(t, ActionBlock, decision.Result.Action)
-	require.Equal(t, 1, repo.recordBlockingCalls)
-	require.Equal(t, EventCritical, repo.recordBlockingResult.Decision)
-	require.Equal(t, ActionBlock, repo.recordBlockingResult.Action)
-	require.Equal(t, int64(1), guardMetrics.Snapshot().Flagged)
-	require.Zero(t, guardMetrics.Snapshot().Blocked)
-	require.Equal(t, "pending-before-exemption", state.states[42], "existing recovery must remain dormant")
+	require.True(t, decision.AsyncAuditHandled)
+	require.True(t, decision.BlockingExemptAtRequest)
+	require.Nil(t, decision.Result)
+	require.False(t, service.BlockingApplies(request), "Content Moderation must retain text authority")
+	require.False(t, legacy.last.PromptTextAuthority)
+	require.Equal(t, []string{"create_staging", "payload_set", "publish_queued"}, trace)
+	require.NotNil(t, repo.createJob)
+	require.Equal(t, ModeAsyncDeep, repo.createJob.ExecutionMode)
+	require.True(t, repo.createdSnapshot.BlockingExemptAtRequest)
+	payload.mu.Lock()
+	queuedPayload := decodeTransientPromptPayload(payload.values[repo.createJob.ID])
+	payload.mu.Unlock()
+	require.Contains(t, queuedPayload.ScanText, "risky input")
+	require.False(t, queuedPayload.AllowReceiptWrite)
+	require.Equal(t, int64(1), metrics.AuditSnapshot().Enqueued)
+	require.Equal(t, "pending-before-exemption", payload.states[42], "existing recovery must remain dormant")
 	pending, err := service.pendingRecoveryDecision(context.Background(), request)
 	require.NoError(t, err)
 	require.Nil(t, pending)
+}
+
+func TestPromptServiceBlockingExemptAdmissionFailuresFailClosed(t *testing.T) {
+	tests := []struct {
+		name             string
+		body             []byte
+		configure        func(*PromptService, *fakeJobRepository, *fakePayloadStore)
+		wantCode         string
+		wantFailureEvent bool
+	}{
+		{name: "service not started", wantCode: ErrorCodeUnavailable, configure: func(service *PromptService, _ *fakeJobRepository, _ *fakePayloadStore) { service.background = nil }},
+		{name: "queue full", wantCode: ErrorCodeUnavailable, configure: func(_ *PromptService, repo *fakeJobRepository, _ *fakePayloadStore) { repo.createErr = ErrQueueFull }},
+		{name: "payload unavailable", wantCode: ErrorCodeUnavailable, wantFailureEvent: true, configure: func(_ *PromptService, _ *fakeJobRepository, payload *fakePayloadStore) {
+			payload.setErr = errors.New("redis unavailable")
+		}},
+		{name: "queue publication fails", wantCode: ErrorCodeUnavailable, wantFailureEvent: true, configure: func(_ *PromptService, repo *fakeJobRepository, _ *fakePayloadStore) {
+			repo.publishErr = errors.New("database unavailable")
+		}},
+		{name: "incomplete extraction", body: []byte(`{"input":[{"type":"future_content","payload":"unknown"}]}`), wantCode: ErrorCodeExtractionFailed},
+	}
+	for _, testCase := range tests {
+		t.Run(testCase.name, func(t *testing.T) {
+			payload := &fakePayloadStore{values: map[int64]string{}, states: map[int64]string{}}
+			repo := &fakeJobRepository{}
+			cfg := ActiveConfig{
+				RiskControlEnabled: true, Enabled: true, BlockingEnabled: true, AllGroups: true,
+				BlockingExemptUserIDs: []int64{42}, Scanners: AllScannerIDs, ConfigVersion: 7, QueueCapacity: 10,
+				Endpoints: []ActiveEndpoint{{ID: "guard-1", Enabled: true, TimeoutMS: 1000, InputLimit: 4096}},
+			}
+			config := &fakeConfigStore{active: true, cfg: cfg}
+			scans := 0
+			service := &PromptService{
+				config: config, state: payload, background: context.Background(),
+				enqueuer: NewEnqueuer(config, repo, payload),
+				evaluator: newGuardEvaluator(PromptScannerFunc(func(context.Context, ActiveEndpoint, string, []string) (*NormalizedResult, error) {
+					scans++
+					return nil, nil
+				}), repo, NewAtomicMetrics(), 1, 1),
+			}
+			if testCase.configure != nil {
+				testCase.configure(service, repo, payload)
+			}
+			body := testCase.body
+			if body == nil {
+				body = []byte(`{"messages":[{"role":"user","content":"review me"}]}`)
+			}
+			decision, err := service.Evaluate(context.Background(), Request{
+				RequestID: "req-admission-failure", UserID: 42, Protocol: "openai_responses", Body: body,
+			})
+			require.Nil(t, decision)
+			var guardErr *GuardError
+			require.ErrorAs(t, err, &guardErr)
+			require.Equal(t, testCase.wantCode, guardErr.Code)
+			require.Zero(t, scans)
+			if testCase.wantFailureEvent {
+				require.Equal(t, []int64{1}, repo.recordFailureJobs)
+				require.True(t, repo.createJob.Snapshot.BlockingExemptAtRequest)
+			} else {
+				require.Empty(t, repo.recordFailureJobs)
+			}
+		})
+	}
+}
+
+func TestPromptServiceResolvedPolicyConfigChangeFailsClosedBeforeModeEarlyReturn(t *testing.T) {
+	service := &PromptService{
+		config: &fakeConfigStore{active: true, cfg: ActiveConfig{
+			RiskControlEnabled: true, Enabled: true, BlockingEnabled: false, AllGroups: true, ConfigVersion: 8,
+		}},
+		evaluator: &GuardEvaluator{},
+	}
+	request := Request{
+		RequestID: "req-config-race", UserID: 42,
+		promptPolicyResolved: true, promptPolicyConfigVersion: 7,
+		promptPolicyApplies: true, promptPolicyExempt: true,
+	}
+
+	decision, err := service.Evaluate(context.Background(), request)
+	require.Nil(t, decision)
+	var guardErr *GuardError
+	require.ErrorAs(t, err, &guardErr)
+	require.Equal(t, ErrorCodeConfigUnavailable, guardErr.Code)
 }
 
 func TestPromptServiceSynchronousBlockFailsClosedWhenRecoveryStateCannotBeWritten(t *testing.T) {

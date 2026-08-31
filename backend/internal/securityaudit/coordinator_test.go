@@ -114,6 +114,25 @@ func TestCoordinatorFinalRecoveryFenceFailsClosedOnStateError(t *testing.T) {
 	require.Zero(t, prompt.receiptCommits.Load())
 	require.Zero(t, prompt.deepEnqueues.Load())
 }
+
+func TestCoordinatorBlockingExemptAdmissionKeepsContentModerationAuthoritative(t *testing.T) {
+	prompt := &fakePromptEngine{
+		mode: ModeBlocking, applies: false,
+		decision: &PromptDecision{
+			Kind: DecisionAllow, AllowNextStage: true, AsyncAuditHandled: true,
+			BlockingExemptAtRequest: true,
+		},
+	}
+	legacy := &fakeLegacyEngine{decision: &LegacyDecision{Blocked: true, StatusCode: http.StatusForbidden, ErrorCode: "content_policy_violation"}}
+	decision := NewCoordinator(legacy, prompt).Check(context.Background(), Request{UserID: 42})
+
+	require.Equal(t, DecisionBlock, decision.Kind)
+	require.False(t, decision.AllowNextStage)
+	require.False(t, legacy.last.PromptTextAuthority)
+	require.Zero(t, prompt.fenceChecks.Load())
+	require.Zero(t, prompt.receiptCommits.Load())
+	require.Zero(t, prompt.deepEnqueues.Load())
+}
 func (f *fakePromptEngine) Evaluate(_ context.Context, req Request) (*PromptDecision, error) {
 	f.evaluates.Add(1)
 	f.lastEvaluate = req
@@ -207,7 +226,7 @@ func TestCoordinatorPromptBlockMessageUsesRedactedCategoryLabels(t *testing.T) {
 		{
 			name: "known categories",
 			result: &NormalizedResult{
-				Categories: []string{"pii", "jailbreak", "pii"},
+				Categories: []string{"pii", "jailbreak"}, MatchedScanners: []string{"pii", "jailbreak"},
 			},
 			want: "安全审计拒绝了本次请求，命中风险类别：个人敏感信息、越狱攻击。风险内容可能来自当前输入、会话上下文、系统指令或插件/工具内容，请检查并移除相关内容后重试",
 		},
@@ -303,7 +322,7 @@ func TestCoordinatorPreservesIndependentEngineFactsAndMapsOnlyGatewayOutcome(t *
 	}
 	promptResult := &NormalizedResult{
 		Decision: EventCritical, RiskLevel: RiskCritical, Action: ActionBlock,
-		Categories: []string{"pii"}, ScannerScores: map[string]float64{"pii": 1},
+		Categories: []string{"pii"}, MatchedScanners: []string{"pii"}, ScannerScores: map[string]float64{"pii": 1},
 	}
 	promptDecision := &PromptDecision{Kind: DecisionBlock, Result: promptResult}
 	decision := NewCoordinator(

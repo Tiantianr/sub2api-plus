@@ -371,7 +371,8 @@ func eventColumns(alias string) string {
 			%[1]s.guard_endpoint_id,%[1]s.guard_endpoint_name,%[1]s.guard_model,%[1]s.policy_id,%[1]s.policy_version,%[1]s.config_version,
 		%[1]s.chunk_total,%[1]s.latency_ms,%[1]s.created_at,%[1]s.client_ip,%[1]s.prompt_length,
 		%[1]s.message_count,%[1]s.execution_mode,%[1]s.queue_delay_ms,%[1]s.input_limit,
-		%[1]s.matched_chunk_index,%[1]s.full_prompt_truncated,%[1]s.error_code,%[1]s.error_message`, alias)
+		%[1]s.matched_chunk_index,%[1]s.full_prompt_truncated,%[1]s.error_code,%[1]s.error_message,
+		%[1]s.blocking_exempt_at_request`, alias)
 }
 
 // eventDetailColumns adds the full prompt, which can be large, so it is only
@@ -395,7 +396,7 @@ func scanEvent(row rowScanner, withFullPrompt ...bool) (*Event, error) {
 		&event.ConfigVersion, &event.ChunkTotal, &event.LatencyMS, &event.CreatedAt, &event.Snapshot.ClientIP,
 		&event.Snapshot.PromptLength, &event.Snapshot.MessageCount, &event.ExecutionMode, &queueDelayMS,
 		&inputLimit, &matchedChunkIndex, &event.Snapshot.FullPromptTruncated,
-		&event.ErrorCode, &event.ErrorMessage}
+		&event.ErrorCode, &event.ErrorMessage, &event.Snapshot.BlockingExemptAtRequest}
 	if len(withFullPrompt) > 0 && withFullPrompt[0] {
 		dest = append(dest, &event.Snapshot.FullPrompt)
 	}
@@ -413,11 +414,37 @@ func scanEvent(row rowScanner, withFullPrompt ...bool) (*Event, error) {
 	_ = json.Unmarshal(matched, &event.MatchedScanners)
 	_ = json.Unmarshal(scores, &event.ScannerScores)
 	_ = json.Unmarshal(evidence, &event.ScannerEvidence)
+	// Older rows may retain every known category reported by Guard. The policy
+	// intersection is the effective finding set and is never inferred from the
+	// current configuration.
+	event.Categories = append([]string(nil), event.MatchedScanners...)
+	event.ScannerScores = effectiveScannerScores(event.MatchedScanners, event.ScannerScores)
+	event.ScannerEvidence = effectiveScannerEvidence(event.MatchedScanners, event.ScannerEvidence)
 	result := NormalizedResult{Decision: event.Decision, RiskLevel: event.RiskLevel, Action: event.Action,
 		Categories: event.Categories, MatchedScanners: event.MatchedScanners, ScannerScores: event.ScannerScores,
 		ScannerEvidence: event.ScannerEvidence}
 	event.IssueSummaries = BuildIssueSummaries(result)
 	return event, nil
+}
+
+func effectiveScannerScores(scanners []string, values map[string]float64) map[string]float64 {
+	filtered := make(map[string]float64, len(scanners))
+	for _, scanner := range scanners {
+		if value, ok := values[scanner]; ok {
+			filtered[scanner] = value
+		}
+	}
+	return filtered
+}
+
+func effectiveScannerEvidence(scanners []string, values map[string]string) map[string]string {
+	filtered := make(map[string]string, len(scanners))
+	for _, scanner := range scanners {
+		if value, ok := values[scanner]; ok {
+			filtered[scanner] = value
+		}
+	}
+	return filtered
 }
 
 func nullableIntPtr(value sql.NullInt64) *int {

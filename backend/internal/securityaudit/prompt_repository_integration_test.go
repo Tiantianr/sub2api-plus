@@ -43,7 +43,7 @@ func openPromptAuditIntegrationDB(t *testing.T) *sql.DB {
 		);
 	`)
 	require.NoError(t, err)
-	for _, name := range []string{"181_prompt_audit.sql", "182_prompt_audit_full_prompt.sql", "234_prompt_audit_observability.sql", "235_prompt_audit_client_ip_index_notx.sql", "238_prompt_audit_event_contexts.sql", "239_prompt_audit_deep_review.sql", "240_prompt_audit_events_mode_index_notx.sql", "242_prompt_audit_guard_node_snapshot.sql", "243_prompt_audit_failure_events.sql"} {
+	for _, name := range []string{"181_prompt_audit.sql", "182_prompt_audit_full_prompt.sql", "234_prompt_audit_observability.sql", "235_prompt_audit_client_ip_index_notx.sql", "238_prompt_audit_event_contexts.sql", "239_prompt_audit_deep_review.sql", "240_prompt_audit_events_mode_index_notx.sql", "242_prompt_audit_guard_node_snapshot.sql", "243_prompt_audit_failure_events.sql", "244_prompt_audit_blocking_exempt_snapshot.sql"} {
 		migration, err := os.ReadFile(filepath.Join("..", "..", "migrations", name))
 		require.NoError(t, err)
 		// The migration runner can retry an interrupted deployment; the migration
@@ -63,6 +63,7 @@ func TestPromptAuditAsyncDeepExecutionModePersistsAndFilters(t *testing.T) {
 	repo := NewPostgreSQLRepository(db)
 	ctx := context.Background()
 	snapshot := integrationSnapshot("deep")
+	snapshot.BlockingExemptAtRequest = true
 	snapshot.UserID = insertIdentity(t, db, "users")
 	snapshot.APIKeyID = insertIdentity(t, db, "api_keys")
 	groupID := insertIdentity(t, db, "groups")
@@ -71,19 +72,23 @@ func TestPromptAuditAsyncDeepExecutionModePersistsAndFilters(t *testing.T) {
 	job, err := repo.CreateStagingWithCapacity(ctx, snapshot, ModeAsyncDeep, 1, 3, 10)
 	require.NoError(t, err)
 	require.Equal(t, ModeAsyncDeep, job.ExecutionMode)
+	require.True(t, job.Snapshot.BlockingExemptAtRequest)
 	require.NoError(t, repo.PublishQueued(ctx, job.ID))
 	claimed, ok, err := repo.ClaimNextJob(ctx, time.Now().UTC().Add(time.Second))
 	require.NoError(t, err)
 	require.True(t, ok)
+	require.True(t, claimed.Snapshot.BlockingExemptAtRequest)
 	event, err := repo.Complete(ctx, claimed, integrationResult(EventCritical), false)
 	require.NoError(t, err)
 	require.Equal(t, ModeAsyncDeep, event.ExecutionMode)
+	require.True(t, event.Snapshot.BlockingExemptAtRequest)
 
 	page, err := repo.ListEvents(ctx, EventFilter{ExecutionMode: string(ModeAsyncDeep)}, 1, 20)
 	require.NoError(t, err)
 	require.Equal(t, int64(1), page.Total)
 	require.Len(t, page.Items, 1)
 	require.Equal(t, ModeAsyncDeep, page.Items[0].ExecutionMode)
+	require.True(t, page.Items[0].Snapshot.BlockingExemptAtRequest)
 	blockingPage, err := repo.ListEvents(ctx, EventFilter{ExecutionMode: string(ModeBlocking)}, 1, 20)
 	require.NoError(t, err)
 	require.Zero(t, blockingPage.Total)
@@ -165,6 +170,8 @@ func TestPromptAuditMigrationSchemaAndLeakageGate(t *testing.T) {
 		"prompt_audit_events.full_prompt_truncated",
 		"prompt_audit_events.guard_endpoint_name",
 		"prompt_audit_events.guard_model",
+		"prompt_audit_jobs.blocking_exempt_at_request",
+		"prompt_audit_events.blocking_exempt_at_request",
 	} {
 		require.Truef(t, columns[column], "missing column %s", column)
 	}
@@ -493,7 +500,9 @@ func TestPromptAuditDatabasePersistsFullPromptOnEventsOnly(t *testing.T) {
 	require.NoError(t, db.QueryRow(`SELECT row_to_json(j)::text FROM prompt_audit_jobs j WHERE id=$1`, event.JobID).Scan(&jobJSON))
 	require.NotContains(t, jobJSON, promptCanary)
 
-	failedJob, err := repo.CreateStagingWithCapacity(ctx, integrationSnapshot("error"), ModeAsync, 1, 3, 10)
+	failureSnapshot := integrationSnapshot("error")
+	failureSnapshot.BlockingExemptAtRequest = true
+	failedJob, err := repo.CreateStagingWithCapacity(ctx, failureSnapshot, ModeAsyncDeep, 1, 3, 10)
 	require.NoError(t, err)
 	const errorCanary = "GUARD_RAW_RESPONSE_CANARY_SECRET"
 	require.NoError(t, repo.MarkStagingFailed(ctx, failedJob.ID, "payload_store_failed", "raw guard body: "+errorCanary))
@@ -503,6 +512,13 @@ func TestPromptAuditDatabasePersistsFullPromptOnEventsOnly(t *testing.T) {
 	require.Equal(t, stableErrorMessage(code), message)
 	require.NotContains(t, message, errorCanary)
 	require.LessOrEqual(t, len([]rune(message)), 160)
+	failureEvent, err := repo.RecordFailureEvent(ctx, failedJob, code)
+	require.NoError(t, err)
+	require.Equal(t, EventFailed, failureEvent.Decision)
+	require.True(t, failureEvent.Snapshot.BlockingExemptAtRequest)
+	failureDetail, err := repo.GetEvent(ctx, failureEvent.ID)
+	require.NoError(t, err)
+	require.True(t, failureDetail.Snapshot.BlockingExemptAtRequest)
 
 	_, err = repo.DeleteEvent(ctx, event.ID)
 	require.NoError(t, err)

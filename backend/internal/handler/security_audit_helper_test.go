@@ -334,6 +334,51 @@ func TestExtractionFailuresBlockWebSocketTurnBeforeUpstreamWrite(t *testing.T) {
 	require.Equal(t, securityaudit.AuditMetricsSnapshot{ExtractionAttempted: 1, ExtractionFailed: 1}, metrics.AuditSnapshot())
 }
 
+func TestBlockingExemptAllowIsDeduplicatedPerHTTPAndWebSocketTurn(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	newDecision := func() *securityaudit.PromptDecision {
+		return &securityaudit.PromptDecision{
+			Kind: securityaudit.DecisionAllow, AllowNextStage: true,
+			AsyncAuditHandled: true, BlockingExemptAtRequest: true,
+		}
+	}
+	body := []byte(`{"type":"response.create","response":{"input":"audit once"}}`)
+	groupID := int64(3)
+	apiKey := &service.APIKey{ID: 9, UserID: 7, GroupID: &groupID, Group: &service.Group{ID: groupID, Platform: service.PlatformOpenAI}}
+
+	t.Run("http", func(t *testing.T) {
+		engine := &turnCountingEngine{mode: securityaudit.ModeBlocking, decisions: []*securityaudit.PromptDecision{newDecision()}}
+		coordinator := securityaudit.NewCoordinator(nil, engine)
+		recorder := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(recorder)
+		c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
+		first := runSecurityAudit(c, nil, coordinator, nil, apiKey, middleware2.AuthSubject{UserID: 7}, service.ContentModerationProtocolOpenAIResponses, "gpt-test", body, "http")
+		second := runSecurityAudit(c, nil, coordinator, nil, apiKey, middleware2.AuthSubject{UserID: 7}, service.ContentModerationProtocolOpenAIResponses, "gpt-test", body, "http")
+		require.NotNil(t, first)
+		require.Nil(t, second)
+		require.Equal(t, int64(1), engine.evaluates.Load())
+	})
+
+	t.Run("websocket", func(t *testing.T) {
+		engine := &turnCountingEngine{mode: securityaudit.ModeBlocking, decisions: []*securityaudit.PromptDecision{newDecision(), newDecision()}}
+		coordinator := securityaudit.NewCoordinator(nil, engine)
+		recorder := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(recorder)
+		c.Request = httptest.NewRequest(http.MethodGet, "/v1/responses", nil)
+		c.Set(securityAuditWSTurnContextKey, 1)
+		first := runSecurityAudit(c, nil, coordinator, nil, apiKey, middleware2.AuthSubject{UserID: 7}, service.ContentModerationProtocolOpenAIResponses, "gpt-test", body, "subsequent_turn")
+		cached := runSecurityAudit(c, nil, coordinator, nil, apiKey, middleware2.AuthSubject{UserID: 7}, service.ContentModerationProtocolOpenAIResponses, "gpt-test", body, "subsequent_turn")
+		require.NotNil(t, first)
+		require.NotNil(t, cached)
+		require.Equal(t, int64(1), engine.evaluates.Load())
+
+		c.Set(securityAuditWSTurnContextKey, 2)
+		nextTurn := runSecurityAudit(c, nil, coordinator, nil, apiKey, middleware2.AuthSubject{UserID: 7}, service.ContentModerationProtocolOpenAIResponses, "gpt-test", body, "subsequent_turn")
+		require.NotNil(t, nextTurn)
+		require.Equal(t, int64(2), engine.evaluates.Load())
+	})
+}
+
 func TestGuardUnavailablePolicyAllowsHTTPAndWebSocketForAPIKeyAndOAuth(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	for _, accountType := range []string{service.AccountTypeAPIKey, service.AccountTypeOAuth} {

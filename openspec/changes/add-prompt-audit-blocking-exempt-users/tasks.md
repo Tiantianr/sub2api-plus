@@ -20,3 +20,11 @@
 
 - [x] 4.1 Cover configuration, selected-user review, finding allowance, recovery retention, and group exclusion.
 - [x] 4.2 Run backend, frontend, OpenSpec, lint, and diff checks.
+
+## 5. Asynchronous exemption semantics
+
+- [x] 5.1 Reliably queue exempt requests without synchronous Guard or recovery claims.
+- [x] 5.2 Persist the request-time exemption snapshot on jobs and events.
+- [x] 5.3 Keep Content Moderation authoritative and fail closed on admission failures.
+- [x] 5.4 Display the immutable exemption marker in the queue/audit column.
+- [x] 5.5 Cover HTTP/WS, worker recovery, persistence, migration, and frontend behavior.

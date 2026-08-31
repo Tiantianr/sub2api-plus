@@ -38,7 +38,7 @@
             <dt class="text-gray-500">{{ t('admin.promptAudit.events.model') }}</dt><dd>{{ event.snapshot.model || '—' }}</dd>
             <dt class="text-gray-500">{{ t('admin.promptAudit.events.executionMode') }}</dt><dd>{{ formatMode(event.execution_mode) }}</dd>
             <dt class="text-gray-500">{{ t('admin.promptAudit.events.promptSize') }}</dt><dd>{{ t('admin.promptAudit.events.promptSizeValue', { chars: formatNumber(event.snapshot.prompt_length), messages: formatNumber(event.snapshot.message_count) }) }}</dd>
-            <dt class="text-gray-500">{{ t('admin.promptAudit.events.categories') }}</dt><dd>{{ formatCategories(event.categories) }}</dd>
+            <dt class="text-gray-500">{{ t('admin.promptAudit.events.categories') }}</dt><dd>{{ formatCategories(event.matched_scanners) }}</dd>
           </dl>
         </div>
 
@@ -205,17 +205,23 @@ function translateEvidence(value: string): string {
   return value
 }
 function formatGuardReturn(event: PromptAuditEvent): string {
+  const matched = new Set(event.matched_scanners || [])
   const evidence: Record<string, string> = {}
   for (const [key, value] of Object.entries(event.scanner_evidence || {})) {
+    if (!matched.has(key)) continue
     evidence[key] = translateEvidence(value)
+  }
+  const scores: Record<string, number> = {}
+  for (const [key, value] of Object.entries(event.scanner_scores || {})) {
+    if (matched.has(key)) scores[key] = value
   }
   return JSON.stringify({
     decision: DECISIONS.has(event.decision) ? t(`admin.promptAudit.decisions.${event.decision}`) : event.decision,
     risk_level: RISK_LEVELS.has(event.risk_level) ? t(`admin.promptAudit.riskLevels.${event.risk_level}`) : event.risk_level,
     action: ACTIONS.has(event.action) ? t(`admin.promptAudit.actions.${event.action}`) : event.action,
-    categories: event.categories.map(translateCategory),
+    categories: event.matched_scanners.map(translateCategory),
     matched_scanners: event.matched_scanners.map(translateCategory),
-    scanner_scores: event.scanner_scores,
+    scanner_scores: scores,
     scanner_evidence: evidence,
     scanner_backend: event.scanner_backend,
     scanner_version: event.scanner_version,

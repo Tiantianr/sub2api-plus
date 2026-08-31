@@ -21,7 +21,7 @@ func TestParseQwen3GuardStrictAndPolicy(t *testing.T) {
 		{"controversial pii escalates", "Safety: Controversial\nCategories: PII", AllScannerIDs, EventCritical, ActionBlock, false},
 		{"unsafe", "Safety: Unsafe\nCategories: Jailbreak", AllScannerIDs, EventCritical, ActionBlock, false},
 		{"unknown unsafe", "Safety: Unsafe\nCategories: Future Risk", AllScannerIDs, EventCritical, ActionBlock, false},
-		{"disabled unsafe warns", "Safety: Unsafe\nCategories: Violent", []string{"PII"}, EventFlag, ActionWarn, false},
+		{"disabled unsafe passes", "Safety: Unsafe\nCategories: Violent", []string{"PII"}, EventPass, ActionAllow, false},
 		{"extra explanation", "Safety: Safe\nCategories: None\nThis is safe", AllScannerIDs, EventPass, ActionAllow, false},
 		{"duplicate", "Safety: Safe\nSafety: Safe", AllScannerIDs, "", "", true},
 		{"duplicate categories", "Safety: Safe\nCategories: None\nCategories: PII", AllScannerIDs, "", "", true},
@@ -40,6 +40,43 @@ func TestParseQwen3GuardStrictAndPolicy(t *testing.T) {
 			require.Equal(t, tt.action, result.Action)
 		})
 	}
+}
+
+func TestQwen3GuardDisabledKnownCategoriesAreCompletelyIgnored(t *testing.T) {
+	for _, testCase := range []struct {
+		name   string
+		safety string
+	}{
+		{name: "safe", safety: "Safe"},
+		{name: "controversial", safety: "Controversial"},
+		{name: "unsafe", safety: "Unsafe"},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			result, err := ParseQwen3Guard("Safety: "+testCase.safety+"\nCategories: PII", []string{"jailbreak"})
+			require.NoError(t, err)
+			require.Equal(t, EventPass, result.Decision)
+			require.Equal(t, RiskLow, result.RiskLevel)
+			require.Equal(t, ActionAllow, result.Action)
+			require.Empty(t, result.Categories)
+			require.Empty(t, result.MatchedScanners)
+			require.Empty(t, result.ScannerScores)
+			require.Empty(t, result.ScannerEvidence)
+		})
+	}
+
+	mixed, err := ParseQwen3Guard("Safety: Unsafe\nCategories: PII, Jailbreak", []string{"jailbreak"})
+	require.NoError(t, err)
+	require.Equal(t, EventCritical, mixed.Decision)
+	require.Equal(t, ActionBlock, mixed.Action)
+	require.Equal(t, []string{"jailbreak"}, mixed.Categories)
+	require.Equal(t, []string{"jailbreak"}, mixed.MatchedScanners)
+	require.NotContains(t, mixed.ScannerScores, "pii")
+	require.NotContains(t, mixed.ScannerEvidence, "pii")
+
+	unclassified, err := ParseQwen3Guard("Safety: Unsafe\nCategories: None", []string{"jailbreak"})
+	require.NoError(t, err)
+	require.Equal(t, EventCritical, unclassified.Decision)
+	require.Equal(t, ActionBlock, unclassified.Action)
 }
 
 func TestParseQwen3GuardIgnoresAuxiliaryResponseFields(t *testing.T) {
@@ -135,7 +172,9 @@ func TestIssueSummariesAreDeterministicRedactedDerivedDTOs(t *testing.T) {
 		UnknownCategories: []string{unknownCategoryID("future risk")},
 	}
 	summaries := BuildIssueSummaries(result)
-	require.Len(t, summaries, 3, "known categories are not hidden merely because policy disabled one")
+	require.Len(t, summaries, 2, "disabled known categories must not appear in derived findings")
+	require.Equal(t, "pii", summaries[0].Category)
+	require.Equal(t, "unknown_unsafe", summaries[1].ScannerID)
 	raw, err := json.Marshal(summaries)
 	require.NoError(t, err)
 	require.NotContains(t, string(raw), canary)

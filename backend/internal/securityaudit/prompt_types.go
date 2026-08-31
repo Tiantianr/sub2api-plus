@@ -120,6 +120,11 @@ type Request struct {
 	AllowReceiptKeys     []string
 	AllowReceiptWrite    bool
 	SuppressReceiptWrite bool
+
+	promptPolicyResolved      bool
+	promptPolicyConfigVersion int64
+	promptPolicyApplies       bool
+	promptPolicyExempt        bool
 }
 
 func (r Request) Clone() Request {
@@ -133,26 +138,27 @@ func (r Request) Clone() Request {
 }
 
 type PromptSnapshot struct {
-	RequestID           string `json:"request_id"`
-	ClientIP            string `json:"client_ip"`
-	UserID              int64  `json:"user_id"`
-	UsernameSnapshot    string `json:"username"`
-	UserEmailSnapshot   string `json:"user_email"`
-	APIKeyID            int64  `json:"api_key_id"`
-	APIKeyNameSnapshot  string `json:"api_key_name"`
-	GroupID             *int64 `json:"group_id,omitempty"`
-	GroupName           string `json:"group_name"`
-	Provider            string `json:"provider"`
-	Endpoint            string `json:"endpoint"`
-	Protocol            string `json:"protocol"`
-	Model               string `json:"model"`
-	PromptHash          string `json:"prompt_hash"`
-	RedactedPreview     string `json:"redacted_preview"`
-	FullPrompt          string `json:"full_prompt"`
-	FullPromptTruncated bool   `json:"full_prompt_truncated"`
-	PromptLength        int    `json:"prompt_length"`
-	MessageCount        int    `json:"message_count"`
-	Stage               string `json:"stage"`
+	RequestID               string `json:"request_id"`
+	ClientIP                string `json:"client_ip"`
+	UserID                  int64  `json:"user_id"`
+	UsernameSnapshot        string `json:"username"`
+	UserEmailSnapshot       string `json:"user_email"`
+	APIKeyID                int64  `json:"api_key_id"`
+	APIKeyNameSnapshot      string `json:"api_key_name"`
+	GroupID                 *int64 `json:"group_id,omitempty"`
+	GroupName               string `json:"group_name"`
+	Provider                string `json:"provider"`
+	Endpoint                string `json:"endpoint"`
+	Protocol                string `json:"protocol"`
+	Model                   string `json:"model"`
+	PromptHash              string `json:"prompt_hash"`
+	RedactedPreview         string `json:"redacted_preview"`
+	FullPrompt              string `json:"full_prompt"`
+	FullPromptTruncated     bool   `json:"full_prompt_truncated"`
+	PromptLength            int    `json:"prompt_length"`
+	MessageCount            int    `json:"message_count"`
+	Stage                   string `json:"stage"`
+	BlockingExemptAtRequest bool   `json:"blocking_exempt_at_request"`
 
 	ScanText  string `json:"-"`
 	BodyBytes int    `json:"-"`
@@ -211,14 +217,16 @@ type NormalizedResult struct {
 }
 
 type PromptDecision struct {
-	Kind             DecisionKind      `json:"kind"`
-	ErrorCode        string            `json:"error_code,omitempty"`
-	Result           *NormalizedResult `json:"result,omitempty"`
-	AllowNextStage   bool              `json:"allow_next_stage"`
-	DeepReviewed     bool              `json:"-"`
-	AllowReceiptKeys []string          `json:"-"`
-	FailureAllowed   bool              `json:"-"`
-	allowReceipt     *allowReceiptCommit
+	Kind                    DecisionKind      `json:"kind"`
+	ErrorCode               string            `json:"error_code,omitempty"`
+	Result                  *NormalizedResult `json:"result,omitempty"`
+	AllowNextStage          bool              `json:"allow_next_stage"`
+	DeepReviewed            bool              `json:"-"`
+	AllowReceiptKeys        []string          `json:"-"`
+	FailureAllowed          bool              `json:"-"`
+	AsyncAuditHandled       bool              `json:"-"`
+	BlockingExemptAtRequest bool              `json:"-"`
+	allowReceipt            *allowReceiptCommit
 }
 
 type LegacyDecision struct {

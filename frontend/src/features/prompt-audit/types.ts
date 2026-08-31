@@ -188,6 +188,7 @@ export interface PromptSnapshot {
   prompt_length: number
   message_count: number
   stage: string
+  blocking_exempt_at_request?: boolean
 }
 
 export interface PromptIssueSummary {

@@ -150,7 +150,7 @@ func ParseQwen3Guard(content string, enabledScanners []string) (*NormalizedResul
 		}
 	}
 	result := &NormalizedResult{
-		Safety: safety, Categories: knownList, MatchedScanners: matched, UnknownCategories: unknownList,
+		Safety: safety, Categories: append([]string(nil), matched...), MatchedScanners: matched, UnknownCategories: unknownList,
 		ScannerScores: map[string]float64{}, ScannerEvidence: map[string]string{},
 		ScannerBackend: "qwen3guard-openai", ScannerVersion: "qwen3guard",
 		PolicyID: "priority", PolicyVersion: 1,
@@ -158,15 +158,15 @@ func ParseQwen3Guard(content string, enabledScanners []string) (*NormalizedResul
 	}
 	score := 0.0
 	if safety == "Controversial" {
-		score = 0.5
-		result.Decision, result.RiskLevel, result.Action = EventFlag, RiskMedium, ActionWarn
+		if len(matched) > 0 || len(unknownList) > 0 {
+			score = 0.5
+			result.Decision, result.RiskLevel, result.Action = EventFlag, RiskMedium, ActionWarn
+		}
 	}
 	if safety == "Unsafe" {
-		score = 1
 		if len(matched) > 0 || len(unknownList) > 0 || len(knownList) == 0 {
+			score = 1
 			result.Decision, result.RiskLevel, result.Action = EventCritical, RiskCritical, ActionBlock
-		} else {
-			result.Decision, result.RiskLevel, result.Action = EventFlag, RiskHigh, ActionWarn
 		}
 	}
 	for _, category := range matched {

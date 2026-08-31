@@ -93,24 +93,40 @@ recovery finding remains stored while the user is outside scope and becomes
 enforceable again when the user returns through a selected group.
 
 Administrators may select up to 100 authenticated users whose in-scope requests
-remain fully reviewed and visible in the event list but are not blocked by
-valid Prompt Audit findings. Critical and Flag events preserve the Guard result
-and ordinary evidence policy. Synchronous and asynchronous findings do not
-create recovery state for an exempt user; an existing recovery finding remains
-stored and resumes if the exemption is removed. Extraction, encryption,
-invalid-response, Guard outage, and recovery-store failures retain their
-existing failure policy. This exemption does not change Content Moderation,
-which has independent scope and enforcement configuration.
+are reliably queued for full asynchronous review without waiting for
+synchronous Guard. Before the request may continue, Prompt Audit completes deep
+canonical extraction, context encryption, database admission, transient
+payload storage, and queue publication. Critical and Flag events preserve the
+Guard result and ordinary evidence policy. Jobs and events persist whether the
+request was exempt at admission; the event list displays that immutable marker
+instead of consulting current configuration. Exempt jobs do not create Allow
+receipts or recovery state; an existing recovery finding remains stored and
+resumes for later requests after the exemption is removed. Admission failures
+remain fail closed. Payload-storage and queue-publication failures after a job
+row exists best-effort create the same safe failed event with its request-time
+marker. Guard invalid-response or outage after admission follows
+the asynchronous retry and terminal failure-event policy and cannot
+retroactively block the request. This exemption does not change Content
+Moderation, which retains independent scope and enforcement configuration.
 
 ## Engine Selection
 
 Both engines consume the same canonical document:
 
+Prompt Audit `scanners` are a server-enforced allowlist for known Qwen3Guard
+categories. A known category that is not enabled is removed before decision,
+aggregation, persistence, issue-summary derivation, and administration display;
+it cannot produce Pass/Flag/Block changes. Unknown categories and an Unsafe
+response with no recognized category retain the existing fail-closed behavior.
+Historical rows are not rewritten: API reads use their persisted
+`matched_scanners` as the effective category set.
+
 | Engine/mode | Segment selection |
 | --- | --- |
 | Content Moderation | Scans only current direct-user text and images. Chat and Anthropic require an explicit `user` role; Responses, Live, and Gemini also accept their protocol-defined roleless user forms. Direct Alpha Search queries, embedding strings, and media prompts remain eligible. Instructions, system/developer context, reusable prompt variables, assistant/model messages, reasoning, tool definitions/calls/results, approval responses, and tool-produced images are excluded so platform or external content is not attributed to the user. |
 | Prompt Audit async / async-deep | Selects user turns plus configured instructions/system/developer context, assistant/model messages, reasoning, reusable prompt variables, tool definitions, tool-call arguments, and tool outputs. An async-only current user turn is mandatory. Async-deep under blocking may omit current, historical, and automatic segments with valid per-segment Allow receipts, including the same request's trusted handoff. |
-| Prompt Audit blocking | Scans direct user text marked `Current` unless an unexpired blocking Allow receipt certifies the same user, policy, source, and receipt-normalized canonical text. Every historical user turn has the same receipt requirement; misses are synchronously reviewed so client-controlled role ordering cannot hide unreviewed text. Configuration independently adds the same source modules. `blocking_latest_turn_only` remains a compatibility field and does not override module selection. Any in-scope, non-exempt aggregate Block writes user-level deep-review state before returning 403. A non-exempt user carrying that requirement is synchronously reviewed with the active async-deep module selection and all receipts bypassed regardless of API key or client session identity, but only while the request remains in configured group scope. |
+| Prompt Audit blocking-exempt | Uses the complete async-deep module selection with all Allow receipts bypassed. The full job is reliably queued before forwarding, then Guard runs asynchronously. It never creates receipts or recovery state and is identified by its request-time exemption snapshot. |
+| Prompt Audit blocking | For non-exempt users, scans direct user text marked `Current` unless an unexpired blocking Allow receipt certifies the same user, policy, source, and receipt-normalized canonical text. Every historical user turn has the same receipt requirement; misses are synchronously reviewed so client-controlled role ordering cannot hide unreviewed text. Configuration independently adds the same source modules. `blocking_latest_turn_only` remains a compatibility field and does not override module selection. Any in-scope aggregate Block writes user-level deep-review state before returning 403. A user carrying that requirement is synchronously reviewed with the active async-deep module selection and all receipts bypassed regardless of API key or client session identity, but only while the request remains in configured group scope. |
 
 Sharing a canonical document does not mean that the engines select identical
 segments. Content Moderation preserves the `v0.1.177+custom.003` attribution
@@ -223,12 +239,14 @@ content bytes. Cleanup reuses event cascade deletion and never deletes Allow
 receipts. The estimate describes future logical-backup reduction; it does not
 promise immediate filesystem reclamation.
 
-Blocking Allow, including an allowed finding for a blocking-exempt user, starts
-a best-effort `async_deep` job only after Content
-Moderation and Prompt Guard both permit the request. A synchronous aggregate
+An ordinary Blocking Allow starts a best-effort `async_deep` job only after
+Content Moderation and Prompt Guard both permit the request. A blocking-exempt
+request instead confirms its no-receipt `async_deep` job is queued before the
+combined gate returns and never enters synchronous Prompt Guard. A synchronous aggregate
 Block writes a versioned per-user Redis requirement before returning 403; an
-asynchronous deep Block writes the same state before its job completes unless
-the user is currently blocking-exempt. The
+ordinary asynchronous deep Block writes the same state before its job completes.
+A job admitted from an exempt request never writes recovery, even if the active
+exemption list later changes. The
 next request uses the active configured deep modules synchronously, bypasses
 all receipts, and may clear only the exact finding version it observed after
 complete Allow. The non-expiring finding token is never replaced by an
@@ -296,6 +314,7 @@ shutdown, and runtime health failures.
 | Content Moderation observe | Record failure; evaluate any selected extracted content; otherwise allow |
 | Content Moderation pre-block | Return `content_moderation_unavailable` for incomplete extraction, hash-store failure, missing required API credentials, or synchronous text/image API failure; do not count it as a policy violation. |
 | Prompt Audit async | Record failure; enqueue successfully extracted content or skip an empty snapshot; never affect request forwarding |
+| Prompt Audit blocking-exempt | Fail closed on incomplete extraction, encryption, database admission, payload storage, or queue publication. After admission, retry Guard failures and record one safe terminal failed event without retroactively blocking the request. |
 | Prompt Audit blocking | Reject malformed or incomplete content before Guard/upstream; allow only a completely recognized media/control-only empty text selection. |
 
 A confirmed policy match continues to use `content_policy_violation` or the
