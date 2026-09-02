@@ -116,10 +116,11 @@ type Request struct {
 	Body       []byte
 	Stage      string
 
-	PromptTextAuthority  bool
-	AllowReceiptKeys     []string
-	AllowReceiptWrite    bool
-	SuppressReceiptWrite bool
+	PromptTextAuthority     bool
+	BlockingExemptAtRequest bool
+	AllowReceiptKeys        []string
+	AllowReceiptWrite       bool
+	SuppressReceiptWrite    bool
 
 	promptPolicyResolved      bool
 	promptPolicyConfigVersion int64

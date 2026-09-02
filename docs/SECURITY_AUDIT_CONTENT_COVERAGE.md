@@ -106,8 +106,9 @@ remain fail closed. Payload-storage and queue-publication failures after a job
 row exists best-effort create the same safe failed event with its request-time
 marker. Guard invalid-response or outage after admission follows
 the asynchronous retry and terminal failure-event policy and cannot
-retroactively block the request. This exemption does not change Content
-Moderation, which retains independent scope and enforcement configuration.
+retroactively block the request. The same frozen exemption makes direct-user
+images asynchronous, non-enforcing Content Moderation observations. Local text
+keywords and text-only flagged hashes retain their independent authority.
 
 ## Engine Selection
 
@@ -123,7 +124,7 @@ Historical rows are not rewritten: API reads use their persisted
 
 | Engine/mode | Segment selection |
 | --- | --- |
-| Content Moderation | Scans only current direct-user text and images. Chat and Anthropic require an explicit `user` role; Responses, Live, and Gemini also accept their protocol-defined roleless user forms. Direct Alpha Search queries, embedding strings, and media prompts remain eligible. Instructions, system/developer context, reusable prompt variables, assistant/model messages, reasoning, tool definitions/calls/results, approval responses, and tool-produced images are excluded so platform or external content is not attributed to the user. |
+| Content Moderation | Scans only current direct-user text and images. Chat and Anthropic require an explicit `user` role; Responses, Live, and Gemini also accept their protocol-defined roleless user forms. Direct Alpha Search queries, embedding strings, and media prompts remain eligible. Instructions, system/developer context, reusable prompt variables, assistant/model messages, reasoning, tool definitions/calls/results, approval responses, and tool-produced images are excluded so platform or external content is not attributed to the user. Ordinary pre-block images are synchronous. Images carrying the frozen Prompt Audit blocking-exempt marker enter bounded asynchronous shadow review and cannot create hashes or enforcement side effects. |
 | Prompt Audit async / async-deep | Selects user turns plus configured instructions/system/developer context, assistant/model messages, reasoning, reusable prompt variables, tool definitions, tool-call arguments, and tool outputs. An async-only current user turn is mandatory. Async-deep under blocking may omit current, historical, and automatic segments with valid per-segment Allow receipts, including the same request's trusted handoff. |
 | Prompt Audit blocking-exempt | Uses the complete async-deep module selection with all Allow receipts bypassed. The full job is reliably queued before forwarding, then Guard runs asynchronously. It never creates receipts or recovery state and is identified by its request-time exemption snapshot. |
 | Prompt Audit blocking | For non-exempt users, scans direct user text marked `Current` unless an unexpired blocking Allow receipt certifies the same user, policy, source, and receipt-normalized canonical text. Every historical user turn has the same receipt requirement; misses are synchronously reviewed so client-controlled role ordering cannot hide unreviewed text. Configuration independently adds the same source modules. `blocking_latest_turn_only` remains a compatibility field and does not override module selection. Any in-scope aggregate Block writes user-level deep-review state before returning 403. A user carrying that requirement is synchronously reviewed with the active async-deep module selection and all receipts bypassed regardless of API key or client session identity, but only while the request remains in configured group scope. |
@@ -176,8 +177,9 @@ to ordinary Guard review. Warn, Block, timeout, invalid, extraction failure,
 and partial results never create receipts. Redis keys contain hashes, not
 prompt or tool values.
 
-Synchronous receipts remain pending until Content Moderation and Prompt Guard
-both permit the request. Async jobs receive internal receipt-write permission
+Synchronous receipts remain pending until enforcing Content Moderation and Prompt Guard
+both permit the request. A blocking-exempt image observation is non-enforcing
+and cannot delay this gate. Async jobs receive internal receipt-write permission
 only after the original request is permitted; blocked or unavailable requests
 may still be observed but cannot create reusable receipts.
 
@@ -331,14 +333,18 @@ Content Moderation applies the same log contract to asynchronous persistence,
 hash-cache, account-side-effect, notification, worker, cleanup, runtime, and
 post-upstream cyber-policy failures. These logs use stable error categories;
 they do not include raw dependency errors, panic values, or recipient email
-addresses. Prompt Audit applies it to enqueue, payload-store, job-claim,
-completion/retry/failure persistence, worker, reclaim, startup,
+addresses. Moderation API credentials, proxy resolution, transport, timeout,
+non-2xx, malformed-response, and empty-response failures always allow the
+current request and create a stable `error` observation when persistence is
+available. They do not create a Safe result, flagged hash, receipt, recovery
+state, notification, violation count, or ban. Prompt Audit applies the contract
+to enqueue, payload-store, job-claim, completion/retry/failure persistence, worker, reclaim, startup,
 shutdown, and runtime health failures.
 
 | Engine/mode | Content-bearing extraction failure |
 | --- | --- |
 | Content Moderation observe | Record failure; evaluate any selected extracted content; otherwise allow |
-| Content Moderation pre-block | Return `content_moderation_unavailable` for incomplete extraction, hash-store failure, missing required API credentials, or synchronous text/image API failure; do not count it as a policy violation. |
+| Content Moderation pre-block | Return `content_moderation_unavailable` for incomplete extraction, active-configuration failure, or required hash-store failure. Missing/unusable API credentials and synchronous text/image API dependency failures are recorded and allow the current request without fabricating a Safe result. Valid known keyword/hash findings and successful API risk findings retain blocking authority. |
 | Prompt Audit async | Record failure; enqueue successfully extracted content or skip an empty snapshot; never affect request forwarding |
 | Prompt Audit blocking-exempt | Fail closed on incomplete extraction, encryption, or a configuration-version mismatch. Database, payload, queue-capacity, and publication unavailability do not block the current request; any created staging failure remains visible. After admission, retry Guard failures and record one safe terminal failed event without retroactively blocking the request. |
 | Prompt Audit blocking | Reject malformed or incomplete content before Guard/upstream; allow only a completely recognized media/control-only empty text selection. Any final `prompt_guard_unavailable` result continues without a Safe result or Allow receipt. |
@@ -346,16 +352,19 @@ shutdown, and runtime health failures.
 A confirmed policy match continues to use `content_policy_violation` or the
 Prompt Audit block decision. Extraction failure uses a distinct dependency
 error code rather than a content category. Content Moderation external API
-availability remains separate from Prompt Guard selection semantics.
+availability never blocks conversation admission. Prompt Audit's frozen
+blocking-exempt marker additionally moves image API review to asynchronous
+shadow processing without changing canonical extraction or original media.
 
 Blocking Prompt Audit always failure-allows a final
 `prompt_guard_unavailable`; availability is not administrator-configurable and
 cannot produce a user-facing gateway 503. A failure-allowed request has no Safe
 result and creates no Allow receipt, including if its best-effort asynchronous
 deep review later succeeds. Strictly invalid Guard responses, partial or failed
-content extraction, encryption/configuration-version failure, known Flag or
-Block results, and Content Moderation decisions retain their existing
-fail-closed behavior. Required recovery keeps its Redis finding when Guard is
+content extraction, encryption/configuration-version failure, and known Flag or
+Block results retain their existing fail-closed behavior. Content Moderation
+configuration/extraction/hash-state failures and valid non-exempt findings also
+retain their authority; external Moderation API availability does not. Required recovery keeps its Redis finding when Guard is
 unavailable, releases the temporary claim, and does not fence the current
 failure-allowed request. The structured `prompt_guard.failure_allowed` event
 and runtime counter make every use observable; best-effort asynchronous deep
@@ -382,6 +391,10 @@ the same change and provide all of the following evidence:
 - the dual-engine contract in
   `backend/internal/handler/security_audit_content_contract_test.go`;
 - Content Moderation and Prompt Audit payload/selection tests;
+- blocking-exempt image tests proving asynchronous shadow review has no hash,
+  notification, violation-count, or ban side effect;
+- Moderation API 4xx/5xx, timeout, proxy, invalid/empty-response, and no-key
+  tests proving the current HTTP/WebSocket request remains admissible;
 - HTTP and WebSocket ordering tests proving blocking extraction failures and
   confirmed policy blocks both produce zero account, billing,
   concurrency, or upstream side effects; and

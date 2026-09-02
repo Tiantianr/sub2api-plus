@@ -82,6 +82,7 @@ func (c *Coordinator) checkBlocking(ctx context.Context, req Request) Decision {
 	if policyEngine, ok := c.prompt.(blockingPolicyPromptEngine); ok {
 		policy := policyEngine.blockingPolicy(req)
 		legacyReq.PromptTextAuthority = policy.Applies && !policy.BlockingExempt
+		legacyReq.BlockingExemptAtRequest = policy.BlockingExempt
 		promptReq.promptPolicyResolved = true
 		promptReq.promptPolicyConfigVersion = policy.ConfigVersion
 		promptReq.promptPolicyApplies = policy.Applies

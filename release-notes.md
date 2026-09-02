@@ -1,55 +1,69 @@
-Sub2API Plus v0.1.183+custom.923
+Sub2API Plus v0.1.183+custom.924
 
 ## Highlights
 
-- Estimate the full OpenAI OAuth seven-day platform limit when the displayed
-  utilization advances to a new integer percentage.
-- Show the frozen account-cost estimate directly on the OAuth account list's
-  7d row, with the sampled cost and proportional formula available on hover.
+- Make image Content Moderation follow the frozen Prompt Audit blocking-exempt
+  user policy: exempt images are reviewed asynchronously without delaying or
+  enforcing against the current conversation.
+- Allow the current conversation when the external Moderation API is
+  unavailable or returns an error, while preserving observable safe failure
+  records and all explicit local security boundaries.
+- Hide the 1000, 2000, and 5000 balance-recharge quick amount buttons while
+  retaining custom amount entry.
 
 ## Changed
 
-- The first eligible usage observation records only the current percentage
-  baseline. A later percentage increase estimates the limit as the sampled
-  platform account cost divided by the previous observed percentage, times
-  100; user-billed cost is never used.
-- The estimate remains frozen while the displayed percentage is unchanged.
-  Skipped percentages use the last observed percentage as the basis.
-- Seven-day reset anchors tolerate up to 15 minutes of drift. A new window or
-  a utilization decrease clears the old estimate and establishes a new
-  baseline.
-- Per-account serialization prevents concurrent row and batch refreshes from
-  replacing an already frozen estimate with a later cost sample.
+- The coordinator now resolves and forwards the request-time Prompt Audit
+  blocking exemption before concurrent Guard and Content Moderation checks for
+  HTTP, first WebSocket turns, and subsequent WebSocket turns.
+- Exempt image findings are stored as non-enforcing shadow observations. They
+  do not create flagged hashes, violation counts, enforcement email, recovery
+  state, or automatic account bans.
+- Ordinary pre-block images remain synchronous, and a valid successful risk
+  finding retains its configured blocking authority.
+- Moderation API credential, proxy, transport, timeout, non-2xx, malformed
+  response, empty response, and no-usable-key failures record stable error
+  telemetry but permit the current request without fabricating a Safe result.
+- Recharge quick amounts now stop at 500. Server-side amount limits and the
+  custom amount field remain unchanged.
 
 ## Fixed
 
-- Invalid, incomplete, or non-finite stored estimates are hidden instead of
-  being rendered in the account list.
-- A failure to persist the observational estimate remains non-blocking for the
-  underlying OpenAI usage query.
+- Prevent 413, timeout, upstream 4xx/5xx, proxy-resolution, invalid-response,
+  and temporary key-health failures from returning a user-facing Content
+  Moderation 503 for an otherwise admissible conversation.
+- Prevent users explicitly configured as Prompt Audit blocking-exempt from
+  waiting for image moderation or receiving image-derived hashes and
+  enforcement side effects.
+- Preserve synchronous local text keyword and text-only hash enforcement for
+  mixed text/image requests even when image review is exempt.
 
 ## Compatibility and migration
 
 - No database migration, dependency, configuration, port, Compose,
   certificate, proxy, or persistent-volume change is required.
-- Existing accounts establish their first baseline on the first eligible 7d
-  usage query after upgrade. No estimate is shown until a later percentage
-  increase is observed.
-- The snapshot is stored under the account Extra key
-  `codex_7d_limit_estimate`; it does not alter user billing, account cost, or
-  upstream quota state.
-- Roll back to `v0.1.183+custom.922` if required. The rollback removes the
-  estimate marker and stops updating its observational Extra snapshot; any
-  existing snapshot remains inert account metadata.
+- Existing Prompt Audit `blocking_exempt_user_ids` automatically become the
+  request-time authority for image Content Moderation exemption when blocking
+  Prompt Audit applies.
+- Canonical extraction failure, active-configuration failure, required hash
+  state failure, known keyword/hash findings, and successful non-exempt risk
+  findings retain their previous security behavior.
+- Roll back to `v0.1.183+custom.923` if required. The rollback restores
+  synchronous image moderation for blocking-exempt users, restores
+  Moderation-API availability failures as blocking unavailable decisions, and
+  restores the three high-value recharge quick buttons.
 - Personal images and binary archives remain Linux arm64 only.
 
 ## Known issues
 
-- The value is a proportional estimate based on locally recorded platform
-  account cost and OpenAI's integer utilization display; it is not an upstream
-  declaration of the account's exact monetary limit.
-- No estimate is produced when the previous observed percentage is zero or a
-  positive platform account cost is unavailable.
+- A blocking-exempt image finding is intentionally non-enforcing and cannot
+  retroactively cancel a request that was already admitted.
+- Moderation API availability failures intentionally permit the current
+  request. Operators must monitor error records and key-health metrics because
+  these failures are not Safe moderation results.
+- Prompt Audit exemption can only be propagated while blocking Prompt Audit is
+  active and its request scope applies; otherwise Content Moderation uses its
+  ordinary independent policy.
 - Production deployment and configuration changes remain separate operations
   and are not part of release publication.
 

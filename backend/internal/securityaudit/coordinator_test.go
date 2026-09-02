@@ -42,6 +42,13 @@ type fakePromptEngine struct {
 	lastEvaluate   Request
 }
 
+type fakePolicyPromptEngine struct {
+	*fakePromptEngine
+	policy promptBlockingPolicy
+}
+
+func (f *fakePolicyPromptEngine) blockingPolicy(Request) promptBlockingPolicy { return f.policy }
+
 func (f *fakePromptEngine) EffectiveMode() Mode          { return f.mode }
 func (f *fakePromptEngine) BlockingApplies(Request) bool { return f.applies }
 func (f *fakePromptEngine) Enqueue(_ context.Context, req Request) error {
@@ -77,6 +84,30 @@ func TestCoordinatorMarksLegacyTextAsShadowOnlyWhenPromptCoversRequest(t *testin
 	decision = NewCoordinator(legacy, prompt).Check(context.Background(), Request{APIKeyID: 7})
 	require.True(t, decision.AllowNextStage)
 	require.False(t, legacy.last.PromptTextAuthority)
+}
+
+func TestCoordinatorPropagatesFrozenBlockingExemptionToLegacyAcrossTransports(t *testing.T) {
+	for _, stage := range []string{"http", "first_turn", "subsequent_turn"} {
+		t.Run(stage, func(t *testing.T) {
+			legacy := &fakeLegacyEngine{decision: &LegacyDecision{Allowed: true}}
+			prompt := &fakePolicyPromptEngine{
+				fakePromptEngine: &fakePromptEngine{
+					mode: ModeBlocking,
+					decision: &PromptDecision{
+						Kind: DecisionAllow, AllowNextStage: true,
+						AsyncAuditHandled: true, BlockingExemptAtRequest: true,
+					},
+				},
+				policy: promptBlockingPolicy{Applies: true, BlockingExempt: true, ConfigVersion: 7},
+			}
+
+			decision := NewCoordinator(legacy, prompt).Check(context.Background(), Request{UserID: 42, Stage: stage})
+
+			require.True(t, decision.AllowNextStage)
+			require.True(t, legacy.last.BlockingExemptAtRequest)
+			require.False(t, legacy.last.PromptTextAuthority)
+		})
+	}
 }
 
 func TestCoordinatorFinalRecoveryFenceStopsConcurrentOrdinaryAllow(t *testing.T) {
