@@ -342,6 +342,9 @@ type ContentModerationCheckInput struct {
 	// exact request. It lets text API mode=auto shadow legacy text moderation
 	// without weakening requests outside Prompt Audit scope.
 	PromptTextAuthority bool
+	// BlockingExemptAtRequest is the frozen Prompt Audit policy decision. Image
+	// API review becomes asynchronous and non-enforcing when it is true.
+	BlockingExemptAtRequest bool
 }
 
 type ContentModerationInput struct {
@@ -940,6 +943,7 @@ func (s *ContentModerationService) Check(ctx context.Context, input ContentModer
 		"text_api_mode", cfg.TextAPIMode,
 		"effective_text_api_mode", cfg.effectiveTextAPIMode(input.PromptTextAuthority),
 		"prompt_text_authority", input.PromptTextAuthority,
+		"blocking_exempt_at_request", input.BlockingExemptAtRequest,
 		"all_groups", cfg.AllGroups,
 		"configured_group_ids", cfg.GroupIDs,
 		"in_group_scope", inGroupScope,
@@ -1038,6 +1042,8 @@ func (s *ContentModerationService) Check(ctx context.Context, input ContentModer
 		s.extractionSucceeded.Add(1)
 	}
 	content.Normalize()
+	imageBlockingExempt := cfg.Mode == ContentModerationModePreBlock &&
+		input.BlockingExemptAtRequest && len(content.Images) > 0
 	slog.Info("content_moderation.input_extracted",
 		"user_id", input.UserID,
 		"api_key_id", input.APIKeyID,
@@ -1045,7 +1051,8 @@ func (s *ContentModerationService) Check(ctx context.Context, input ContentModer
 		"endpoint", input.Endpoint,
 		"protocol", input.Protocol,
 		"text_runes", len([]rune(content.Text)),
-		"image_count", len(content.Images))
+		"image_count", len(content.Images),
+		"image_blocking_exempt", imageBlockingExempt)
 	hashText := content.Hash()
 	if cfg.Mode == ContentModerationModePreBlock {
 		if cfg.KeywordBlockingMode != ContentModerationKeywordModeAPIOnly && len(cfg.BlockedKeywords) > 0 {
@@ -1087,8 +1094,19 @@ func (s *ContentModerationService) Check(ctx context.Context, input ContentModer
 			return allow, nil
 		}
 	}
-	if cfg.Mode == ContentModerationModePreBlock && cfg.PreHashCheckEnabled && s.hashCache != nil {
-		matched, err := s.hashCache.HasFlaggedInputHash(ctx, hashText)
+	hashCheckText := hashText
+	hashCheckEnabled := true
+	if imageBlockingExempt {
+		textOnly := ContentModerationInput{Text: content.Text}
+		textOnly.Normalize()
+		if textOnly.IsEmpty() {
+			hashCheckEnabled = false
+		} else {
+			hashCheckText = textOnly.Hash()
+		}
+	}
+	if cfg.Mode == ContentModerationModePreBlock && cfg.PreHashCheckEnabled && s.hashCache != nil && hashCheckEnabled {
+		matched, err := s.hashCache.HasFlaggedInputHash(ctx, hashCheckText)
 		if err != nil {
 			slog.Warn("content_moderation.hash_check_failed",
 				"request_id", input.RequestID,
@@ -1113,21 +1131,21 @@ func (s *ContentModerationService) Check(ctx context.Context, input ContentModer
 				"group_id", contentModerationLogGroupID(input.GroupID),
 				"endpoint", input.Endpoint,
 				"protocol", input.Protocol,
-				"input_hash", hashText)
+				"input_hash", hashCheckText)
 			message := cfg.BlockMessage
 			if message != "" {
-				message = fmt.Sprintf("%s（hash: %s）", message, hashText)
+				message = fmt.Sprintf("%s（hash: %s）", message, hashCheckText)
 			}
 			scores := map[string]float64{"hash": 1.0}
 			log := s.buildLog(input, cfg, ContentModerationActionHashBlock, true, "hash", 1.0, scores, content.ExcerptText(), nil, nil, "")
-			s.enqueueRecord(input, cfg, log, hashText, false, false)
+			s.enqueueRecord(input, cfg, log, hashCheckText, false, false)
 			return &ContentModerationDecision{
 				Allowed:    false,
 				Blocked:    true,
 				Flagged:    true,
 				Message:    message,
 				StatusCode: cfg.BlockStatus,
-				InputHash:  hashText,
+				InputHash:  hashCheckText,
 				Action:     ContentModerationActionHashBlock,
 			}, nil
 		}
@@ -1145,10 +1163,11 @@ func (s *ContentModerationService) Check(ctx context.Context, input ContentModer
 	if externalContent.IsEmpty() {
 		return allow, nil
 	}
-	blockingAPIRequired := cfg.Mode == ContentModerationModePreBlock &&
-		(textAPIMode == ContentModerationTextAPIModeBlocking || len(content.Images) > 0)
-	hasBlockingImages := cfg.Mode == ContentModerationModePreBlock && len(content.Images) > 0
-	if !hasBlockingImages && !cfg.shouldSample(hashText) {
+	imageAuditRequired := cfg.Mode == ContentModerationModePreBlock && len(content.Images) > 0
+	hasBlockingImages := imageAuditRequired && !imageBlockingExempt
+	synchronousAPIRequired := cfg.Mode == ContentModerationModePreBlock &&
+		(textAPIMode == ContentModerationTextAPIModeBlocking || hasBlockingImages)
+	if !imageAuditRequired && !cfg.shouldSample(hashText) {
 		if cfg.Mode == ContentModerationModePreBlock {
 			s.recordPreBlockSyncMetric(0, ContentModerationActionAllow)
 		}
@@ -1162,7 +1181,7 @@ func (s *ContentModerationService) Check(ctx context.Context, input ContentModer
 		return allow, nil
 	}
 	if len(cfg.apiKeys()) == 0 {
-		if blockingAPIRequired {
+		if synchronousAPIRequired {
 			s.recordPreBlockSyncMetric(0, ContentModerationActionError)
 		}
 		slog.Warn("content_moderation.skip_no_audit_api_keys",
@@ -1176,9 +1195,7 @@ func (s *ContentModerationService) Check(ctx context.Context, input ContentModer
 			"body_bytes", len(input.Body),
 			"error_code", "no_audit_api_keys",
 			"error_kind", "audit_dependency")
-		if blockingAPIRequired {
-			return contentModerationUnavailableDecision("内容审核暂时不可用，请稍后重试"), nil
-		}
+		s.recordContentModerationAPIFailure(ctx, input, cfg, externalContent, externalContent.Hash(), nil, nil, "no_audit_api_keys")
 		return allow, nil
 	}
 	if cfg.Mode == ContentModerationModeObserve {
@@ -1206,7 +1223,20 @@ func (s *ContentModerationService) Check(ctx context.Context, input ContentModer
 		return allow, nil
 	}
 
+	if imageBlockingExempt {
+		images := ContentModerationInput{Images: append([]string(nil), content.Images...)}
+		images.Normalize()
+		s.enqueueAsync(input, cfg, images, images.Hash(), true)
+	}
 	if textAPIMode == ContentModerationTextAPIModeBlocking {
+		if imageBlockingExempt {
+			textOnly := ContentModerationInput{Text: content.Text}
+			textOnly.Normalize()
+			if textOnly.IsEmpty() {
+				return allow, nil
+			}
+			return s.checkSync(ctx, input, cfg, textOnly, textOnly.Hash(), nil, true), nil
+		}
 		return s.checkSync(ctx, input, cfg, externalContent, externalContent.Hash(), nil, true), nil
 	}
 	if textAPIMode == ContentModerationTextAPIModeObserve && strings.TrimSpace(content.Text) != "" {
@@ -1215,6 +1245,9 @@ func (s *ContentModerationService) Check(ctx context.Context, input ContentModer
 		s.enqueueAsync(input, cfg, shadow, shadow.Hash(), true)
 	}
 	if len(content.Images) == 0 {
+		return allow, nil
+	}
+	if imageBlockingExempt {
 		return allow, nil
 	}
 	images := ContentModerationInput{Images: append([]string(nil), content.Images...)}
@@ -1321,13 +1354,7 @@ func (s *ContentModerationService) checkSync(ctx context.Context, input ContentM
 		if queueDelay != nil {
 			s.asyncErrors.Add(1)
 		}
-		if cfg.RecordNonHits {
-			log := s.buildLog(input, cfg, ContentModerationActionError, false, "", 0, nil, content.ExcerptText(), &latency, queueDelay, "audit_dependency_failed")
-			_ = s.repo.CreateLog(ctx, log)
-		}
-		if allowBlock {
-			return contentModerationUnavailableDecision("内容审核暂时不可用，请稍后重试")
-		}
+		s.recordContentModerationAPIFailure(ctx, input, cfg, content, hashText, &latency, queueDelay, "audit_dependency_failed")
 		return allow
 	}
 
@@ -1389,6 +1416,29 @@ func (s *ContentModerationService) checkSync(ctx context.Context, input ContentM
 		CategoryScores:  result.CategoryScores,
 		Action:          action,
 	}
+}
+
+func (s *ContentModerationService) recordContentModerationAPIFailure(
+	ctx context.Context,
+	input ContentModerationCheckInput,
+	cfg *ContentModerationConfig,
+	content ContentModerationInput,
+	inputHash string,
+	latency *int,
+	queueDelay *int,
+	errorCode string,
+) {
+	if s == nil || s.repo == nil || cfg == nil {
+		return
+	}
+	log := s.buildLog(input, cfg, ContentModerationActionError, false, "", 0, nil, content.ExcerptText(), latency, queueDelay, errorCode)
+	if queueDelay != nil {
+		if err := s.repo.CreateLog(ctx, log); err != nil {
+			slog.Warn("content_moderation.create_failure_log_failed", contentModerationExceptionAttrs(log, "create_failure_log_failed", contentModerationErrorKind(err))...)
+		}
+		return
+	}
+	s.enqueueRecord(input, cfg, log, inputHash, false, false)
 }
 
 func (s *ContentModerationService) recordPreBlockSyncMetric(latencyMS int, action string) {
@@ -1550,7 +1600,7 @@ func (s *ContentModerationService) worker(id int) {
 			if !cfg.includesModel(task.input.Model) {
 				return
 			}
-			if task.shadowOnly && cfg.effectiveTextAPIMode(task.input.PromptTextAuthority) == ContentModerationTextAPIModeOff {
+			if task.shadowOnly && len(task.content.Images) == 0 && cfg.effectiveTextAPIMode(task.input.PromptTextAuthority) == ContentModerationTextAPIModeOff {
 				return
 			}
 			s.asyncActive.Add(1)

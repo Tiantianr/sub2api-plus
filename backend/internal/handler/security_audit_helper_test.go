@@ -2,12 +2,14 @@ package handler
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/LuckyKuang/sub2api-plus/internal/pkg/pagination"
 	"github.com/LuckyKuang/sub2api-plus/internal/securityaudit"
 	middleware2 "github.com/LuckyKuang/sub2api-plus/internal/server/middleware"
 	"github.com/LuckyKuang/sub2api-plus/internal/service"
@@ -16,6 +18,55 @@ import (
 	"go.uber.org/zap"
 	"go.uber.org/zap/zaptest/observer"
 )
+
+type handlerModerationSettingRepo struct{ values map[string]string }
+
+func (r handlerModerationSettingRepo) Get(_ context.Context, key string) (*service.Setting, error) {
+	if value, ok := r.values[key]; ok {
+		return &service.Setting{Key: key, Value: value}, nil
+	}
+	return nil, service.ErrSettingNotFound
+}
+func (r handlerModerationSettingRepo) GetValue(ctx context.Context, key string) (string, error) {
+	setting, err := r.Get(ctx, key)
+	if err != nil {
+		return "", err
+	}
+	return setting.Value, nil
+}
+func (r handlerModerationSettingRepo) Set(context.Context, string, string) error { return nil }
+func (r handlerModerationSettingRepo) GetMultiple(_ context.Context, keys []string) (map[string]string, error) {
+	out := make(map[string]string, len(keys))
+	for _, key := range keys {
+		if value, ok := r.values[key]; ok {
+			out[key] = value
+		}
+	}
+	return out, nil
+}
+func (r handlerModerationSettingRepo) SetMultiple(context.Context, map[string]string) error {
+	return nil
+}
+func (r handlerModerationSettingRepo) GetAll(context.Context) (map[string]string, error) {
+	return r.values, nil
+}
+func (r handlerModerationSettingRepo) Delete(context.Context, string) error { return nil }
+
+type handlerModerationRepo struct{}
+
+func (handlerModerationRepo) CreateLog(context.Context, *service.ContentModerationLog) error {
+	return nil
+}
+func (handlerModerationRepo) ListLogs(context.Context, service.ContentModerationLogFilter) ([]service.ContentModerationLog, *pagination.PaginationResult, error) {
+	return nil, &pagination.PaginationResult{}, nil
+}
+func (handlerModerationRepo) CountFlaggedByUserSince(context.Context, int64, time.Time, bool) (int, error) {
+	return 0, nil
+}
+func (handlerModerationRepo) CleanupExpiredLogs(context.Context, time.Time, time.Time) (*service.ContentModerationCleanupResult, error) {
+	return &service.ContentModerationCleanupResult{}, nil
+}
+func (handlerModerationRepo) UpdateLogEmailSent(context.Context, int64, bool) error { return nil }
 
 func TestCachesSecurityAuditCompletionSkipsWebSocketStages(t *testing.T) {
 	require.True(t, cachesSecurityAuditCompletion("http"))
@@ -377,6 +428,83 @@ func TestBlockingExemptAllowIsDeduplicatedPerHTTPAndWebSocketTurn(t *testing.T) 
 		require.NotNil(t, nextTurn)
 		require.Equal(t, int64(2), engine.evaluates.Load())
 	})
+}
+
+func TestContentModerationAPIFailureAllowsHTTPAndWebSocketDownstreamStages(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	var moderationCalls atomic.Int64
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		moderationCalls.Add(1)
+		w.WriteHeader(http.StatusRequestEntityTooLarge)
+		_, _ = w.Write([]byte(`{"error":{"message":"RAW-UPSTREAM-CANARY"}}`))
+	}))
+	defer server.Close()
+	cfg := service.ContentModerationConfig{
+		Enabled: true, Mode: service.ContentModerationModePreBlock,
+		BaseURL: server.URL, Model: "omni-moderation-latest",
+		APIKeys: []string{"sk-test"}, TimeoutMS: 1000, RetryCount: 0,
+		AllGroups: true, WorkerCount: 1, QueueSize: 32,
+		TextAPIMode: service.ContentModerationTextAPIModeOff,
+	}
+	rawCfg, err := json.Marshal(cfg)
+	require.NoError(t, err)
+	for _, accountType := range []string{service.AccountTypeAPIKey, service.AccountTypeOAuth} {
+		for _, stage := range []string{"http", "subsequent_turn"} {
+			t.Run(accountType+"/"+stage, func(t *testing.T) {
+				moderation := service.NewContentModerationService(
+					handlerModerationSettingRepo{values: map[string]string{
+						service.SettingKeyRiskControlEnabled:      "true",
+						service.SettingKeyContentModerationConfig: string(rawCfg),
+					}},
+					handlerModerationRepo{}, nil, nil, nil, nil, nil, nil,
+				)
+				coordinator := securityaudit.NewCoordinator(
+					securityaudit.NewLegacyModerationAdapter(moderation),
+					&turnCountingEngine{mode: securityaudit.ModeOff},
+				)
+				recorder := httptest.NewRecorder()
+				c, _ := gin.CreateTestContext(recorder)
+				c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
+				payload := []byte(`{"input":[{"type":"message","role":"user","content":[{"type":"input_image","image_url":"https://example.test/image.png"}]}]}`)
+				if stage != "http" {
+					c.Set(securityAuditWSTurnContextKey, 2)
+					payload = []byte(`{"type":"response.create","response":{"input":[{"type":"message","role":"user","content":[{"type":"input_image","image_url":"https://example.test/image.png"}]}]}}`)
+				}
+				groupID := int64(3)
+				apiKey := &service.APIKey{ID: 9, UserID: 7, GroupID: &groupID, Group: &service.Group{ID: groupID, Platform: service.PlatformOpenAI}}
+				account := &service.Account{ID: 11, Platform: service.PlatformOpenAI, Type: accountType, Credentials: map[string]any{"api_key": "key", "access_token": "token"}}
+				decision := runSecurityAudit(
+					c, nil, coordinator, moderation, apiKey, middleware2.AuthSubject{UserID: 7, Concurrency: 2},
+					service.ContentModerationProtocolOpenAIResponses, "gpt-test", payload, stage,
+				)
+
+				require.NotNil(t, decision)
+				require.Equal(t, securityaudit.DecisionAllow, decision.Kind)
+				require.True(t, decision.AllowNextStage)
+				require.NotNil(t, decision.Legacy)
+				require.True(t, decision.Legacy.Allowed)
+				require.False(t, decision.Legacy.Flagged)
+
+				accountSelections, billingChecks, concurrencyAcquisitions, upstreamWrites := 0, 0, 0, 0
+				if decision.AllowNextStage {
+					accountSelections++
+					credential := account.GetOpenAIProtocolAPIKey()
+					if account.IsOpenAIOAuth() {
+						credential = account.GetOpenAIAccessToken()
+					}
+					require.NotEmpty(t, credential)
+					billingChecks++
+					concurrencyAcquisitions++
+					upstreamWrites++
+				}
+				require.Equal(t, 1, accountSelections)
+				require.Equal(t, 1, billingChecks)
+				require.Equal(t, 1, concurrencyAcquisitions)
+				require.Equal(t, 1, upstreamWrites)
+			})
+		}
+	}
+	require.Equal(t, int64(4), moderationCalls.Load())
 }
 
 func TestGuardUnavailablePolicyAllowsHTTPAndWebSocketForAPIKeyAndOAuth(t *testing.T) {

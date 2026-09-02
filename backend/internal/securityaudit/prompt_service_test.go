@@ -246,6 +246,7 @@ func TestPromptServiceBlockingExemptUserIsReliablyQueuedWithoutSynchronousGuard(
 	require.Nil(t, decision.Result)
 	require.False(t, service.BlockingApplies(request), "Content Moderation must retain text authority")
 	require.False(t, legacy.last.PromptTextAuthority)
+	require.True(t, legacy.last.BlockingExemptAtRequest)
 	require.Equal(t, []string{"create_staging", "payload_set", "publish_queued"}, trace)
 	require.NotNil(t, repo.createJob)
 	require.Equal(t, ModeAsyncDeep, repo.createJob.ExecutionMode)

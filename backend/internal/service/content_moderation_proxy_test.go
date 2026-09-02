@@ -172,6 +172,56 @@ func TestContentModerationProxyResolveFailureDoesNotFallBackToDirect(t *testing.
 	}
 }
 
+func TestContentModerationProxyResolveFailureAllowsCurrentConversation(t *testing.T) {
+	var direct atomic.Int64
+	directSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		direct.Add(1)
+		_ = json.NewEncoder(w).Encode(moderationAPIResponse{Results: []moderationAPIResult{{}}})
+	}))
+	defer directSrv.Close()
+	cfg := defaultContentModerationConfig()
+	cfg.Enabled = true
+	cfg.Mode = ContentModerationModePreBlock
+	cfg.TextAPIMode = ContentModerationTextAPIModeOff
+	cfg.BaseURL = directSrv.URL
+	cfg.APIKeys = []string{"sk-test"}
+	cfg.ProxyID = moderationProxyIDPtr(9)
+	cfg.RetryCount = 0
+	cfg.RecordNonHits = false
+	rawCfg, err := json.Marshal(cfg)
+	if err != nil {
+		t.Fatalf("marshal config: %v", err)
+	}
+	repo := &contentModerationTestRepo{}
+	proxyRepo := &contentModerationTestProxyRepo{getByIDErr: errors.New("proxy deleted")}
+	svc := NewContentModerationService(
+		&contentModerationTestSettingRepo{values: map[string]string{
+			SettingKeyRiskControlEnabled:      "true",
+			SettingKeyContentModerationConfig: string(rawCfg),
+		}},
+		repo, nil, nil, nil, proxyRepo, nil, nil,
+	)
+
+	decision, err := svc.Check(context.Background(), ContentModerationCheckInput{
+		RequestID: "proxy-resolution-failure",
+		Protocol:  ContentModerationProtocolOpenAIResponses,
+		Body:      []byte(`{"input":[{"type":"message","role":"user","content":[{"type":"input_image","image_url":"https://example.test/image.png"}]}]}`),
+	})
+	if err != nil {
+		t.Fatalf("check returned error: %v", err)
+	}
+	if !decision.Allowed || decision.Blocked {
+		t.Fatalf("proxy dependency failure must allow current conversation: %+v", decision)
+	}
+	if direct.Load() != 0 {
+		t.Fatal("must not fall back to direct connection when proxy resolution fails")
+	}
+	logs := requireContentModerationLogCount(t, repo, 1)
+	if logs[0].Action != ContentModerationActionError || logs[0].Error != "audit_dependency_failed" {
+		t.Fatalf("unexpected safe failure log: %+v", logs[0])
+	}
+}
+
 // 代理 URL 解析结果按 TTL 缓存，热路径不应每次调用都查库。
 func TestContentModerationProxyURLResolutionCached(t *testing.T) {
 	proxyRepo := &contentModerationTestProxyRepo{proxies: map[int64]*Proxy{

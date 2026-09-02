@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, shallowMount } from '@vue/test-utils'
 import PaymentView from '../PaymentView.vue'
+import AmountInput from '@/components/payment/AmountInput.vue'
 import { PAYMENT_RECOVERY_STORAGE_KEY } from '@/components/payment/paymentFlow'
 import { formatPaymentAmount } from '@/components/payment/currency'
 import SubscriptionPlanCard from '@/components/payment/SubscriptionPlanCard.vue'
@@ -308,6 +309,25 @@ describe('PaymentView checkout tabs', () => {
     const rechargeTab = wrapper.findAll('button').find(button => button.text() === 'payment.tabTopUp')
     expect(rechargeTab?.classes()).toContain('bg-white')
     expect(wrapper.findAllComponents(SubscriptionPlanCard)).toHaveLength(0)
+  })
+
+  it('hides the 1000, 2000, and 5000 quick recharge amounts', async () => {
+    routeState.path = '/purchase'
+    routeState.query = {}
+    getCheckoutInfo.mockReset().mockResolvedValue(checkoutInfoFixture())
+    const wrapper = shallowMount(PaymentView, {
+      global: {
+        stubs: {
+          AppLayout: { template: '<div><slot /></div>' },
+          Teleport: true,
+          Transition: false,
+        },
+      },
+    })
+    await flushPromises()
+    await flushPromises()
+
+    expect(wrapper.getComponent(AmountInput).props('amounts')).toEqual([10, 20, 50, 100, 200, 500])
   })
 })
 
