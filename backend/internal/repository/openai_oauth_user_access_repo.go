@@ -146,7 +146,7 @@ func (r *openAIOAuthUserAccessRepository) ListUsers(ctx context.Context, search,
 			  ON p.account_id = g.account_id AND p.mode = 'restricted'
 			WHERE g.user_id = u.id
 		) AS grants ON TRUE
-		WHERE u.role = 'user'
+		WHERE u.role IN ('user', 'admin')
 		  AND u.deleted_at IS NULL
 		  AND ($1 = '' OR u.email ILIKE '%' || $1 || '%' OR u.id::text = $1)
 		  AND ($2 = '' OR u.status = $2)
@@ -327,7 +327,7 @@ func validateOpenAIOAuthGrantUsers(ctx context.Context, tx *sql.Tx, changes []se
 		SELECT COUNT(*)
 		FROM users
 		WHERE id = ANY($1)
-		  AND role = 'user'
+		  AND role IN ('user', 'admin')
 		  AND deleted_at IS NULL
 	`, pq.Array(userIDs)).Scan(&validCount); err != nil {
 		return err

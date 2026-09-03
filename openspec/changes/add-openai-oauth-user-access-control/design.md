@@ -24,7 +24,7 @@ HTTP and SSE requests already sent upstream may finish naturally. The next HTTP 
 
 ## Administration workflow
 
-The administrator page is a paginated user-by-account matrix. It lists only OpenAI OAuth root accounts, shows public/restricted/default state, supports user and eligibility filters, and keeps edits in a local draft until preview and confirmation.
+The administrator page is a paginated local-identity-by-account matrix. It lists ordinary users and administrators together with only OpenAI OAuth root accounts, shows public/restricted/default state, supports user and eligibility filters, and keeps edits in a local draft until preview and confirmation. Either role may receive an explicit grant, while the future-user default remains limited to newly inserted ordinary users.
 
 Preview reports mode changes, grant additions/removals, future-user defaults, and users whose current API-key groups would have no permitted OAuth account. Updates validate the expected policy revision and apply all submitted account changes in one transaction. Revision conflicts return HTTP 409 instead of overwriting another administrator's changes.
 

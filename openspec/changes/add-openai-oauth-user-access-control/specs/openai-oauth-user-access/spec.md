@@ -44,6 +44,12 @@ The system SHALL provide an administrator-only user/account matrix for OpenAI OA
 - **THEN** every submitted account change MUST commit in one transaction or none may commit
 - **THEN** the audit record MUST describe identities, revisions, modes, and grant counts without credentials or tokens
 
+#### Scenario: An administrator grants their own local identity
+- **WHEN** an administrator needs to use a restricted OpenAI OAuth account through an ordinarily eligible API key group
+- **THEN** that administrator MUST appear in the user/account matrix and MAY receive an explicit grant
+- **THEN** the grant MUST use the same revision checks, transaction, scheduling enforcement, and group intersection as an ordinary-user grant
+- **THEN** future-user defaults MUST NOT automatically grant administrator identities
+
 #### Scenario: Two administrators edit the same account
 - **WHEN** the submitted expected revision differs from durable policy state
 - **THEN** the update MUST fail with a conflict response
