@@ -5,6 +5,7 @@ import EndpointPool from '../components/EndpointPool.vue'
 import PolicyPanel from '../components/PolicyPanel.vue'
 import EventWorkspace from '../components/EventWorkspace.vue'
 import EventDetailDialog from '../components/EventDetailDialog.vue'
+import UserAnalysisDialog from '../components/UserAnalysisDialog.vue'
 import FilterDeleteDialog from '../components/FilterDeleteDialog.vue'
 import PassEventCleanupDialog from '../components/PassEventCleanupDialog.vue'
 import RuntimeOverview from '../components/RuntimeOverview.vue'
@@ -67,6 +68,23 @@ describe('Prompt Audit components', () => {
     expect(wrapper.text()).toContain('prompt_guard_unavailable')
     expect(wrapper.text()).toContain('admin.promptAudit.runtime.allowReceiptTotals')
     expect(wrapper.text()).toContain('admin.promptAudit.runtime.recoveryTotals')
+  })
+
+  it('renders an ephemeral selected-session analysis report', () => {
+    const wrapper = mount(UserAnalysisDialog, {
+      props: {
+        show: true, loading: false, error: '',
+        analysis: {
+          user_id: 7, username: 'alice', user_email: 'alice@example.test', session_key: 'a'.repeat(64), session_source: 'client_session',
+          record_count: 2, first_record_at: '2026-07-16T00:00:00Z', last_record_at: '2026-07-16T00:05:00Z',
+          guard_endpoint_id: 'guard-1', guard_endpoint_name: 'Guard', guard_model: 'guard-model', generated_at: '2026-07-16T00:06:00Z', report: 'risk report',
+        },
+      },
+      global: { stubs: { BaseDialog: DialogStub } },
+    })
+    expect(wrapper.get('[data-test="user-analysis-report"]').text()).toBe('risk report')
+    expect(wrapper.text()).toContain('admin.promptAudit.analysis.session')
+    expect(wrapper.text()).toContain('aaaaaaaa...aaaaaaaa')
   })
 
   it('edits a saved endpoint with blank-secret keep, explicit clear, replacement, and probe actions', async () => {
@@ -196,6 +214,8 @@ describe('Prompt Audit components', () => {
     expect((wrapper.emitted('search')?.at(-1)?.[0] as PromptEventFilters).user_id).toBe('1')
     await wrapper.get('[aria-label="admin.promptAudit.events.executionMode"]').setValue('async_deep')
     expect((wrapper.emitted('filters-change')?.at(-1)?.[0] as PromptEventFilters).execution_mode).toBe('async_deep')
+    await wrapper.get('[data-test="analyze-user"]').trigger('click')
+    expect(wrapper.emitted('analyze')?.at(-1)?.[0]).toBe(1)
   })
 
   it('shows failed audit events with a safe reason and error code', async () => {

@@ -325,9 +325,19 @@
                       <div class="text-xs text-gray-400">{{ row.provider || '-' }} / {{ row.model || '-' }}</div>
                     </td>
                     <td class="whitespace-nowrap px-5 py-4">
-                      <span class="inline-flex rounded-md px-2 py-1 text-xs font-medium" :class="resultBadgeClass(row)">
-                        {{ resultLabel(row) }}
-                      </span>
+                      <div class="flex flex-wrap items-center gap-1.5">
+                        <span class="inline-flex rounded-md px-2 py-1 text-xs font-medium" :class="resultBadgeClass(row)">
+                          {{ resultLabel(row) }}
+                        </span>
+                        <span
+                          v-if="row.blocking_exempt_at_request"
+                          class="inline-flex rounded-md bg-cyan-100 px-1.5 py-0.5 text-xs font-medium text-cyan-800 dark:bg-cyan-950/50 dark:text-cyan-200"
+                          data-test="blocking-exempt-at-request"
+                          :title="t('admin.riskControl.blockingExemptAtRequestHint')"
+                        >
+                          {{ t('admin.riskControl.blockingExemptAtRequest') }}
+                        </span>
+                      </div>
                     </td>
                     <td class="whitespace-nowrap px-5 py-4 text-sm text-gray-700 dark:text-gray-300">
                       <div>{{ row.highest_category || '-' }}</div>
@@ -1103,9 +1113,19 @@
             </div>
             <div class="rounded-lg border border-gray-100 bg-gray-50 p-4 dark:border-dark-700 dark:bg-dark-800/70">
               <p class="text-xs font-medium text-gray-500 dark:text-gray-400">{{ t('admin.riskControl.table.result') }}</p>
-              <span class="mt-1 inline-flex rounded-md px-2 py-1 text-xs font-medium" :class="resultBadgeClass(inputDetailRow)">
-                {{ resultLabel(inputDetailRow) }}
-              </span>
+              <div class="mt-1 flex flex-wrap items-center gap-1.5">
+                <span class="inline-flex rounded-md px-2 py-1 text-xs font-medium" :class="resultBadgeClass(inputDetailRow)">
+                  {{ resultLabel(inputDetailRow) }}
+                </span>
+                <span
+                  v-if="inputDetailRow.blocking_exempt_at_request"
+                  class="inline-flex rounded-md bg-cyan-100 px-1.5 py-0.5 text-xs font-medium text-cyan-800 dark:bg-cyan-950/50 dark:text-cyan-200"
+                  data-test="modal-blocking-exempt-at-request"
+                  :title="t('admin.riskControl.blockingExemptAtRequestHint')"
+                >
+                  {{ t('admin.riskControl.blockingExemptAtRequest') }}
+                </span>
+              </div>
             </div>
             <div class="rounded-lg border border-gray-100 bg-gray-50 p-4 dark:border-dark-700 dark:bg-dark-800/70">
               <p class="text-xs font-medium text-gray-500 dark:text-gray-400">{{ t('admin.riskControl.table.highest') }}</p>
@@ -1131,7 +1151,19 @@
                 {{ inputDetailRow.group_name }}
               </span>
             </div>
-            <pre class="mt-4 max-h-[420px] overflow-auto whitespace-pre-wrap break-words rounded-lg bg-gray-950 p-4 text-sm leading-6 text-gray-100 shadow-inner dark:bg-black/50">{{ inputDetailText }}</pre>
+            <div v-if="inputDetailLoading" class="mt-4 flex min-h-32 items-center justify-center rounded-lg bg-gray-950 text-sm text-gray-300 dark:bg-black/50">
+              <Icon name="refresh" size="sm" class="mr-2 animate-spin" />
+              {{ t('admin.riskControl.inputDetailLoading') }}
+            </div>
+            <div v-else class="mt-4 space-y-3">
+              <p v-if="inputDetailLoadFailed" class="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700 dark:border-red-900/60 dark:bg-red-900/20 dark:text-red-300">
+                {{ t('admin.riskControl.inputDetailLoadFailed') }}
+              </p>
+              <p v-else-if="inputDetailRow.matched_keyword && !inputDetailComplete" class="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700 dark:border-amber-900/60 dark:bg-amber-900/20 dark:text-amber-300">
+                {{ t('admin.riskControl.inputDetailHistorical') }}
+              </p>
+              <pre class="max-h-[420px] overflow-auto whitespace-pre-wrap break-words rounded-lg bg-gray-950 p-4 text-sm leading-6 text-gray-100 shadow-inner dark:bg-black/50">{{ inputDetailText }}</pre>
+            </div>
           </div>
         </div>
 
@@ -1249,6 +1281,11 @@ const moderationTestPrompt = ref('')
 const moderationTestImages = ref<string[]>([])
 const moderationTestResult = ref<ContentModerationTestAuditResult | null>(null)
 const inputDetailRow = ref<ContentModerationLog | null>(null)
+const inputDetailContent = ref('')
+const inputDetailComplete = ref(false)
+const inputDetailLoading = ref(false)
+const inputDetailLoadFailed = ref(false)
+let inputDetailRequestToken = 0
 let statusTimer: number | null = null
 
 const configForm = reactive({
@@ -1623,7 +1660,7 @@ const riskThresholdRows = computed<RiskThresholdRow[]>(() => (
 
 const inputDetailText = computed(() => {
   if (!inputDetailRow.value) return '-'
-  return inputDetailRow.value.input_excerpt || inputDetailRow.value.error || '-'
+  return inputDetailContent.value || inputDetailRow.value.input_excerpt || inputDetailRow.value.error || '-'
 })
 
 const queueUsagePercent = computed(() => `${Math.min(100, Math.max(0, status.value?.queue_usage_percent ?? 0)).toFixed(1)}%`)
@@ -1954,12 +1991,35 @@ function inputSummaryText(row: ContentModerationLog): string {
   return row.input_excerpt || row.error || '-'
 }
 
-function openInputDetail(row: ContentModerationLog) {
+async function openInputDetail(row: ContentModerationLog) {
+  const requestToken = ++inputDetailRequestToken
   inputDetailRow.value = row
+  inputDetailContent.value = row.input_excerpt || row.error || '-'
+  inputDetailComplete.value = false
+  inputDetailLoading.value = true
+  inputDetailLoadFailed.value = false
+  try {
+    const result = await adminAPI.riskControl.getLogInput(row.id)
+    if (requestToken !== inputDetailRequestToken || inputDetailRow.value?.id !== row.id) return
+    inputDetailContent.value = result.content || row.input_excerpt || row.error || '-'
+    inputDetailComplete.value = result.complete
+  } catch {
+    if (requestToken !== inputDetailRequestToken || inputDetailRow.value?.id !== row.id) return
+    inputDetailLoadFailed.value = true
+  } finally {
+    if (requestToken === inputDetailRequestToken && inputDetailRow.value?.id === row.id) {
+      inputDetailLoading.value = false
+    }
+  }
 }
 
 function closeInputDetail() {
+  inputDetailRequestToken++
   inputDetailRow.value = null
+  inputDetailContent.value = ''
+  inputDetailComplete.value = false
+  inputDetailLoading.value = false
+  inputDetailLoadFailed.value = false
 }
 
 async function unbanUser(row: ContentModerationLog) {

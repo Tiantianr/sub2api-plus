@@ -2,7 +2,9 @@ package securityaudit
 
 import (
 	"context"
+	"crypto/sha256"
 	"database/sql"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -410,14 +412,15 @@ func insertJob(ctx context.Context, queryer sqlQueryer, snapshot PromptSnapshot,
 			request_id,user_id,username_snapshot,user_email_snapshot,api_key_id,api_key_name_snapshot,
 			group_id,group_name,provider,endpoint,protocol,model,prompt_hash,redacted_preview,
 			prompt_length,message_count,stage,execution_mode,config_version,status,max_attempts,client_ip,processed_at,
-			blocking_exempt_at_request
-		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,`+processedExpr+`,$23)
+			blocking_exempt_at_request,session_key,session_source
+		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,`+processedExpr+`,$23,$24,$25)
 		RETURNING `+jobColumns("prompt_audit_jobs"),
 		snapshot.RequestID, nullableID(snapshot.UserID), snapshot.UsernameSnapshot, snapshot.UserEmailSnapshot,
 		nullableID(snapshot.APIKeyID), snapshot.APIKeyNameSnapshot, snapshot.GroupID, snapshot.GroupName,
 		snapshot.Provider, snapshot.Endpoint, snapshot.Protocol, snapshot.Model, snapshot.PromptHash,
 		snapshot.RedactedPreview, snapshot.PromptLength, snapshot.MessageCount, normalizeStage(snapshot.Stage),
-		string(mode), configVersion, status, maxAttempts, snapshot.ClientIP, snapshot.BlockingExemptAtRequest)
+		string(mode), configVersion, status, maxAttempts, snapshot.ClientIP, snapshot.BlockingExemptAtRequest,
+		snapshot.SessionKey, snapshot.SessionSource)
 	return scanJob(row)
 }
 
@@ -434,10 +437,11 @@ func insertFailureEvent(ctx context.Context, queryer sqlQueryer, job *Job, code 
 			decision,risk_level,action,categories,matched_scanners,scanner_scores,scanner_evidence,
 			scanner_backend,scanner_version,guard_endpoint_id,policy_id,policy_version,config_version,chunk_total,latency_ms,
 			full_prompt,client_ip,prompt_length,message_count,execution_mode,queue_delay_ms,input_limit,matched_chunk_index,
-			full_prompt_truncated,guard_endpoint_name,guard_model,error_code,error_message,blocking_exempt_at_request
+			full_prompt_truncated,guard_endpoint_name,guard_model,error_code,error_message,blocking_exempt_at_request,
+			session_key,session_source,chat_record_id
 		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,
 			$20::jsonb,$21::jsonb,$22::jsonb,$23::jsonb,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35,
-			$36,$37,$38,$39,$40,$41,$42,$43,$44,$45)
+			$36,$37,$38,$39,$40,$41,$42,$43,$44,$45,$46,$47,NULL)
 		RETURNING `+eventDetailColumns("prompt_audit_events"),
 		job.ID, snapshot.RequestID, nullableID(snapshot.UserID), snapshot.UsernameSnapshot, snapshot.UserEmailSnapshot,
 		nullableID(snapshot.APIKeyID), snapshot.APIKeyNameSnapshot, snapshot.GroupID, snapshot.GroupName,
@@ -446,7 +450,8 @@ func insertFailureEvent(ctx context.Context, queryer sqlQueryer, job *Job, code 
 		[]byte("[]"), []byte("[]"), []byte("{}"), []byte("{}"), "qwen3guard-openai", "",
 		"", "priority", 0, job.ConfigVersion, 0, 0,
 		"", snapshot.ClientIP, snapshot.PromptLength, snapshot.MessageCount, string(job.ExecutionMode), queueDelayMilliseconds(job),
-		nil, nil, snapshot.FullPromptTruncated, "", "", code, message, snapshot.BlockingExemptAtRequest)
+		nil, nil, snapshot.FullPromptTruncated, "", "", code, message, snapshot.BlockingExemptAtRequest,
+		snapshot.SessionKey, snapshot.SessionSource)
 	return scanEvent(row, true)
 }
 
@@ -470,10 +475,8 @@ func insertEvent(ctx context.Context, queryer sqlQueryer, jobID int64, snapshot 
 		evidence[key] = RedactPreview(value, 160)
 	}
 	evidenceJSON, _ := json.Marshal(evidence)
-	fullPrompt := ""
 	fullPromptTruncated := snapshot.PromptLength > 0
 	if retainEvidence {
-		fullPrompt = snapshot.FullPrompt
 		fullPromptTruncated = snapshot.FullPromptTruncated
 	}
 	row := queryer.QueryRowContext(ctx, `
@@ -483,10 +486,11 @@ func insertEvent(ctx context.Context, queryer sqlQueryer, jobID int64, snapshot 
 			decision,risk_level,action,categories,matched_scanners,scanner_scores,scanner_evidence,
 			scanner_backend,scanner_version,guard_endpoint_id,policy_id,policy_version,config_version,chunk_total,latency_ms,
 			full_prompt,client_ip,prompt_length,message_count,execution_mode,queue_delay_ms,input_limit,matched_chunk_index,
-			full_prompt_truncated,guard_endpoint_name,guard_model,blocking_exempt_at_request
+			full_prompt_truncated,guard_endpoint_name,guard_model,blocking_exempt_at_request,
+			session_key,session_source,chat_record_id
 		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,
 			$20::jsonb,$21::jsonb,$22::jsonb,$23::jsonb,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35,
-			$36,$37,$38,$39,$40,$41,$42,$43)
+			$36,$37,$38,$39,$40,$41,$42,$43,$44,$45,NULL)
 		RETURNING `+eventDetailColumns("prompt_audit_events"),
 		jobID, snapshot.RequestID, nullableID(snapshot.UserID), snapshot.UsernameSnapshot, snapshot.UserEmailSnapshot,
 		nullableID(snapshot.APIKeyID), snapshot.APIKeyNameSnapshot, snapshot.GroupID, snapshot.GroupName,
@@ -494,24 +498,70 @@ func insertEvent(ctx context.Context, queryer sqlQueryer, jobID int64, snapshot 
 		snapshot.RedactedPreview, normalizeStage(snapshot.Stage), string(result.Decision), string(result.RiskLevel),
 		string(result.Action), categories, matched, scores, evidenceJSON, result.ScannerBackend, result.ScannerVersion,
 		result.GuardEndpointID, result.PolicyID, result.PolicyVersion, configVersion, result.ChunkTotal, result.LatencyMS,
-		fullPrompt, snapshot.ClientIP, snapshot.PromptLength, snapshot.MessageCount, string(executionMode), queueDelayMS,
+		"", snapshot.ClientIP, snapshot.PromptLength, snapshot.MessageCount, string(executionMode), queueDelayMS,
 		nullablePositiveInt(result.InputLimit), nullablePositiveInt(result.MatchedChunkIndex), fullPromptTruncated,
-		result.GuardEndpointName, result.GuardModel, snapshot.BlockingExemptAtRequest)
+		result.GuardEndpointName, result.GuardModel, snapshot.BlockingExemptAtRequest,
+		snapshot.SessionKey, snapshot.SessionSource)
 	event, err := scanEvent(row, true)
 	if err != nil {
 		return nil, err
 	}
-	if retainEvidence && snapshot.FullContextCiphertext != "" {
-		if _, err := queryer.ExecContext(ctx, `
-			INSERT INTO prompt_audit_event_contexts (
-				event_id,context_ciphertext,context_sha256,context_bytes,segment_count
-			) VALUES ($1,$2,$3,$4,$5)`, event.ID, snapshot.FullContextCiphertext,
-			snapshot.FullContextHash, snapshot.FullContextBytes, snapshot.FullContextSegmentCount); err != nil {
+	// The existing retainEvidence flag is decision-oriented: it is true for all
+	// risk findings and for Pass evidence selected by the retention policy. Those
+	// records remain indefinite; an unselected Pass receives the ordinary window.
+	chatRecordID, err := upsertChatRecord(ctx, queryer, snapshot, retainEvidence)
+	if err != nil {
+		return nil, err
+	}
+	if chatRecordID > 0 {
+		if _, err := queryer.ExecContext(ctx, `UPDATE prompt_audit_events SET chat_record_id=$2 WHERE id=$1`, event.ID, chatRecordID); err != nil {
 			return nil, err
 		}
-		event.FullContextAvailable = true
+		event.Snapshot.ChatRecordID = chatRecordID
+		event.Snapshot.FullPrompt = snapshot.FullPrompt
+		event.FullContextAvailable = snapshot.FullContextCiphertext != ""
 	}
 	return event, nil
+}
+
+func upsertChatRecord(ctx context.Context, queryer sqlQueryer, snapshot PromptSnapshot, retainEvidence bool) (int64, error) {
+	if snapshot.UserID <= 0 || strings.TrimSpace(snapshot.SessionKey) == "" || strings.TrimSpace(snapshot.FullPrompt) == "" {
+		return 0, nil
+	}
+	if snapshot.FullContextCiphertext == "" && snapshot.FullContextHash == "" {
+		return 0, nil
+	}
+	digest := sha256.Sum256([]byte(snapshot.FullPrompt + "\x00" + snapshot.FullContextHash))
+	contentHash := hex.EncodeToString(digest[:])
+	var retentionValue any = time.Now().UTC().Add(DefaultChatRetention)
+	if retainEvidence {
+		retentionValue = nil
+	}
+	var sessionID int64
+	if err := queryer.QueryRowContext(ctx, `
+		INSERT INTO prompt_audit_sessions (user_id,session_key,session_source,first_seen_at,last_seen_at)
+		VALUES ($1,$2,$3,NOW(),NOW())
+		ON CONFLICT (user_id,session_key) DO UPDATE SET
+			last_seen_at=NOW(),
+			session_source=CASE WHEN prompt_audit_sessions.session_source='' THEN EXCLUDED.session_source ELSE prompt_audit_sessions.session_source END
+		RETURNING id`, snapshot.UserID, snapshot.SessionKey, snapshot.SessionSource).Scan(&sessionID); err != nil {
+		return 0, err
+	}
+	var recordID int64
+	err := queryer.QueryRowContext(ctx, `
+		INSERT INTO prompt_audit_chat_records (
+			session_id,content_hash,full_prompt,full_prompt_truncated,context_ciphertext,context_sha256,
+			context_bytes,segment_count,retention_until,created_at
+		) VALUES ($1,$2,$3,$4,NULLIF($5,''),NULLIF($6,''),$7,$8,$9,NOW())
+		ON CONFLICT (session_id,content_hash) DO UPDATE SET
+			retention_until=CASE
+				WHEN EXCLUDED.retention_until IS NULL THEN NULL
+				WHEN prompt_audit_chat_records.retention_until IS NULL THEN NULL
+				ELSE GREATEST(prompt_audit_chat_records.retention_until, EXCLUDED.retention_until)
+			END
+		RETURNING id`, sessionID, contentHash, snapshot.FullPrompt, snapshot.FullPromptTruncated,
+		snapshot.FullContextCiphertext, snapshot.FullContextHash, snapshot.FullContextBytes, snapshot.FullContextSegmentCount, retentionValue).Scan(&recordID)
+	return recordID, err
 }
 
 type rowScanner interface{ Scan(...any) error }
@@ -528,6 +578,7 @@ func scanJob(row rowScanner) (*Job, error) {
 		&job.ExecutionMode, &job.ConfigVersion, &job.Status, &job.Attempts, &job.MaxAttempts, &job.ClaimVersion,
 		&job.NextAttemptAt, &processingStarted, &processed, &job.LastErrorCode, &job.LastErrorMessage,
 		&job.CreatedAt, &job.UpdatedAt, &job.Snapshot.ClientIP, &job.Snapshot.BlockingExemptAtRequest,
+		&job.Snapshot.SessionKey, &job.Snapshot.SessionSource,
 	)
 	if err != nil {
 		return nil, err
@@ -553,7 +604,8 @@ func jobColumns(alias string) string {
 		%[1]s.prompt_length,%[1]s.message_count,%[1]s.stage,%[1]s.execution_mode,%[1]s.config_version,%[1]s.status,
 		%[1]s.attempts,%[1]s.max_attempts,%[1]s.claim_version,%[1]s.next_attempt_at,
 		%[1]s.processing_started_at,%[1]s.processed_at,%[1]s.last_error_code,%[1]s.last_error_message,
-		%[1]s.created_at,%[1]s.updated_at,%[1]s.client_ip,%[1]s.blocking_exempt_at_request`, alias)
+		%[1]s.created_at,%[1]s.updated_at,%[1]s.client_ip,%[1]s.blocking_exempt_at_request,
+		%[1]s.session_key,%[1]s.session_source`, alias)
 }
 
 func normalizeStage(stage string) string {

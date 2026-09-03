@@ -163,6 +163,18 @@
             <td class="max-w-xs px-3 py-3"><p class="line-clamp-2 break-words text-gray-600 dark:text-dark-300">{{ event.snapshot.redacted_preview || '—' }}</p></td>
             <td class="whitespace-nowrap px-3 py-3 text-right">
               <button type="button" class="btn btn-ghost btn-sm" @click="$emit('view', event.id)">{{ t('common.view') }}</button>
+              <button
+                type="button"
+                class="btn btn-ghost btn-sm"
+                :disabled="event.snapshot.user_id <= 0"
+                :title="t('admin.promptAudit.analysis.action')"
+                :aria-label="t('admin.promptAudit.analysis.action')"
+                data-test="analyze-user"
+                @click="$emit('analyze', event.id)"
+              >
+                <Icon name="brain" size="sm" class="mr-1" />
+                {{ t('admin.promptAudit.analysis.action') }}
+              </button>
               <button type="button" class="btn btn-ghost btn-sm text-red-600" @click="$emit('delete', event.id)">{{ t('common.delete') }}</button>
             </td>
           </tr>
@@ -177,6 +189,7 @@
 import { computed, defineComponent, h, reactive, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import Pagination from '@/components/common/Pagination.vue'
+import Icon from '@/components/icons/Icon.vue'
 import type { PromptAuditEvent, PromptEventFilters } from '../types'
 import { cloneData, emptyEventFilters, SCANNER_CATALOG } from '../viewModel'
 
@@ -191,6 +204,7 @@ const emit = defineEmits<{
   (event: 'page', value: number): void
   (event: 'page-size', value: number): void
   (event: 'view', id: number): void
+  (event: 'analyze', id: number): void
   (event: 'delete', id: number): void
   (event: 'batch-delete'): void
   (event: 'preview-delete'): void

@@ -7,7 +7,7 @@ import PromptAuditView from '../PromptAuditView.vue'
 
 const mocks = vi.hoisted(() => ({
   getConfig: vi.fn(), updateConfig: vi.fn(), getPassRetention: vi.fn(), updatePassRetention: vi.fn(), probeEndpoint: vi.fn(), getRuntime: vi.fn(), listEvents: vi.fn(),
-  getEvent: vi.fn(), deleteEvent: vi.fn(), batchDeleteEvents: vi.fn(), previewDelete: vi.fn(), deleteEventsByFilter: vi.fn(), listGroups: vi.fn(),
+  getEvent: vi.fn(), analyzeEvent: vi.fn(), deleteEvent: vi.fn(), batchDeleteEvents: vi.fn(), previewDelete: vi.fn(), deleteEventsByFilter: vi.fn(), listGroups: vi.fn(),
   showSuccess: vi.fn(), showError: vi.fn(),
 }))
 
@@ -49,10 +49,14 @@ const RetentionStub = defineComponent({
 })
 const EventsStub = defineComponent({
   props: ['events', 'filters', 'selectedIds', 'loading', 'error', 'total', 'page', 'pageSize'],
-  emits: ['filters-change', 'search', 'selection', 'page', 'page-size', 'view', 'delete', 'batch-delete', 'preview-delete', 'cleanup-pass'],
-  template: '<div data-test="events"><button data-test="preview" @click="$emit(\'preview-delete\')">preview</button><button data-test="cleanup-pass" @click="$emit(\'cleanup-pass\')">cleanup</button><button data-test="change-filter" @click="$emit(\'filters-change\', { ...filters, keyword: \'changed\' })">change</button><button data-test="delete-one" @click="$emit(\'delete\', 5)">delete</button><button data-test="select-batch" @click="$emit(\'selection\', [5, 6])">select</button><button data-test="delete-batch" @click="$emit(\'batch-delete\')">batch</button></div>',
+  emits: ['filters-change', 'search', 'selection', 'page', 'page-size', 'view', 'analyze', 'delete', 'batch-delete', 'preview-delete', 'cleanup-pass'],
+  template: '<div data-test="events"><button data-test="preview" @click="$emit(\'preview-delete\')">preview</button><button data-test="cleanup-pass" @click="$emit(\'cleanup-pass\')">cleanup</button><button data-test="change-filter" @click="$emit(\'filters-change\', { ...filters, keyword: \'changed\' })">change</button><button data-test="analyze-a" @click="$emit(\'analyze\', 5)">analyze A</button><button data-test="analyze-b" @click="$emit(\'analyze\', 6)">analyze B</button><button data-test="delete-one" @click="$emit(\'delete\', 5)">delete</button><button data-test="select-batch" @click="$emit(\'selection\', [5, 6])">select</button><button data-test="delete-batch" @click="$emit(\'batch-delete\')">batch</button></div>',
 })
 const DetailStub = defineComponent({ props: ['show', 'event', 'loading'], emits: ['close'], template: '<div data-test="detail" />' })
+const AnalysisStub = defineComponent({
+  props: ['show', 'analysis', 'loading', 'error'], emits: ['close'],
+  template: '<div v-if="show" data-test="analysis"><button data-test="close-analysis" @click="$emit(\'close\')">close</button><span>{{ analysis?.report || error }}</span></div>',
+})
 const ConfirmStub = defineComponent({ props: ['show', 'title', 'message'], emits: ['confirm', 'cancel'], template: '<div v-if="show" data-test="confirm"><button data-test="confirm-action" @click="$emit(\'confirm\')">confirm</button></div>' })
 const FilterDeleteStub = defineComponent({
   props: ['show', 'initialFilters', 'preview', 'previewing', 'deleting'],
@@ -66,7 +70,7 @@ const PassCleanupStub = defineComponent({
 
 function mountView() {
   return mount(PromptAuditView, {
-    global: { stubs: { AppLayout: AppLayoutStub, RuntimeOverview: RuntimeStub, EndpointPool: EndpointStub, PolicyPanel: PolicyStub, PassRetentionPanel: RetentionStub, EventWorkspace: EventsStub, EventDetailDialog: DetailStub, FilterDeleteDialog: FilterDeleteStub, PassEventCleanupDialog: PassCleanupStub, ConfirmDialog: ConfirmStub } },
+    global: { stubs: { AppLayout: AppLayoutStub, RuntimeOverview: RuntimeStub, EndpointPool: EndpointStub, PolicyPanel: PolicyStub, PassRetentionPanel: RetentionStub, EventWorkspace: EventsStub, EventDetailDialog: DetailStub, UserAnalysisDialog: AnalysisStub, FilterDeleteDialog: FilterDeleteStub, PassEventCleanupDialog: PassCleanupStub, ConfirmDialog: ConfirmStub } },
   })
 }
 
@@ -78,6 +82,7 @@ describe('PromptAuditView', () => {
     mocks.getRuntime.mockResolvedValue(runtime())
     mocks.listGroups.mockResolvedValue([])
     mocks.listEvents.mockResolvedValue({ items: [], total: 0, page: 1, page_size: 20, pages: 0 })
+    mocks.analyzeEvent.mockResolvedValue({ user_id: 1, session_key: 'session', record_count: 1, report: 'analysis' })
     mocks.updateConfig.mockImplementation(async () => ({ ...baseConfig(), config_version: 8 }))
     mocks.updatePassRetention.mockResolvedValue({ revision: 2, user_ids: [9], updated_at: '', updated_by: 1 })
     mocks.probeEndpoint.mockResolvedValue({ ok: true, status: 'healthy', message: 'ok', latency_ms: 2, http_status: 200, retryable: false, checked_at: '2026-07-16T00:00:00Z', token_applied: true })
@@ -277,5 +282,26 @@ describe('PromptAuditView', () => {
       confirmation_token: 'opaque-confirmation',
     }))
     expect(wrapper.find('[data-test="filter-delete-dialog"]').exists()).toBe(false)
+  })
+
+  it('ignores an analysis response after the dialog switches sessions', async () => {
+    let resolveFirst!: (value: Record<string, unknown>) => void
+    const first = new Promise<Record<string, unknown>>((resolve) => { resolveFirst = resolve })
+    mocks.analyzeEvent.mockImplementation((id: number) => id === 5
+      ? first
+      : Promise.resolve({ user_id: 2, session_key: 'session-b', record_count: 1, report: 'analysis B' }))
+    const wrapper = mountView()
+    await flushPromises()
+
+    await wrapper.get('[data-test="analyze-a"]').trigger('click')
+    await wrapper.get('[data-test="close-analysis"]').trigger('click')
+    await wrapper.get('[data-test="analyze-b"]').trigger('click')
+    await flushPromises()
+    expect(wrapper.get('[data-test="analysis"]').text()).toContain('analysis B')
+
+    resolveFirst({ user_id: 1, session_key: 'session-a', record_count: 1, report: 'analysis A' })
+    await flushPromises()
+    expect(wrapper.get('[data-test="analysis"]').text()).toContain('analysis B')
+    expect(wrapper.get('[data-test="analysis"]').text()).not.toContain('analysis A')
   })
 })

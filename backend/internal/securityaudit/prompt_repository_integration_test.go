@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"sort"
@@ -43,7 +45,7 @@ func openPromptAuditIntegrationDB(t *testing.T) *sql.DB {
 		);
 	`)
 	require.NoError(t, err)
-	for _, name := range []string{"181_prompt_audit.sql", "182_prompt_audit_full_prompt.sql", "234_prompt_audit_observability.sql", "235_prompt_audit_client_ip_index_notx.sql", "238_prompt_audit_event_contexts.sql", "239_prompt_audit_deep_review.sql", "240_prompt_audit_events_mode_index_notx.sql", "242_prompt_audit_guard_node_snapshot.sql", "243_prompt_audit_failure_events.sql", "244_prompt_audit_blocking_exempt_snapshot.sql"} {
+	for _, name := range []string{"181_prompt_audit.sql", "182_prompt_audit_full_prompt.sql", "234_prompt_audit_observability.sql", "235_prompt_audit_client_ip_index_notx.sql", "238_prompt_audit_event_contexts.sql", "239_prompt_audit_deep_review.sql", "240_prompt_audit_events_mode_index_notx.sql", "242_prompt_audit_guard_node_snapshot.sql", "243_prompt_audit_failure_events.sql", "244_prompt_audit_blocking_exempt_snapshot.sql", "247_prompt_audit_chat_sessions.sql"} {
 		migration, err := os.ReadFile(filepath.Join("..", "..", "migrations", name))
 		require.NoError(t, err)
 		// The migration runner can retry an interrupted deployment; the migration
@@ -92,6 +94,156 @@ func TestPromptAuditAsyncDeepExecutionModePersistsAndFilters(t *testing.T) {
 	blockingPage, err := repo.ListEvents(ctx, EventFilter{ExecutionMode: string(ModeBlocking)}, 1, 20)
 	require.NoError(t, err)
 	require.Zero(t, blockingPage.Total)
+}
+
+func TestPromptAuditSessionContentDeduplicatesAndExpiresIndependently(t *testing.T) {
+	db := openPromptAuditIntegrationDB(t)
+	repo := NewPostgreSQLRepository(db)
+	ctx := context.Background()
+	userID := insertIdentity(t, db, "users")
+	snapshot := integrationSnapshot("session")
+	snapshot.UserID = userID
+	snapshot.SessionKey = HashSessionKey(userID, snapshot.Protocol, "header:session-id", "stable-session")
+	snapshot.SessionSource = "client_session"
+	snapshot.FullPrompt = "same complete prompt"
+	snapshot.FullContextCiphertext = "encrypted-context"
+	snapshot.FullContextHash = "context-hash"
+	first, err := repo.RecordBlocking(ctx, snapshot, 1, integrationResult(EventPass), false)
+	require.NoError(t, err)
+	secondSnapshot := snapshot
+	secondSnapshot.RequestID = "request-session-second"
+	second, err := repo.RecordBlocking(ctx, secondSnapshot, 1, integrationResult(EventPass), false)
+	require.NoError(t, err)
+
+	var count int
+	require.NoError(t, db.QueryRowContext(ctx, `SELECT COUNT(*) FROM prompt_audit_chat_records`).Scan(&count))
+	require.Equal(t, 1, count)
+	require.Equal(t, first.Snapshot.ChatRecordID, second.Snapshot.ChatRecordID)
+	start, end := time.Now().Add(-time.Hour), time.Now().Add(time.Hour)
+	preview, err := repo.PreviewDelete(ctx, EventFilter{RequestID: first.Snapshot.RequestID, StartAt: &start, EndAt: &end})
+	require.NoError(t, err)
+	require.Equal(t, int64(1), preview.MatchedCount)
+	require.Zero(t, preview.MatchedContextCount)
+	require.Zero(t, preview.EstimatedReclaimableBytes)
+
+	detail, err := repo.GetEvent(ctx, first.ID)
+	require.NoError(t, err)
+	require.Equal(t, "same complete prompt", detail.Snapshot.FullPrompt)
+	require.True(t, detail.FullContextAvailable)
+
+	_, err = db.ExecContext(ctx, `UPDATE prompt_audit_chat_records SET retention_until=NOW()-INTERVAL '1 minute'`)
+	require.NoError(t, err)
+	deleted, err := repo.DeleteExpiredChatRecords(ctx, time.Now().UTC(), 100)
+	require.NoError(t, err)
+	require.EqualValues(t, 1, deleted)
+	require.NoError(t, db.QueryRowContext(ctx, `SELECT COUNT(*) FROM prompt_audit_events`).Scan(&count))
+	require.Equal(t, 2, count)
+
+	session, err := repo.GetSessionChatRecords(ctx, first.ID, 20)
+	require.NoError(t, err)
+	require.Empty(t, session.Records)
+}
+
+func TestPromptAuditRiskChatContentUsesIndefiniteRetention(t *testing.T) {
+	db := openPromptAuditIntegrationDB(t)
+	repo := NewPostgreSQLRepository(db)
+	ctx := context.Background()
+	userID := insertIdentity(t, db, "users")
+	snapshot := integrationSnapshot("risk-retention")
+	snapshot.UserID = userID
+	snapshot.SessionKey = HashSessionKey(userID, snapshot.Protocol, "header:session-id", "risk-retention")
+	snapshot.SessionSource = "client_session"
+	snapshot.FullPrompt = "risk evidence must remain available"
+	snapshot.FullContextCiphertext = "encrypted-risk-context"
+	snapshot.FullContextHash = "risk-context-hash"
+	_, err := repo.RecordBlocking(ctx, snapshot, 1, integrationResult(EventCritical), false)
+	require.NoError(t, err)
+
+	var retentionUntil sql.NullTime
+	require.NoError(t, db.QueryRowContext(ctx, `SELECT retention_until FROM prompt_audit_chat_records`).Scan(&retentionUntil))
+	require.False(t, retentionUntil.Valid)
+	deleted, err := repo.DeleteExpiredChatRecords(ctx, time.Now().UTC().Add(365*24*time.Hour), 100)
+	require.NoError(t, err)
+	require.Zero(t, deleted)
+}
+
+func TestPromptAuditAnalysisUsesOnlySelectedSession(t *testing.T) {
+	db := openPromptAuditIntegrationDB(t)
+	repo := NewPostgreSQLRepository(db)
+	ctx := context.Background()
+	userID := insertIdentity(t, db, "users")
+	var received struct {
+		Messages []struct {
+			Role    string `json:"role"`
+			Content string `json:"content"`
+		} `json:"messages"`
+	}
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		_ = json.NewDecoder(request.Body).Decode(&received)
+		writer.Header().Set("Content-Type", "application/json")
+		_, _ = writer.Write([]byte(`{"choices":[{"message":{"content":"风险等级：低"}}]}`))
+	}))
+	defer server.Close()
+
+	makeEvent := func(sessionID, prompt string) *Event {
+		snapshot := integrationSnapshot(sessionID)
+		snapshot.UserID = userID
+		snapshot.SessionKey = HashSessionKey(userID, snapshot.Protocol, "header:session-id", sessionID)
+		snapshot.SessionSource = "client_session"
+		snapshot.FullPrompt = prompt
+		snapshot.FullContextCiphertext = "context-" + sessionID
+		snapshot.FullContextHash = "hash-" + sessionID
+		event, err := repo.RecordBlocking(ctx, snapshot, 1, integrationResult(EventPass), false)
+		require.NoError(t, err)
+		return event
+	}
+	selected := makeEvent("selected", "selected-session-content")
+	_ = makeEvent("other", "other-session-content")
+
+	service := &PromptService{
+		config: &fakeConfigStore{active: true, cfg: ActiveConfig{ConfigVersion: 1, Endpoints: []ActiveEndpoint{{
+			ID: "analysis-node", Name: "Analysis node", BaseURL: server.URL, Model: "analysis-model", TimeoutMS: 1000, Enabled: true,
+		}}}},
+		repo: repo, scanner: NewOpenAICompatibleScanner(), clock: realClock{},
+	}
+	analysis, err := service.AnalyzeEvent(ctx, selected.ID)
+	require.NoError(t, err)
+	require.Equal(t, 1, analysis.RecordCount)
+	require.Equal(t, selected.Snapshot.SessionKey, analysis.SessionKey)
+	require.Contains(t, analysis.Report, "风险等级")
+	require.Len(t, received.Messages, 2)
+	require.Contains(t, received.Messages[1].Content, "selected-session-content")
+	require.NotContains(t, received.Messages[1].Content, "other-session-content")
+}
+
+func TestPromptAuditReadsLegacyWriterRowsAfterSessionMigration(t *testing.T) {
+	db := openPromptAuditIntegrationDB(t)
+	repo := NewPostgreSQLRepository(db)
+	ctx := context.Background()
+	userID := insertIdentity(t, db, "users")
+	var jobID, eventID int64
+	require.NoError(t, db.QueryRowContext(ctx, `INSERT INTO prompt_audit_jobs DEFAULT VALUES RETURNING id`).Scan(&jobID))
+	require.NoError(t, db.QueryRowContext(ctx, `
+		INSERT INTO prompt_audit_events (job_id,user_id,request_id,protocol,full_prompt)
+		VALUES ($1,$2,'legacy-writer-request','openai_responses','legacy writer prompt') RETURNING id`,
+		jobID, userID).Scan(&eventID))
+	_, err := db.ExecContext(ctx, `
+		INSERT INTO prompt_audit_event_contexts (event_id,context_ciphertext,context_sha256,context_bytes,segment_count)
+		VALUES ($1,'legacy-context','legacy-hash',14,1)`, eventID)
+	require.NoError(t, err)
+
+	detail, err := repo.GetEvent(ctx, eventID)
+	require.NoError(t, err)
+	require.Equal(t, "legacy writer prompt", detail.Snapshot.FullPrompt)
+	require.True(t, detail.FullContextAvailable)
+	contextRecord, err := repo.GetEventContext(ctx, eventID)
+	require.NoError(t, err)
+	require.Equal(t, "legacy-context", contextRecord.Ciphertext)
+	session, err := repo.GetSessionChatRecords(ctx, eventID, 20)
+	require.NoError(t, err)
+	require.Equal(t, "legacy_event", session.SessionSource)
+	require.Len(t, session.Records, 1)
+	require.Equal(t, "legacy writer prompt", session.Records[0].FullPrompt)
 }
 
 func resetPromptAuditIntegrationDB(t *testing.T, db *sql.DB) {
@@ -440,17 +592,18 @@ func TestPromptServicePersistsBlockingFailureEventsWithoutChangingDecision(t *te
 	})
 }
 
-func TestPromptAuditDatabasePersistsFullPromptOnEventsOnly(t *testing.T) {
+func TestPromptAuditDatabasePersistsFullPromptInChatRecordsOnly(t *testing.T) {
 	db := openPromptAuditIntegrationDB(t)
 	repo := NewPostgreSQLRepository(db)
 	ctx := context.Background()
 	const promptCanary = "PROMPT_AUDIT_CANARY_SECRET_DO_NOT_PERSIST"
 	promptText := strings.Repeat("长", 70000) + promptCanary
+	userID := insertIdentity(t, db, "users")
 	body, err := json.Marshal(map[string]any{"messages": []map[string]string{{"role": "user", "content": promptText}}})
 	require.NoError(t, err)
 	request := Request{
 		RequestID: "canary-request", ClientIP: "203.0.113.42", Provider: "openai",
-		Endpoint: "/v1/chat/completions", Protocol: "openai_chat", Model: "gpt-test", Stage: "http",
+		Endpoint: "/v1/chat/completions", Protocol: "openai_chat", Model: "gpt-test", Stage: "http", UserID: userID,
 		Body: body,
 	}
 	snapshot, err := ExtractPromptSnapshot(request)
@@ -463,8 +616,8 @@ func TestPromptAuditDatabasePersistsFullPromptOnEventsOnly(t *testing.T) {
 	require.Contains(t, snapshot.FullPrompt, promptCanary)
 	event, err := repo.RecordBlocking(ctx, snapshot.Redacted(), 1, integrationResult(EventCritical), true)
 	require.NoError(t, err)
-	// The event intentionally retains the full prompt for admin review; the
-	// redacted preview and transient job row still never contain it.
+	// The event response resolves retained content from the chat record; the
+	// event table and transient job row never contain the canary.
 	adminJSON, err := json.Marshal(event)
 	require.NoError(t, err)
 	require.Contains(t, string(adminJSON), promptCanary)
@@ -485,7 +638,10 @@ func TestPromptAuditDatabasePersistsFullPromptOnEventsOnly(t *testing.T) {
 
 	var storedFullPrompt string
 	require.NoError(t, db.QueryRow(`SELECT full_prompt FROM prompt_audit_events WHERE id=$1`, event.ID).Scan(&storedFullPrompt))
-	require.Contains(t, storedFullPrompt, promptCanary)
+	require.Empty(t, storedFullPrompt)
+	var storedChatPrompt string
+	require.NoError(t, db.QueryRow(`SELECT full_prompt FROM prompt_audit_chat_records WHERE id=$1`, event.Snapshot.ChatRecordID).Scan(&storedChatPrompt))
+	require.Contains(t, storedChatPrompt, promptCanary)
 
 	detail, err := repo.GetEvent(ctx, event.ID)
 	require.NoError(t, err)
@@ -679,7 +835,11 @@ func TestPromptAuditRepositoryHighWaterAndSafeDeletion(t *testing.T) {
 	db := openPromptAuditIntegrationDB(t)
 	repo := NewPostgreSQLRepository(db)
 	ctx := context.Background()
+	userID := insertIdentity(t, db, "users")
 	firstSnapshot := integrationSnapshot("first")
+	firstSnapshot.UserID = userID
+	firstSnapshot.SessionKey = HashSessionKey(userID, firstSnapshot.Protocol, "header:session-id", "highwater-first")
+	firstSnapshot.SessionSource = "client_session"
 	firstSnapshot.FullPrompt = "first full prompt"
 	firstSnapshot.FullContextCiphertext = strings.Repeat("a", 4096)
 	firstSnapshot.FullContextHash = strings.Repeat("1", 64)
@@ -688,6 +848,9 @@ func TestPromptAuditRepositoryHighWaterAndSafeDeletion(t *testing.T) {
 	first, err := repo.RecordBlocking(ctx, firstSnapshot, 1, integrationResult(EventCritical), true)
 	require.NoError(t, err)
 	secondSnapshot := integrationSnapshot("second")
+	secondSnapshot.UserID = userID
+	secondSnapshot.SessionKey = firstSnapshot.SessionKey
+	secondSnapshot.SessionSource = firstSnapshot.SessionSource
 	secondSnapshot.FullPrompt = "second full prompt"
 	secondSnapshot.FullContextCiphertext = strings.Repeat("b", 2048)
 	secondSnapshot.FullContextHash = strings.Repeat("2", 64)

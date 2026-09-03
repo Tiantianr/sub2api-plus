@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"testing"
 
@@ -138,6 +139,31 @@ func TestOpenAIOAuthUserAccessPreviewRejectsStaleRevision(t *testing.T) {
 	}}})
 	require.Error(t, err)
 	require.Equal(t, "OPENAI_OAUTH_ACCESS_REVISION_CONFLICT", infraerrors.Reason(err))
+}
+
+func TestOpenAIOAuthUserAccessEmptyCollectionsEncodeAsArrays(t *testing.T) {
+	repo := &openAIOAuthAccessRepoFake{
+		accounts: []OpenAIOAuthAccessAccount{{ID: 7, Name: "New OAuth", Mode: OpenAIOAuthUserAccessModePublic}},
+	}
+	svc := NewOpenAIOAuthUserAccessService(repo)
+	accounts, err := svc.ListAccounts(context.Background())
+	require.NoError(t, err)
+	require.NotNil(t, accounts[0].GroupIDs)
+	require.NotNil(t, accounts[0].GrantedUserIDs)
+
+	preview, err := svc.Preview(context.Background(), OpenAIOAuthAccessPolicyBatch{Changes: []OpenAIOAuthAccessPolicyChange{{
+		AccountID: 7, ExpectedRevision: 0, Mode: OpenAIOAuthUserAccessModeRestricted,
+	}}})
+	require.NoError(t, err)
+	require.NotNil(t, preview.Accounts)
+	require.NotNil(t, preview.UsersLosingAllAccess)
+	encoded, err := json.Marshal(preview)
+	require.NoError(t, err)
+	require.Contains(t, string(encoded), `"users_losing_all_access":[]`)
+
+	page, err := svc.ListUsers(context.Background(), OpenAIOAuthAccessUserFilter{})
+	require.NoError(t, err)
+	require.NotNil(t, page.Items)
 }
 
 func TestOpenAIOAuthUserAccessPublicModeRejectsHiddenGrants(t *testing.T) {

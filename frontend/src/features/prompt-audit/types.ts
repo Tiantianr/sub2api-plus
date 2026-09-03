@@ -187,6 +187,9 @@ export interface PromptSnapshot {
   message_count: number
   stage: string
   blocking_exempt_at_request?: boolean
+  session_key?: string
+  session_source?: string
+  chat_record_id?: number
 }
 
 export interface PromptIssueSummary {
@@ -236,6 +239,22 @@ export interface PromptAuditEvent {
   issue_summaries: PromptIssueSummary[]
   created_at: string
   full_context_available: boolean
+}
+
+export interface PromptUserAnalysis {
+  user_id: number
+  username: string
+  user_email: string
+  session_key: string
+  session_source: string
+  record_count: number
+  first_record_at: string
+  last_record_at: string
+  guard_endpoint_id: string
+  guard_endpoint_name: string
+  guard_model: string
+  generated_at: string
+  report: string
 }
 
 export interface PromptEventFilters {

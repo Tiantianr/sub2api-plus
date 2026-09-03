@@ -92,6 +92,7 @@
               @page="changePage"
               @page-size="changePageSize"
               @view="openEvent"
+              @analyze="analyzeEvent"
               @delete="requestSingleDelete"
               @batch-delete="requestBatchDelete"
               @preview-delete="requestFilterDeletePreview"
@@ -160,6 +161,7 @@
       @criteria-change="clearPassCleanupPreview"
     />
     <EventDetailDialog :show="showEventDetail" :event="activeEvent" :loading="loading.detail" @close="closeEventDetail" />
+    <UserAnalysisDialog :show="showUserAnalysis" :analysis="userAnalysis" :loading="analyzingUser" :error="userAnalysisError" @close="closeUserAnalysis" />
   </AppLayout>
 </template>
 
@@ -175,6 +177,7 @@ import EndpointPool from './components/EndpointPool.vue'
 import PolicyPanel from './components/PolicyPanel.vue'
 import EventWorkspace from './components/EventWorkspace.vue'
 import EventDetailDialog from './components/EventDetailDialog.vue'
+import UserAnalysisDialog from './components/UserAnalysisDialog.vue'
 import FilterDeleteDialog from './components/FilterDeleteDialog.vue'
 import PassRetentionPanel from './components/PassRetentionPanel.vue'
 import PassEventCleanupDialog from './components/PassEventCleanupDialog.vue'
@@ -191,6 +194,7 @@ import type {
   PromptLoadErrors,
   PromptProbeResult,
   PromptPassRetentionConfig,
+  PromptUserAnalysis,
 } from './types'
 import { buildUpdateRequest, cloneData, configToDraft, draftFingerprint, emptyEventFilters } from './viewModel'
 
@@ -214,6 +218,11 @@ const appliedFilters = ref<PromptEventFilters>(emptyEventFilters())
 const selectedEventIds = ref<number[]>([])
 const activeEvent = ref<PromptAuditEvent | null>(null)
 const showEventDetail = ref(false)
+const showUserAnalysis = ref(false)
+const userAnalysis = ref<PromptUserAnalysis | null>(null)
+const userAnalysisError = ref('')
+const analyzingUser = ref(false)
+let userAnalysisRequestToken = 0
 const probeResults = reactive<Record<string, PromptProbeResult>>({})
 const probingIds = ref<string[]>([])
 const showFilterDelete = ref(false)
@@ -429,6 +438,29 @@ async function openEvent(id: number) {
   finally { loading.detail = false }
 }
 function closeEventDetail() { showEventDetail.value = false; activeEvent.value = null }
+async function analyzeEvent(id: number) {
+  const requestToken = ++userAnalysisRequestToken
+  showUserAnalysis.value = true
+  analyzingUser.value = true
+  userAnalysis.value = null
+  userAnalysisError.value = ''
+  try {
+    const result = await promptAuditAPI.analyzeEvent(id)
+    if (requestToken === userAnalysisRequestToken) userAnalysis.value = result
+  } catch (error) {
+    if (requestToken === userAnalysisRequestToken) {
+      userAnalysisError.value = errorMessage(error, 'admin.promptAudit.errors.analyzeEvent')
+    }
+  } finally {
+    if (requestToken === userAnalysisRequestToken) analyzingUser.value = false
+  }
+}
+function closeUserAnalysis() {
+  userAnalysisRequestToken++
+  showUserAnalysis.value = false
+  userAnalysis.value = null
+  userAnalysisError.value = ''
+}
 function requestSingleDelete(id: number) { deleteRequest.mode = 'single'; deleteRequest.ids = [id] }
 function requestBatchDelete() { if (selectedEventIds.value.length) { deleteRequest.mode = 'batch'; deleteRequest.ids = [...selectedEventIds.value] } }
 function clearDeleteRequest() { deleteRequest.mode = ''; deleteRequest.ids = [] }

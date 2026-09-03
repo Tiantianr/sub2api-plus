@@ -186,3 +186,18 @@ func TestExtractClientSessionID_InjectionHeaderDropped(t *testing.T) {
 	c.Request.Header.Set("session_id", "abc\r\nX-Injected: 1")
 	require.Equal(t, "", ExtractClientSessionID(c))
 }
+
+func TestExtractClientSessionIDWithBody_UsesConversationIdentityAndRejectsCacheKey(t *testing.T) {
+	c := newSessionHeaderContext(t, nil)
+	require.Equal(t, "body-conversation", ExtractClientSessionIDWithBody(c, []byte(`{"conversation_id":"body-conversation"}`)))
+	require.Equal(t, "body-thread", ExtractClientSessionIDWithBody(c, []byte(`{"thread_id":"body-thread"}`)))
+	require.Equal(t, "nested-conversation", ExtractClientSessionIDWithBody(c, []byte(`{"type":"response.create","response":{"conversation_id":"nested-conversation"}}`)))
+	require.Empty(t, ExtractClientSessionIDWithBody(c, []byte(`{"prompt_cache_key":"shared-cache-bucket"}`)))
+
+	value, source := ExtractClientSessionIdentityWithBody(c, []byte(`{"conversation_id":"same-value"}`))
+	require.Equal(t, "same-value", value)
+	require.Equal(t, "body:conversation_id", source)
+	value, source = ExtractClientSessionIdentityWithBody(c, []byte(`{"thread_id":"same-value"}`))
+	require.Equal(t, "same-value", value)
+	require.Equal(t, "body:thread_id", source)
+}

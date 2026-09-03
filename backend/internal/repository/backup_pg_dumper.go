@@ -22,16 +22,7 @@ func NewPgDumper(cfg *config.Config) service.DBDumper {
 
 // Dump executes pg_dump and returns a streaming reader of the output
 func (d *PgDumper) Dump(ctx context.Context) (io.ReadCloser, error) {
-	args := []string{
-		"-h", d.cfg.Host,
-		"-p", fmt.Sprintf("%d", d.cfg.Port),
-		"-U", d.cfg.User,
-		"-d", d.cfg.DBName,
-		"--no-owner",
-		"--no-acl",
-		"--clean",
-		"--if-exists",
-	}
+	args := pgDumpArgs(d.cfg)
 
 	cmd := exec.CommandContext(ctx, "pg_dump", args...)
 	if d.cfg.Password != "" {
@@ -52,6 +43,26 @@ func (d *PgDumper) Dump(ctx context.Context) (io.ReadCloser, error) {
 
 	// 返回一个 ReadCloser：读 stdout，关闭时等待进程退出
 	return &cmdReadCloser{ReadCloser: stdout, cmd: cmd}, nil
+}
+
+func pgDumpArgs(cfg *config.DatabaseConfig) []string {
+	return []string{
+		"-h", cfg.Host,
+		"-p", fmt.Sprintf("%d", cfg.Port),
+		"-U", cfg.User,
+		"-d", cfg.DBName,
+		"--no-owner",
+		"--no-acl",
+		"--clean",
+		"--if-exists",
+		// Prompt Audit chat content has its own short-lived retention policy and
+		// is intentionally excluded from logical backups. Metadata and findings
+		// remain restorable without the sensitive chat payload.
+		"--exclude-table-data=prompt_audit_chat_records",
+		// Kept as a defense for databases that have not completed the migration
+		// away from the legacy complete-context table.
+		"--exclude-table-data=prompt_audit_event_contexts",
+	}
 }
 
 // Restore executes psql to restore from a streaming reader

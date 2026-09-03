@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -58,6 +59,9 @@ type DeleteResult struct {
 type EventRepository interface {
 	ListEvents(ctx context.Context, filter EventFilter, page, pageSize int) (*EventPage, error)
 	GetEvent(ctx context.Context, id int64) (*Event, error)
+	GetSessionChatRecords(ctx context.Context, eventID int64, limit int) (*UserChatSession, error)
+	DeleteExpiredChatRecords(ctx context.Context, now time.Time, limit int) (int64, error)
+	DeleteOrphanChatRecords(ctx context.Context, limit int) (int64, error)
 	DeleteEvent(ctx context.Context, id int64) (*DeleteResult, error)
 	DeleteEventsByIDs(ctx context.Context, ids []int64) (*DeleteResult, error)
 	PreviewDelete(ctx context.Context, filter EventFilter) (*DeletePreview, error)
@@ -107,17 +111,116 @@ func (r *PostgreSQLRepository) ListEvents(ctx context.Context, filter EventFilte
 }
 
 func (r *PostgreSQLRepository) GetEvent(ctx context.Context, id int64) (*Event, error) {
-	event, err := scanEvent(r.db.QueryRowContext(ctx, `SELECT `+eventDetailColumns("e")+` FROM prompt_audit_events e WHERE e.id=$1`, id), true)
+	event, err := scanEvent(r.db.QueryRowContext(ctx, `SELECT `+eventDetailColumnsWithChat("e")+` FROM prompt_audit_events e
+		LEFT JOIN prompt_audit_chat_records c ON c.id=e.chat_record_id WHERE e.id=$1`, id), true)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrEventNotFound
 	}
 	if err != nil {
 		return nil, err
 	}
-	if err := r.db.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM prompt_audit_event_contexts WHERE event_id=$1)`, id).Scan(&event.FullContextAvailable); err != nil {
+	if err := r.db.QueryRowContext(ctx, `SELECT
+		EXISTS(SELECT 1 FROM prompt_audit_events e
+		JOIN prompt_audit_chat_records c ON c.id=e.chat_record_id
+		WHERE e.id=$1 AND NULLIF(c.context_ciphertext, '') IS NOT NULL)
+		OR EXISTS(SELECT 1 FROM prompt_audit_event_contexts c WHERE c.event_id=$1)`, id).Scan(&event.FullContextAvailable); err != nil {
 		return nil, err
 	}
 	return event, nil
+}
+
+func (r *PostgreSQLRepository) GetSessionChatRecords(ctx context.Context, eventID int64, limit int) (*UserChatSession, error) {
+	if eventID <= 0 {
+		return nil, ErrEventNotFound
+	}
+	if limit < 1 || limit > maxUserAnalysisRecords {
+		limit = maxUserAnalysisRecords
+	}
+	session := &UserChatSession{}
+	var userID, selectedRecordID sql.NullInt64
+	var legacyPrompt, protocol string
+	var eventCreatedAt time.Time
+	if err := r.db.QueryRowContext(ctx, `
+		SELECT user_id,username_snapshot,user_email_snapshot,session_key,session_source,
+		       chat_record_id,full_prompt,protocol,created_at
+		FROM prompt_audit_events WHERE id=$1`, eventID).Scan(
+		&userID, &session.Username, &session.UserEmail, &session.SessionKey, &session.SessionSource,
+		&selectedRecordID, &legacyPrompt, &protocol, &eventCreatedAt); errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrEventNotFound
+	} else if err != nil {
+		return nil, err
+	}
+	session.UserID = nullableInt64Value(userID)
+	session.SelectedRecordID = nullableInt64Value(selectedRecordID)
+	if session.UserID <= 0 || strings.TrimSpace(session.SessionKey) == "" {
+		if session.UserID > 0 && strings.TrimSpace(legacyPrompt) != "" {
+			session.SessionSource = "legacy_event"
+			session.SessionKey = HashSessionKey(session.UserID, protocol, session.SessionSource, strconv.FormatInt(eventID, 10))
+			session.Records = []UserChatRecord{{
+				SessionKey: session.SessionKey, SessionSource: session.SessionSource,
+				FullPrompt: legacyPrompt, CreatedAt: eventCreatedAt,
+			}}
+		}
+		return session, nil
+	}
+	rows, err := r.db.QueryContext(ctx, `
+		SELECT c.id, c.content_hash, c.full_prompt,
+		       c.full_prompt_truncated, c.created_at
+		FROM prompt_audit_chat_records c
+		JOIN prompt_audit_sessions s ON s.id=c.session_id
+		WHERE s.user_id=$1 AND s.session_key=$2
+		ORDER BY (c.id=$3) DESC, c.created_at DESC, c.id DESC LIMIT $4`,
+		session.UserID, session.SessionKey, session.SelectedRecordID, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+	session.Records = make([]UserChatRecord, 0, limit)
+	for rows.Next() {
+		var record UserChatRecord
+		if err := rows.Scan(&record.ID, &record.ContentHash,
+			&record.FullPrompt, &record.FullPromptTruncated, &record.CreatedAt); err != nil {
+			return nil, err
+		}
+		record.SessionKey = session.SessionKey
+		record.SessionSource = session.SessionSource
+		session.Records = append(session.Records, record)
+	}
+	return session, rows.Err()
+}
+
+func (r *PostgreSQLRepository) DeleteExpiredChatRecords(ctx context.Context, now time.Time, limit int) (int64, error) {
+	if limit < 1 || limit > 1000 {
+		limit = 200
+	}
+	result, err := r.db.ExecContext(ctx, `
+		WITH expired AS (
+			SELECT id FROM prompt_audit_chat_records
+			WHERE retention_until IS NOT NULL AND retention_until <= $1
+			ORDER BY retention_until, id LIMIT $2 FOR UPDATE SKIP LOCKED
+		)
+		DELETE FROM prompt_audit_chat_records c USING expired e WHERE c.id=e.id`, now.UTC(), limit)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+func (r *PostgreSQLRepository) DeleteOrphanChatRecords(ctx context.Context, limit int) (int64, error) {
+	if limit < 1 || limit > 1000 {
+		limit = 200
+	}
+	result, err := r.db.ExecContext(ctx, `
+		WITH orphaned AS (
+			SELECT c.id FROM prompt_audit_chat_records c
+			WHERE NOT EXISTS (SELECT 1 FROM prompt_audit_events e WHERE e.chat_record_id=c.id)
+			ORDER BY c.id LIMIT $1 FOR UPDATE SKIP LOCKED
+		)
+		DELETE FROM prompt_audit_chat_records c USING orphaned o WHERE c.id=o.id`, limit)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }
 
 type eventContextRecord struct {
@@ -128,8 +231,15 @@ type eventContextRecord struct {
 func (r *PostgreSQLRepository) GetEventContext(ctx context.Context, id int64) (eventContextRecord, error) {
 	var result eventContextRecord
 	err := r.db.QueryRowContext(ctx, `
-		SELECT context_ciphertext,context_sha256
-		FROM prompt_audit_event_contexts WHERE event_id=$1`, id).Scan(&result.Ciphertext, &result.SHA256)
+		SELECT context_ciphertext,context_sha256 FROM (
+			SELECT c.context_ciphertext,c.context_sha256,1 AS priority
+			FROM prompt_audit_events e
+			JOIN prompt_audit_chat_records c ON c.id=e.chat_record_id
+			WHERE e.id=$1 AND NULLIF(c.context_ciphertext, '') IS NOT NULL
+			UNION ALL
+			SELECT c.context_ciphertext,c.context_sha256,2 AS priority
+			FROM prompt_audit_event_contexts c WHERE c.event_id=$1
+		) available ORDER BY priority LIMIT 1`, id).Scan(&result.Ciphertext, &result.SHA256)
 	if errors.Is(err, sql.ErrNoRows) {
 		return eventContextRecord{}, ErrEventContextNotFound
 	}
@@ -161,6 +271,9 @@ func (r *PostgreSQLRepository) DeleteEventsByIDs(ctx context.Context, ids []int6
 	if err != nil {
 		return nil, err
 	}
+	if _, err := deleteOrphanChatRecordsTx(ctx, tx, 1000); err != nil {
+		return nil, err
+	}
 	deletedJobs, err := deleteOrphanJobs(ctx, tx, jobIDs)
 	if err != nil {
 		return nil, err
@@ -183,11 +296,23 @@ func (r *PostgreSQLRepository) PreviewDelete(ctx context.Context, filter EventFi
 	where, args := buildEventWhere(filter, 1)
 	var count, contextCount, estimatedBytes, maxID int64
 	if err := tx.QueryRowContext(ctx, `
-		SELECT COUNT(*), COALESCE(MAX(e.id),0), COUNT(c.event_id),
-			COALESCE(SUM(pg_column_size(e.full_prompt)),0) +
-			COALESCE(SUM(pg_column_size(c.context_ciphertext)),0)
-		FROM prompt_audit_events e
-		LEFT JOIN prompt_audit_event_contexts c ON c.event_id=e.id`+where,
+		WITH matched AS (
+			SELECT e.id, e.chat_record_id FROM prompt_audit_events e`+where+`
+		), chat AS (
+			SELECT DISTINCT c.id, c.full_prompt, c.context_ciphertext
+			FROM prompt_audit_chat_records c
+			JOIN matched m ON m.chat_record_id=c.id
+			WHERE NOT EXISTS (
+				SELECT 1 FROM prompt_audit_events other
+				WHERE other.chat_record_id=c.id
+				  AND NOT EXISTS (SELECT 1 FROM matched selected WHERE selected.id=other.id)
+			)
+		)
+		SELECT
+			(SELECT COUNT(*) FROM matched),
+			(SELECT COALESCE(MAX(id),0) FROM matched),
+			(SELECT COUNT(*) FROM chat),
+			(SELECT COALESCE(SUM(pg_column_size(full_prompt) + COALESCE(pg_column_size(context_ciphertext),0)),0) FROM chat)`,
 		args...).Scan(&count, &maxID, &contextCount, &estimatedBytes); err != nil {
 		return nil, err
 	}
@@ -235,6 +360,10 @@ func (r *PostgreSQLRepository) DeleteEventsByFilter(ctx context.Context, filter 
 		}
 		jobIDs, err := scanReturnedJobIDs(rows)
 		if err != nil {
+			_ = tx.Rollback()
+			return nil, err
+		}
+		if _, err := deleteOrphanChatRecordsTx(ctx, tx, batchSize); err != nil {
 			_ = tx.Rollback()
 			return nil, err
 		}
@@ -372,18 +501,23 @@ func eventColumns(alias string) string {
 		%[1]s.chunk_total,%[1]s.latency_ms,%[1]s.created_at,%[1]s.client_ip,%[1]s.prompt_length,
 		%[1]s.message_count,%[1]s.execution_mode,%[1]s.queue_delay_ms,%[1]s.input_limit,
 		%[1]s.matched_chunk_index,%[1]s.full_prompt_truncated,%[1]s.error_code,%[1]s.error_message,
-		%[1]s.blocking_exempt_at_request`, alias)
+		%[1]s.blocking_exempt_at_request,%[1]s.session_key,%[1]s.session_source,%[1]s.chat_record_id`, alias)
 }
 
-// eventDetailColumns adds the full prompt, which can be large, so it is only
-// loaded for single-event detail reads and never for list pages.
+// eventDetailColumns includes the legacy full_prompt column for INSERT ...
+// RETURNING compatibility. New writes keep that column empty; retained content
+// is loaded from prompt_audit_chat_records instead.
 func eventDetailColumns(alias string) string {
 	return eventColumns(alias) + fmt.Sprintf(",%[1]s.full_prompt", alias)
 }
 
+func eventDetailColumnsWithChat(alias string) string {
+	return eventColumns(alias) + fmt.Sprintf(",COALESCE(NULLIF(c.full_prompt,''),%[1]s.full_prompt,'')", alias)
+}
+
 func scanEvent(row rowScanner, withFullPrompt ...bool) (*Event, error) {
 	event := &Event{}
-	var userID, apiKeyID, groupID sql.NullInt64
+	var userID, apiKeyID, groupID, chatRecordID sql.NullInt64
 	var queueDelayMS, inputLimit, matchedChunkIndex sql.NullInt64
 	var categories, matched, scores, evidence []byte
 	dest := []any{&event.ID, &event.JobID, &event.Snapshot.RequestID, &userID,
@@ -396,7 +530,8 @@ func scanEvent(row rowScanner, withFullPrompt ...bool) (*Event, error) {
 		&event.ConfigVersion, &event.ChunkTotal, &event.LatencyMS, &event.CreatedAt, &event.Snapshot.ClientIP,
 		&event.Snapshot.PromptLength, &event.Snapshot.MessageCount, &event.ExecutionMode, &queueDelayMS,
 		&inputLimit, &matchedChunkIndex, &event.Snapshot.FullPromptTruncated,
-		&event.ErrorCode, &event.ErrorMessage, &event.Snapshot.BlockingExemptAtRequest}
+		&event.ErrorCode, &event.ErrorMessage, &event.Snapshot.BlockingExemptAtRequest,
+		&event.Snapshot.SessionKey, &event.Snapshot.SessionSource, &chatRecordID}
 	if len(withFullPrompt) > 0 && withFullPrompt[0] {
 		dest = append(dest, &event.Snapshot.FullPrompt)
 	}
@@ -407,6 +542,7 @@ func scanEvent(row rowScanner, withFullPrompt ...bool) (*Event, error) {
 	event.Snapshot.UserID = nullableInt64Value(userID)
 	event.Snapshot.APIKeyID = nullableInt64Value(apiKeyID)
 	event.Snapshot.GroupID = nullableInt64Ptr(groupID)
+	event.Snapshot.ChatRecordID = nullableInt64Value(chatRecordID)
 	event.QueueDelayMS = nullableIntPtr(queueDelayMS)
 	event.InputLimit = nullableIntPtr(inputLimit)
 	event.MatchedChunkIndex = nullableIntPtr(matchedChunkIndex)
@@ -476,6 +612,23 @@ func deleteOrphanJobs(ctx context.Context, tx *sql.Tx, jobIDs []int64) (int64, e
 	result, err := tx.ExecContext(ctx, `DELETE FROM prompt_audit_jobs j
 		WHERE j.id=ANY($1) AND j.status IN ('done','failed')
 		AND NOT EXISTS (SELECT 1 FROM prompt_audit_events e WHERE e.job_id=j.id)`, pq.Array(jobIDs))
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+func deleteOrphanChatRecordsTx(ctx context.Context, tx *sql.Tx, limit int) (int64, error) {
+	if limit < 1 || limit > 1000 {
+		limit = 200
+	}
+	result, err := tx.ExecContext(ctx, `
+		WITH orphaned AS (
+			SELECT c.id FROM prompt_audit_chat_records c
+			WHERE NOT EXISTS (SELECT 1 FROM prompt_audit_events e WHERE e.chat_record_id=c.id)
+			ORDER BY c.id LIMIT $1 FOR UPDATE SKIP LOCKED
+		)
+		DELETE FROM prompt_audit_chat_records c USING orphaned o WHERE c.id=o.id`, limit)
 	if err != nil {
 		return 0, err
 	}

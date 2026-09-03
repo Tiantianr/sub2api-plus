@@ -106,7 +106,10 @@ const (
 
 	contentModerationRuntimeCacheTTL       = time.Second
 	contentModerationRuntimeRefreshTimeout = 5 * time.Second
+	contentModerationKeywordInputPrefix    = "sub2api:content-moderation-keyword-input:v1:"
 )
+
+var ErrContentModerationLogNotFound = errors.New("content moderation log not found")
 
 var contentModerationCategoryOrder = []string{
 	"harassment",
@@ -413,37 +416,49 @@ type ContentModerationDecision struct {
 }
 
 type ContentModerationLog struct {
-	ID                int64              `json:"id"`
-	RequestID         string             `json:"request_id"`
-	UserID            *int64             `json:"user_id,omitempty"`
-	UserEmail         string             `json:"user_email"`
-	APIKeyID          *int64             `json:"api_key_id,omitempty"`
-	APIKeyName        string             `json:"api_key_name"`
-	GroupID           *int64             `json:"group_id,omitempty"`
-	GroupName         string             `json:"group_name"`
-	Endpoint          string             `json:"endpoint"`
-	Provider          string             `json:"provider"`
-	Model             string             `json:"model"`
-	Mode              string             `json:"mode"`
-	Action            string             `json:"action"`
-	Flagged           bool               `json:"flagged"`
-	HighestCategory   string             `json:"highest_category"`
-	HighestScore      float64            `json:"highest_score"`
-	MatchedKeyword    string             `json:"matched_keyword"`
-	CategoryScores    map[string]float64 `json:"category_scores"`
-	ThresholdSnapshot map[string]float64 `json:"threshold_snapshot"`
-	InputExcerpt      string             `json:"input_excerpt"`
-	UpstreamLatencyMS *int               `json:"upstream_latency_ms,omitempty"`
-	Error             string             `json:"error"`
-	ViolationCount    int                `json:"violation_count"`
-	AutoBanned        bool               `json:"auto_banned"`
-	EmailSent         bool               `json:"email_sent"`
-	UserStatus        string             `json:"user_status"`
-	QueueDelayMS      *int               `json:"queue_delay_ms,omitempty"`
-	CreatedAt         time.Time          `json:"created_at"`
-	Protocol          string             `json:"-"`
-	Stage             string             `json:"-"`
-	BodyBytes         int                `json:"-"`
+	ID                      int64              `json:"id"`
+	RequestID               string             `json:"request_id"`
+	UserID                  *int64             `json:"user_id,omitempty"`
+	UserEmail               string             `json:"user_email"`
+	APIKeyID                *int64             `json:"api_key_id,omitempty"`
+	APIKeyName              string             `json:"api_key_name"`
+	GroupID                 *int64             `json:"group_id,omitempty"`
+	GroupName               string             `json:"group_name"`
+	Endpoint                string             `json:"endpoint"`
+	Provider                string             `json:"provider"`
+	Model                   string             `json:"model"`
+	Mode                    string             `json:"mode"`
+	Action                  string             `json:"action"`
+	Flagged                 bool               `json:"flagged"`
+	HighestCategory         string             `json:"highest_category"`
+	HighestScore            float64            `json:"highest_score"`
+	MatchedKeyword          string             `json:"matched_keyword"`
+	CategoryScores          map[string]float64 `json:"category_scores"`
+	ThresholdSnapshot       map[string]float64 `json:"threshold_snapshot"`
+	InputExcerpt            string             `json:"input_excerpt"`
+	InputCiphertext         string             `json:"-"`
+	UpstreamLatencyMS       *int               `json:"upstream_latency_ms,omitempty"`
+	Error                   string             `json:"error"`
+	ViolationCount          int                `json:"violation_count"`
+	AutoBanned              bool               `json:"auto_banned"`
+	EmailSent               bool               `json:"email_sent"`
+	UserStatus              string             `json:"user_status"`
+	QueueDelayMS            *int               `json:"queue_delay_ms,omitempty"`
+	BlockingExemptAtRequest bool               `json:"blocking_exempt_at_request"`
+	CreatedAt               time.Time          `json:"created_at"`
+	Protocol                string             `json:"-"`
+	Stage                   string             `json:"-"`
+	BodyBytes               int                `json:"-"`
+}
+
+type ContentModerationLogInput struct {
+	ID              int64  `json:"id"`
+	Content         string `json:"content"`
+	Complete        bool   `json:"complete"`
+	Action          string `json:"-"`
+	MatchedKeyword  string `json:"-"`
+	InputExcerpt    string `json:"-"`
+	InputCiphertext string `json:"-"`
 }
 
 type ContentModerationLogFilter struct {
@@ -516,6 +531,7 @@ type ContentModerationClearHashesResult struct {
 type ContentModerationRepository interface {
 	CreateLog(ctx context.Context, log *ContentModerationLog) error
 	ListLogs(ctx context.Context, filter ContentModerationLogFilter) ([]ContentModerationLog, *pagination.PaginationResult, error)
+	GetLogInput(ctx context.Context, id int64) (*ContentModerationLogInput, error)
 	// CountFlaggedByUserSince 统计窗口内计入封号的违规次数（排除 hash_block；
 	// excludeCyberPolicy 为 true 时额外排除 cyber_policy 行）。
 	CountFlaggedByUserSince(ctx context.Context, userID int64, since time.Time, excludeCyberPolicy bool) (int, error)
@@ -542,6 +558,7 @@ type ContentModerationService struct {
 	authCacheInvalidator     APIKeyAuthCacheInvalidator
 	apiKeyRepo               contentModerationAPIKeyMutator
 	emailService             *EmailService
+	secretEncryptor          SecretEncryptor
 	httpClient               *http.Client
 	moderationProxyCache     atomic.Pointer[moderationProxyURLCacheEntry]
 	asyncQueue               chan contentModerationTask
@@ -621,9 +638,11 @@ func ProvideContentModerationService(
 	authCacheInvalidator APIKeyAuthCacheInvalidator,
 	emailService *EmailService,
 	apiKeyRepo APIKeyRepository,
+	secretEncryptor SecretEncryptor,
 ) *ContentModerationService {
 	svc := NewContentModerationService(settingRepo, repo, hashCache, groupRepo, userRepo, proxyRepo, authCacheInvalidator, emailService)
 	svc.SetAPIKeyRepository(apiKeyRepo)
+	svc.SetSecretEncryptor(secretEncryptor)
 	return svc
 }
 
@@ -670,6 +689,13 @@ func (s *ContentModerationService) SetAPIKeyRepository(repo contentModerationAPI
 		return
 	}
 	s.apiKeyRepo = repo
+}
+
+func (s *ContentModerationService) SetSecretEncryptor(encryptor SecretEncryptor) {
+	if s == nil {
+		return
+	}
+	s.secretEncryptor = encryptor
 }
 
 func (s *ContentModerationService) GetConfig(ctx context.Context) (*ContentModerationConfigView, error) {
@@ -1057,30 +1083,47 @@ func (s *ContentModerationService) Check(ctx context.Context, input ContentModer
 	if cfg.Mode == ContentModerationModePreBlock {
 		if cfg.KeywordBlockingMode != ContentModerationKeywordModeAPIOnly && len(cfg.BlockedKeywords) > 0 {
 			if keyword, hit := runtimeSnapshot.matchBlockedKeyword(content.Text); hit {
-				s.recordPreBlockSyncMetric(0, ContentModerationActionKeywordBlock)
-				slog.Info("content_moderation.keyword_block",
-					"user_id", input.UserID,
-					"api_key_id", input.APIKeyID,
-					"group_id", contentModerationLogGroupID(input.GroupID),
-					"endpoint", input.Endpoint,
-					"protocol", input.Protocol,
-					"keyword_blocking_mode", cfg.KeywordBlockingMode,
-					"keyword", keyword)
-				scores := map[string]float64{contentModerationKeywordCategory: 1.0}
-				log := s.buildLog(input, cfg, ContentModerationActionKeywordBlock, true, contentModerationKeywordCategory, 1.0, scores, content.ExcerptText(), nil, nil, "")
-				log.MatchedKeyword = keyword
-				s.enqueueRecord(input, cfg, log, hashText, false, true)
-				return &ContentModerationDecision{
-					Allowed:         false,
-					Blocked:         true,
-					Flagged:         true,
-					Message:         cfg.BlockMessage,
-					StatusCode:      cfg.BlockStatus,
-					HighestCategory: contentModerationKeywordCategory,
-					HighestScore:    1.0,
-					CategoryScores:  scores,
-					Action:          ContentModerationActionKeywordBlock,
-				}, nil
+				if input.BlockingExemptAtRequest {
+					slog.Info("content_moderation.keyword_exempt_shadow",
+						"user_id", input.UserID,
+						"api_key_id", input.APIKeyID,
+						"group_id", contentModerationLogGroupID(input.GroupID),
+						"endpoint", input.Endpoint,
+						"protocol", input.Protocol,
+						"keyword_blocking_mode", cfg.KeywordBlockingMode,
+						"keyword", keyword)
+					scores := map[string]float64{contentModerationKeywordCategory: 1.0}
+					log := s.buildLog(input, cfg, ContentModerationActionShadow, true, contentModerationKeywordCategory, 1.0, scores, content.ExcerptText(), nil, nil, "")
+					log.MatchedKeyword = keyword
+					log.InputCiphertext = s.encryptContentModerationKeywordInput(input, content.Text)
+					s.enqueueRecord(input, cfg, log, hashText, false, false)
+				} else {
+					s.recordPreBlockSyncMetric(0, ContentModerationActionKeywordBlock)
+					slog.Info("content_moderation.keyword_block",
+						"user_id", input.UserID,
+						"api_key_id", input.APIKeyID,
+						"group_id", contentModerationLogGroupID(input.GroupID),
+						"endpoint", input.Endpoint,
+						"protocol", input.Protocol,
+						"keyword_blocking_mode", cfg.KeywordBlockingMode,
+						"keyword", keyword)
+					scores := map[string]float64{contentModerationKeywordCategory: 1.0}
+					log := s.buildLog(input, cfg, ContentModerationActionKeywordBlock, true, contentModerationKeywordCategory, 1.0, scores, content.ExcerptText(), nil, nil, "")
+					log.MatchedKeyword = keyword
+					log.InputCiphertext = s.encryptContentModerationKeywordInput(input, content.Text)
+					s.enqueueRecord(input, cfg, log, hashText, false, true)
+					return &ContentModerationDecision{
+						Allowed:         false,
+						Blocked:         true,
+						Flagged:         true,
+						Message:         cfg.BlockMessage,
+						StatusCode:      cfg.BlockStatus,
+						HighestCategory: contentModerationKeywordCategory,
+						HighestScore:    1.0,
+						CategoryScores:  scores,
+						Action:          ContentModerationActionKeywordBlock,
+					}, nil
+				}
 			}
 		}
 		if cfg.KeywordBlockingMode == ContentModerationKeywordModeKeywordOnly && len(content.Images) == 0 {
@@ -1648,6 +1691,48 @@ func (s *ContentModerationService) ListLogs(ctx context.Context, filter ContentM
 	return s.repo.ListLogs(ctx, filter)
 }
 
+func (s *ContentModerationService) GetLogInput(ctx context.Context, id int64) (*ContentModerationLogInput, error) {
+	if id <= 0 {
+		return nil, infraerrors.BadRequest("INVALID_CONTENT_MODERATION_LOG_ID", "审核记录 ID 无效")
+	}
+	if s == nil || s.repo == nil {
+		return nil, infraerrors.InternalServer("CONTENT_MODERATION_REPOSITORY_UNAVAILABLE", "内容审核仓储不可用")
+	}
+	result, err := s.repo.GetLogInput(ctx, id)
+	if err != nil {
+		if errors.Is(err, ErrContentModerationLogNotFound) {
+			return nil, infraerrors.NotFound("CONTENT_MODERATION_LOG_NOT_FOUND", "审核记录不存在")
+		}
+		return nil, fmt.Errorf("get content moderation log input: %w", err)
+	}
+	if result == nil {
+		return nil, infraerrors.NotFound("CONTENT_MODERATION_LOG_NOT_FOUND", "审核记录不存在")
+	}
+	if strings.TrimSpace(result.MatchedKeyword) == "" || strings.TrimSpace(result.InputCiphertext) == "" {
+		return &ContentModerationLogInput{ID: result.ID, Content: result.InputExcerpt, Complete: false}, nil
+	}
+	if s.secretEncryptor == nil {
+		return nil, infraerrors.InternalServer("CONTENT_MODERATION_INPUT_DECRYPT_UNAVAILABLE", "审核记录完整内容暂时不可用")
+	}
+	plain, err := s.secretEncryptor.Decrypt(result.InputCiphertext)
+	if err != nil {
+		slog.Warn("content_moderation.keyword_input_decrypt_failed",
+			"log_id", result.ID,
+			"error_code", "keyword_input_decrypt_failed",
+			"error_kind", contentModerationErrorKind(err))
+		return nil, infraerrors.InternalServer("CONTENT_MODERATION_INPUT_DECRYPT_FAILED", "审核记录完整内容暂时不可用")
+	}
+	plain, validPurpose := strings.CutPrefix(plain, contentModerationKeywordInputPrefix)
+	if !validPurpose {
+		slog.Warn("content_moderation.keyword_input_decrypt_failed",
+			"log_id", result.ID,
+			"error_code", "keyword_input_purpose_mismatch",
+			"error_kind", "invalid_ciphertext_purpose")
+		return nil, infraerrors.InternalServer("CONTENT_MODERATION_INPUT_DECRYPT_FAILED", "审核记录完整内容暂时不可用")
+	}
+	return &ContentModerationLogInput{ID: result.ID, Content: plain, Complete: true}, nil
+}
+
 func (s *ContentModerationService) UnbanUser(ctx context.Context, userID int64) (*ContentModerationUnbanUserResult, error) {
 	if s == nil || s.userRepo == nil {
 		return nil, infraerrors.InternalServer("CONTENT_MODERATION_USER_REPOSITORY_UNAVAILABLE", "用户仓储不可用")
@@ -2204,31 +2289,59 @@ func (s *ContentModerationService) buildLog(input ContentModerationCheckInput, c
 		apiKeyID = &input.APIKeyID
 	}
 	return &ContentModerationLog{
-		RequestID:         input.RequestID,
-		UserID:            userID,
-		UserEmail:         input.UserEmail,
-		APIKeyID:          apiKeyID,
-		APIKeyName:        input.APIKeyName,
-		GroupID:           cloneInt64Ptr(input.GroupID),
-		GroupName:         input.GroupName,
-		Endpoint:          input.Endpoint,
-		Provider:          input.Provider,
-		Model:             input.Model,
-		Mode:              cfg.Mode,
-		Action:            action,
-		Flagged:           flagged,
-		HighestCategory:   highestCategory,
-		HighestScore:      highestScore,
-		CategoryScores:    cloneFloatMap(scores),
-		ThresholdSnapshot: cloneFloatMap(cfg.Thresholds),
-		InputExcerpt:      trimRunes(redactContentModerationSecrets(text), maxModerationExcerptRunes),
-		UpstreamLatencyMS: latency,
-		QueueDelayMS:      queueDelay,
-		Error:             errText,
-		Protocol:          input.Protocol,
-		Stage:             contentModerationAuditStage(input.Stage),
-		BodyBytes:         len(input.Body),
+		RequestID:               input.RequestID,
+		UserID:                  userID,
+		UserEmail:               input.UserEmail,
+		APIKeyID:                apiKeyID,
+		APIKeyName:              input.APIKeyName,
+		GroupID:                 cloneInt64Ptr(input.GroupID),
+		GroupName:               input.GroupName,
+		Endpoint:                input.Endpoint,
+		Provider:                input.Provider,
+		Model:                   input.Model,
+		Mode:                    cfg.Mode,
+		Action:                  action,
+		Flagged:                 flagged,
+		HighestCategory:         highestCategory,
+		HighestScore:            highestScore,
+		CategoryScores:          cloneFloatMap(scores),
+		ThresholdSnapshot:       cloneFloatMap(cfg.Thresholds),
+		InputExcerpt:            trimRunes(redactContentModerationSecrets(text), maxModerationExcerptRunes),
+		UpstreamLatencyMS:       latency,
+		QueueDelayMS:            queueDelay,
+		Error:                   errText,
+		Protocol:                input.Protocol,
+		Stage:                   contentModerationAuditStage(input.Stage),
+		BodyBytes:               len(input.Body),
+		BlockingExemptAtRequest: input.BlockingExemptAtRequest,
 	}
+}
+
+func (s *ContentModerationService) encryptContentModerationKeywordInput(input ContentModerationCheckInput, text string) string {
+	if s == nil || s.secretEncryptor == nil {
+		slog.Warn("content_moderation.keyword_input_encrypt_failed",
+			"request_id", input.RequestID,
+			"user_id", input.UserID,
+			"api_key_id", input.APIKeyID,
+			"group_id", contentModerationLogGroupID(input.GroupID),
+			"endpoint", input.Endpoint,
+			"error_code", "keyword_input_encryptor_unavailable")
+		return ""
+	}
+	redacted := redactContentModerationSecrets(text)
+	ciphertext, err := s.secretEncryptor.Encrypt(contentModerationKeywordInputPrefix + redacted)
+	if err != nil {
+		slog.Warn("content_moderation.keyword_input_encrypt_failed",
+			"request_id", input.RequestID,
+			"user_id", input.UserID,
+			"api_key_id", input.APIKeyID,
+			"group_id", contentModerationLogGroupID(input.GroupID),
+			"endpoint", input.Endpoint,
+			"error_code", "keyword_input_encrypt_failed",
+			"error_kind", contentModerationErrorKind(err))
+		return ""
+	}
+	return ciphertext
 }
 
 func (s *ContentModerationService) persistContentModerationLog(ctx context.Context, cfg *ContentModerationConfig, log *ContentModerationLog, hashText string, recordHash bool, applySideEffects bool) {

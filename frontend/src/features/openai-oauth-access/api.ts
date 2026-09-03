@@ -89,29 +89,74 @@ export interface OAuthAccessUserQuery {
 
 export async function listOAuthAccessAccounts(): Promise<OAuthAccessAccount[]> {
   const { data } = await apiClient.get<OAuthAccessAccount[]>(`${basePath}/accounts`)
-  return data
+  return arrayValue(data).map(normalizeAccount)
 }
 
 export async function listOAuthAccessUsers(query: OAuthAccessUserQuery): Promise<OAuthAccessUserPage> {
   const { data } = await apiClient.get<OAuthAccessUserPage>(`${basePath}/users`, { params: query })
-  return data
+  return {
+    ...data,
+    items: arrayValue(data?.items).map(normalizeUser),
+    total: data?.total ?? 0,
+    page: data?.page ?? query.page,
+    limit: data?.limit ?? query.limit,
+    pages: data?.pages ?? 1,
+  }
 }
 
 export async function previewOAuthAccessPolicies(changes: OAuthAccessPolicyChange[]): Promise<OAuthAccessPreview> {
   const { data } = await apiClient.post<OAuthAccessPreview>(`${basePath}/preview`, { changes })
-  return data
+  return {
+    ...data,
+    accounts: arrayValue(data?.accounts),
+    grant_added_count: data?.grant_added_count ?? 0,
+    grant_removed_count: data?.grant_removed_count ?? 0,
+    users_losing_all_access_count: data?.users_losing_all_access_count ?? 0,
+    users_losing_all_access: arrayValue(data?.users_losing_all_access).map((user) => ({
+      ...user,
+      api_key_group_ids: arrayValue(user.api_key_group_ids),
+    })),
+  }
 }
 
 export async function applyOAuthAccessPolicies(changes: OAuthAccessPolicyChange[]): Promise<OAuthAccessApplyResult> {
   const { data } = await apiClient.put<OAuthAccessApplyResult>(`${basePath}/policies`, { changes })
-  return data
+  return {
+    ...data,
+    accounts: arrayValue(data?.accounts).map(normalizeAccount),
+    account_count: data?.account_count ?? 0,
+    grant_added_count: data?.grant_added_count ?? 0,
+    grant_removed_count: data?.grant_removed_count ?? 0,
+  }
 }
 
 export async function listOAuthAccessGroups(): Promise<OAuthAccessGroup[]> {
   const { data } = await apiClient.get<OAuthAccessGroup[]>('/admin/groups/all', {
     params: { include_inactive: true },
   })
-  return data
+  return arrayValue(data)
+}
+
+function arrayValue<T>(value: T[] | null | undefined): T[] {
+  return Array.isArray(value) ? value : []
+}
+
+function normalizeAccount(account: OAuthAccessAccount): OAuthAccessAccount {
+  return {
+    ...account,
+    group_ids: arrayValue(account.group_ids),
+    granted_user_ids: arrayValue(account.granted_user_ids),
+  }
+}
+
+function normalizeUser(user: OAuthAccessUser): OAuthAccessUser {
+  return {
+    ...user,
+    api_key_group_ids: arrayValue(user.api_key_group_ids),
+    subscription_group_ids: arrayValue(user.subscription_group_ids),
+    granted_account_ids: arrayValue(user.granted_account_ids),
+    effective_account_ids: arrayValue(user.effective_account_ids),
+  }
 }
 
 export const openAIOAuthAccessAPI = {

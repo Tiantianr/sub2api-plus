@@ -13,6 +13,7 @@ import type {
   PromptAuditEndpointDraft,
   PromptPassRetentionConfig,
   PromptPassRetentionUpdateRequest,
+  PromptUserAnalysis,
 } from './types'
 import { eventFilterPayload, eventQueryParams } from './viewModel'
 
@@ -80,6 +81,11 @@ export async function getEvent(id: number): Promise<PromptAuditEvent> {
   return data
 }
 
+export async function analyzeEvent(id: number): Promise<PromptUserAnalysis> {
+  const { data } = await apiClient.post<PromptUserAnalysis>(`${basePath}/events/${id}/analyze`, undefined, { timeout: 120_000 })
+  return data
+}
+
 export async function downloadEventContext(id: number): Promise<Blob> {
   const { data } = await apiClient.get<Blob>(`${basePath}/events/${id}/context`, { responseType: 'blob' })
   return data
@@ -133,6 +139,7 @@ export const promptAuditAPI = {
   getRuntime,
   listEvents,
   getEvent,
+  analyzeEvent,
   downloadEventContext,
   deleteEvent,
   batchDeleteEvents,

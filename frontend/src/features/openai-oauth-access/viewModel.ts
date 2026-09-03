@@ -1,10 +1,10 @@
 import type { OAuthAccessAccount, OAuthAccessMode, OAuthAccessPolicyChange } from './api'
 
 export function cloneOAuthAccessAccounts(accounts: OAuthAccessAccount[]): OAuthAccessAccount[] {
-  return accounts.map((account) => ({
+  return (accounts ?? []).map((account) => ({
     ...account,
-    group_ids: [...account.group_ids],
-    granted_user_ids: [...account.granted_user_ids].sort((a, b) => a - b),
+    group_ids: [...(account.group_ids ?? [])],
+    granted_user_ids: [...(account.granted_user_ids ?? [])].sort((a, b) => a - b),
   }))
 }
 
@@ -36,21 +36,21 @@ export function setOAuthAccessMode(account: OAuthAccessAccount, mode: OAuthAcces
 
 export function setOAuthAccessGrant(account: OAuthAccessAccount, userID: number, granted: boolean): void {
   if (account.mode !== 'restricted' || userID <= 0) return
-  const ids = new Set(account.granted_user_ids)
+  const ids = new Set(account.granted_user_ids ?? [])
   if (granted) ids.add(userID)
   else ids.delete(userID)
   account.granted_user_ids = [...ids].sort((a, b) => a - b)
 }
 
 export function hasOAuthAccessGrant(account: OAuthAccessAccount, userID: number): boolean {
-  return account.mode === 'restricted' && account.granted_user_ids.includes(userID)
+  return account.mode === 'restricted' && (account.granted_user_ids ?? []).includes(userID)
 }
 
 function accountFingerprint(account: OAuthAccessAccount): string {
   return JSON.stringify([
     account.mode,
     account.mode === 'restricted' && account.default_for_new_users,
-    account.mode === 'restricted' ? uniqueSortedIDs(account.granted_user_ids) : [],
+    account.mode === 'restricted' ? uniqueSortedIDs(account.granted_user_ids ?? []) : [],
   ])
 }
 

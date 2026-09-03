@@ -32,7 +32,7 @@ type PromptService struct {
 	enqueuer  *Enqueuer
 	runner    *Runner
 	evaluator *GuardEvaluator
-	scanner   *OpenAICompatibleScanner
+	scanner   PromptScanner
 	metrics   *AtomicMetrics
 	clock     Clock
 
@@ -40,6 +40,7 @@ type PromptService struct {
 	cancel       context.CancelFunc
 	background   context.Context
 	enqueueWG    sync.WaitGroup
+	cleanupWG    sync.WaitGroup
 	enqueueSlots chan struct{}
 	probeMu      sync.RWMutex
 	probes       map[string]ProbeResult
@@ -92,6 +93,10 @@ func (s *PromptService) Start(ctx context.Context) error {
 	s.lifecycleMu.Unlock()
 	configErr := s.config.Start(background)
 	workerErr := s.runner.Start(background)
+	if s.repo != nil && s.repo.db != nil {
+		s.cleanupWG.Add(1)
+		go s.chatRetentionLoop(background)
+	}
 	if configErr != nil {
 		logPromptRuntimeFailure(EventConfigReloadDegraded, "config_start_failed")
 	}
@@ -125,6 +130,15 @@ func (s *PromptService) Shutdown(ctx context.Context) error {
 			workerErr = ctx.Err()
 		}
 	}
+	done = make(chan struct{})
+	go func() { s.cleanupWG.Wait(); close(done) }()
+	select {
+	case <-done:
+	case <-ctx.Done():
+		if workerErr == nil {
+			workerErr = ctx.Err()
+		}
+	}
 	var configErr error
 	if s.config != nil {
 		configErr = s.config.Shutdown(ctx)
@@ -144,6 +158,59 @@ func (s *PromptService) EffectiveMode() Mode {
 		return ModeOff
 	}
 	return s.config.EffectiveMode()
+}
+
+func (s *PromptService) chatRetentionLoop(ctx context.Context) {
+	defer s.cleanupWG.Done()
+	cleanup := func() {
+		if ctx.Err() != nil || s.repo == nil || s.repo.db == nil {
+			return
+		}
+		cleanupCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+		defer cancel()
+		now := time.Now().UTC()
+		if s.clock != nil {
+			now = s.clock.Now()
+		}
+		var deletedTotal int64
+		for cleanupCtx.Err() == nil {
+			deleted, err := s.repo.DeleteExpiredChatRecords(cleanupCtx, now, 500)
+			if err != nil {
+				LogWarn(EventChatRetentionCleanupFailed, map[string]any{"status": "failed", "error_code": "chat_retention_cleanup_failed"})
+				return
+			}
+			deletedTotal += deleted
+			if deleted < 500 {
+				break
+			}
+		}
+		var orphanedTotal int64
+		for cleanupCtx.Err() == nil {
+			orphaned, err := s.repo.DeleteOrphanChatRecords(cleanupCtx, 500)
+			if err != nil {
+				LogWarn(EventChatRetentionCleanupFailed, map[string]any{"status": "failed", "error_code": "chat_orphan_cleanup_failed"})
+				return
+			}
+			orphanedTotal += orphaned
+			if orphaned < 500 {
+				break
+			}
+		}
+		if deletedTotal > 0 || orphanedTotal > 0 {
+			LogInfo(EventChatRetentionCleaned, map[string]any{"status": "deleted", "deleted_count": deletedTotal + orphanedTotal})
+		}
+	}
+	cleanup()
+	ticker := time.NewTicker(time.Hour)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			cleanup()
+		}
+	}
 }
 
 func (s *PromptService) BlockingApplies(req Request) bool {

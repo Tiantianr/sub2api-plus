@@ -35,6 +35,7 @@
             <dt class="text-gray-500">{{ t('admin.promptAudit.events.apiKey') }}</dt><dd>{{ event.snapshot.api_key_name || '—' }}</dd>
             <dt class="text-gray-500">{{ t('admin.promptAudit.events.clientIp') }}</dt><dd class="font-mono">{{ event.snapshot.client_ip || '—' }}</dd>
             <dt class="text-gray-500">{{ t('admin.promptAudit.events.group') }}</dt><dd>{{ event.snapshot.group_name || '—' }}</dd>
+            <dt class="text-gray-500">{{ t('admin.promptAudit.analysis.session') }}</dt><dd class="break-all font-mono text-xs">{{ shortSessionKey(event.snapshot.session_key) }}</dd>
             <dt class="text-gray-500">{{ t('admin.promptAudit.events.model') }}</dt><dd>{{ event.snapshot.model || '—' }}</dd>
             <dt class="text-gray-500">{{ t('admin.promptAudit.events.executionMode') }}</dt><dd>{{ formatMode(event.execution_mode) }}</dd>
             <dt class="text-gray-500">{{ t('admin.promptAudit.events.promptSize') }}</dt><dd>{{ t('admin.promptAudit.events.promptSizeValue', { chars: formatNumber(event.snapshot.prompt_length), messages: formatNumber(event.snapshot.message_count) }) }}</dd>
@@ -140,11 +141,16 @@ function displayPrompt(event: PromptAuditEvent): string {
 }
 
 function isLightweightPass(event: PromptAuditEvent): boolean {
-  return event.decision === 'pass' && !event.snapshot.full_prompt && !event.full_context_available
+  return event.decision === 'pass' && !event.snapshot.full_prompt && !event.full_context_available && !event.snapshot.chat_record_id
+}
+
+function chatContentExpired(event: PromptAuditEvent): boolean {
+  return Boolean(event.snapshot.chat_record_id) && !event.snapshot.full_prompt && !event.full_context_available
 }
 
 function contentStatus(event: PromptAuditEvent): string {
   if (isLightweightPass(event)) return t('admin.promptAudit.events.contentLightweight')
+  if (chatContentExpired(event)) return t('admin.promptAudit.events.contentExpired')
   return event.snapshot.full_prompt_truncated
     ? t('admin.promptAudit.events.contentTruncated')
     : t('admin.promptAudit.events.contentComplete')
@@ -196,6 +202,11 @@ function formatDuration(value?: number | null): string {
 }
 function formatNumber(value: number): string {
   return new Intl.NumberFormat().format(value)
+}
+function shortSessionKey(value?: string): string {
+  if (!value) return '—'
+  if (value.length <= 16) return value
+  return `${value.slice(0, 8)}...${value.slice(-8)}`
 }
 function translateEvidence(value: string): string {
   const byId = SCANNER_CATALOG.find((scanner) => scanner.id === value)

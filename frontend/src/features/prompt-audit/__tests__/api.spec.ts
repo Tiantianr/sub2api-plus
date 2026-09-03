@@ -76,4 +76,10 @@ describe('Prompt Audit API', () => {
     await expect(promptAuditAPI.downloadEventContext(7)).resolves.toBe(blob)
     expect(client.get).toHaveBeenCalledWith('/admin/prompt-audit/events/7/context', { responseType: 'blob' })
   })
+
+  it('analyzes only the selected event session through the admin endpoint', async () => {
+    client.post.mockResolvedValue({ data: { user_id: 7, session_key: 'opaque-session', record_count: 2, report: 'risk report' } })
+    await expect(promptAuditAPI.analyzeEvent(7)).resolves.toMatchObject({ user_id: 7, session_key: 'opaque-session' })
+    expect(client.post).toHaveBeenCalledWith('/admin/prompt-audit/events/7/analyze', undefined, { timeout: 120_000 })
+  })
 })

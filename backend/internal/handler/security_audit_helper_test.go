@@ -60,6 +60,9 @@ func (handlerModerationRepo) CreateLog(context.Context, *service.ContentModerati
 func (handlerModerationRepo) ListLogs(context.Context, service.ContentModerationLogFilter) ([]service.ContentModerationLog, *pagination.PaginationResult, error) {
 	return nil, &pagination.PaginationResult{}, nil
 }
+func (handlerModerationRepo) GetLogInput(context.Context, int64) (*service.ContentModerationLogInput, error) {
+	return nil, service.ErrContentModerationLogNotFound
+}
 func (handlerModerationRepo) CountFlaggedByUserSince(context.Context, int64, time.Time, bool) (int, error) {
 	return 0, nil
 }
