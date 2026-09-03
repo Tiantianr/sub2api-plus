@@ -160,11 +160,17 @@ func securityAuditWSTurn(c *gin.Context) (int, bool) {
 
 func buildSecurityAuditRequest(c *gin.Context, apiKey *service.APIKey, subject middleware2.AuthSubject, protocol, model string, body []byte, stage string) securityaudit.Request {
 	legacy := buildContentModerationInput(c, apiKey, subject, protocol, model, body)
+	clientSessionID, sessionSource := service.ExtractClientSessionIdentityWithBody(c, body)
+	if clientSessionID == "" {
+		clientSessionID = legacy.RequestID
+		sessionSource = "request_id_fallback"
+	}
 	request := securityaudit.Request{
 		RequestID: legacy.RequestID, ClientIP: middleware2.SecurityClientIP(c), UserID: legacy.UserID, UserEmail: legacy.UserEmail,
 		APIKeyID: legacy.APIKeyID, APIKeyName: legacy.APIKeyName, GroupID: cloneSecurityAuditGroupID(legacy.GroupID),
 		GroupName: legacy.GroupName, Provider: legacy.Provider, Endpoint: legacy.Endpoint,
 		Protocol: legacy.Protocol, Model: legacy.Model, Body: body, Stage: strings.TrimSpace(stage),
+		SessionKey: securityaudit.HashSessionKey(legacy.UserID, legacy.Protocol, sessionSource, clientSessionID), SessionSource: sessionSource,
 	}
 	if apiKey != nil && apiKey.User != nil {
 		request.Username = apiKey.User.Username

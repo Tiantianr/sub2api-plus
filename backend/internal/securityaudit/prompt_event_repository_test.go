@@ -14,7 +14,7 @@ func TestScanEventIncludesObservabilityMetadataAndFullPrompt(t *testing.T) {
 	t.Cleanup(func() { _ = db.Close() })
 
 	createdAt := time.Unix(100, 0).UTC()
-	columns := make([]string, 47)
+	columns := make([]string, 50)
 	for index := range columns {
 		columns[index] = "column"
 	}
@@ -24,7 +24,7 @@ func TestScanEventIncludesObservabilityMetadataAndFullPrompt(t *testing.T) {
 		"critical", "critical", "Block", `["pii","jailbreak"]`, `["jailbreak"]`, `{"pii":1,"jailbreak":1}`, `{"pii":"PII","jailbreak":"Jailbreak"}`,
 		"qwen3guard-openai", "test", "guard-1", "Primary Guard", "guard-model", "priority", 1, int64(9), 4, 27004, createdAt,
 		"203.0.113.42", 395959, 1, "blocking", 0, 100000, 3, false,
-		"", "", true, "complete prompt",
+		"", "", true, "session-key", "client_session", int64(10), "complete prompt",
 	)
 	mock.ExpectQuery("SELECT").WillReturnRows(rows)
 
@@ -46,6 +46,9 @@ func TestScanEventIncludesObservabilityMetadataAndFullPrompt(t *testing.T) {
 	require.Equal(t, "jailbreak", event.IssueSummaries[0].Category)
 	require.False(t, event.Snapshot.FullPromptTruncated)
 	require.True(t, event.Snapshot.BlockingExemptAtRequest)
+	require.Equal(t, "session-key", event.Snapshot.SessionKey)
+	require.Equal(t, "client_session", event.Snapshot.SessionSource)
+	require.Equal(t, int64(10), event.Snapshot.ChatRecordID)
 	require.Equal(t, "complete prompt", event.Snapshot.FullPrompt)
 	require.NoError(t, mock.ExpectationsWereMet())
 }

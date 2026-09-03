@@ -146,6 +146,12 @@ func promptSnapshotFromSegments(req Request, reviewSegments []PromptReviewSegmen
 	scanText, metadataText := buildPrioritizedScanText(texts)
 	digest := sha256.Sum256([]byte(metadataText))
 	fullPrompt := BuildFullPrompt(metadataText)
+	sessionKey := req.SessionKey
+	sessionSource := req.SessionSource
+	if sessionKey == "" && req.RequestID != "" {
+		sessionKey = HashSessionKey(req.UserID, req.Protocol, "request_id_fallback", req.RequestID)
+		sessionSource = "request_id_fallback"
+	}
 	stage := strings.TrimSpace(req.Stage)
 	if stage == "" {
 		stage = "http"
@@ -158,6 +164,7 @@ func promptSnapshotFromSegments(req Request, reviewSegments []PromptReviewSegmen
 		PromptHash: hex.EncodeToString(digest[:]), RedactedPreview: BuildPromptPreview(metadataText, DefaultPromptPreviewMaxRunes),
 		FullPrompt: fullPrompt, FullPromptTruncated: utf8.RuneCountInString(fullPrompt) < utf8.RuneCountInString(metadataText),
 		PromptLength: utf8.RuneCountInString(metadataText), MessageCount: messageCount, Stage: stage,
+		SessionKey: sessionKey, SessionSource: sessionSource,
 		ScanText: scanText, ReviewSegments: append([]PromptReviewSegment(nil), reviewSegments...), BodyBytes: len(req.Body),
 		AllowReceiptWrite: req.AllowReceiptWrite,
 	}

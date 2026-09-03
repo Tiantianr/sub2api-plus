@@ -208,6 +208,7 @@ export interface ContentModerationLog {
   email_sent: boolean
   user_status: string
   queue_delay_ms: number | null
+  blocking_exempt_at_request?: boolean
   created_at: string
 }
 
@@ -228,6 +229,12 @@ export interface ContentModerationLogsResponse {
   page: number
   page_size: number
   pages: number
+}
+
+export interface ContentModerationLogInput {
+  id: number
+  content: string
+  complete: boolean
 }
 
 export interface ContentModerationUnbanUserResponse {
@@ -277,6 +284,11 @@ export async function listLogs(
   return data
 }
 
+export async function getLogInput(id: number): Promise<ContentModerationLogInput> {
+  const { data } = await apiClient.get<ContentModerationLogInput>(`/admin/risk-control/logs/${id}/input`)
+  return data
+}
+
 export async function unbanUser(userID: number): Promise<ContentModerationUnbanUserResponse> {
   const { data } = await apiClient.post<ContentModerationUnbanUserResponse>(
     `/admin/risk-control/users/${userID}/unban`
@@ -302,6 +314,7 @@ export const riskControlAPI = {
   getStatus,
   testAPIKeys,
   listLogs,
+  getLogInput,
   unbanUser,
   deleteFlaggedHash,
   clearFlaggedHashes,

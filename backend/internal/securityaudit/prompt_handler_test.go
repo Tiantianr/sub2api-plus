@@ -25,6 +25,7 @@ type fakePromptAdminService struct {
 	runtime       RuntimeSnapshot
 	list          func(context.Context, EventFilter, int, int) (*EventPage, error)
 	get           func(context.Context, int64) (*Event, error)
+	analyze       func(context.Context, int64) (*UserAnalysis, error)
 	download      func(context.Context, int64) (*EventContextDownload, error)
 	deleteOne     func(context.Context, int64) (*DeleteResult, error)
 	deleteIDs     func(context.Context, []int64) (*DeleteResult, error)
@@ -71,6 +72,12 @@ func (s *fakePromptAdminService) GetEvent(ctx context.Context, id int64) (*Event
 		return nil, ErrEventNotFound
 	}
 	return s.get(ctx, id)
+}
+func (s *fakePromptAdminService) AnalyzeEvent(ctx context.Context, id int64) (*UserAnalysis, error) {
+	if s.analyze == nil {
+		return nil, ErrPromptAnalysisUnavailable
+	}
+	return s.analyze(ctx, id)
 }
 func (s *fakePromptAdminService) DownloadEventContext(ctx context.Context, id int64) (*EventContextDownload, error) {
 	if s.download == nil {
@@ -121,6 +128,7 @@ func promptAdminRouter(service PromptAdminService) *gin.Engine {
 	group.GET("/runtime", handler.GetRuntime)
 	group.GET("/events", handler.ListEvents)
 	group.GET("/events/:id", handler.GetEvent)
+	group.POST("/events/:id/analyze", handler.AnalyzeEvent)
 	group.GET("/events/:id/context", handler.DownloadEventContext)
 	group.DELETE("/events/:id", handler.DeleteEvent)
 	group.POST("/events/batch-delete", handler.BatchDelete)
@@ -140,6 +148,18 @@ func TestPromptAdminDownloadsCompleteContextWithoutCaching(t *testing.T) {
 	require.Equal(t, "nosniff", response.Header().Get("X-Content-Type-Options"))
 	require.Contains(t, response.Header().Get("Content-Disposition"), "prompt-audit-context-7.json")
 	require.JSONEq(t, `{"segments":[{"text":"complete context"}]}`, response.Body.String())
+}
+
+func TestPromptAdminAnalyzesEventSessionWithoutReturningSensitiveHeaders(t *testing.T) {
+	service := &fakePromptAdminService{analyze: func(_ context.Context, id int64) (*UserAnalysis, error) {
+		require.Equal(t, int64(7), id)
+		return &UserAnalysis{UserID: 42, SessionKey: strings.Repeat("a", 64), RecordCount: 3, Report: "风险等级：中"}, nil
+	}}
+	response := promptAdminRequest(t, promptAdminRouter(service), http.MethodPost, "/admin/prompt-audit/events/7/analyze", nil)
+	require.Equal(t, http.StatusOK, response.Code)
+	require.Equal(t, "no-store", response.Header().Get("Cache-Control"))
+	require.Equal(t, "nosniff", response.Header().Get("X-Content-Type-Options"))
+	require.Contains(t, response.Body.String(), "风险等级")
 }
 
 func TestPromptAdminPassRetentionUsesIndependentRevisionAndActor(t *testing.T) {

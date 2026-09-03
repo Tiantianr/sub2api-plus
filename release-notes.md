@@ -1,69 +1,83 @@
-Sub2API Plus v0.1.183+custom.924
+Sub2API Plus v0.1.183+custom.925
 
 ## Highlights
 
-- Make image Content Moderation follow the frozen Prompt Audit blocking-exempt
-  user policy: exempt images are reviewed asynchronously without delaying or
-  enforcing against the current conversation.
-- Allow the current conversation when the external Moderation API is
-  unavailable or returns an error, while preserving observable safe failure
-  records and all explicit local security boundaries.
-- Hide the 1000, 2000, and 5000 balance-recharge quick amount buttons while
-  retaining custom amount entry.
+- Retain the complete normalized input behind new Content Moderation keyword
+  findings as purpose-bound AES-256-GCM ciphertext, with an audited
+  administrator-only detail view and excerpt-only list responses.
+- Organize Prompt Audit payloads by user and session, apply bounded Pass
+  retention, and add administrator-triggered analysis limited to the selected
+  event's session through the existing Guard endpoint pool.
+- Show account group-coverage warnings and make OpenAI OAuth restricted-access
+  preview and save robust to empty or legacy nullable API collections.
 
 ## Changed
 
-- The coordinator now resolves and forwards the request-time Prompt Audit
-  blocking exemption before concurrent Guard and Content Moderation checks for
-  HTTP, first WebSocket turns, and subsequent WebSocket turns.
-- Exempt image findings are stored as non-enforcing shadow observations. They
-  do not create flagged hashes, violation counts, enforcement email, recovery
-  state, or automatic account bans.
-- Ordinary pre-block images remain synchronous, and a valid successful risk
-  finding retains its configured blocking authority.
-- Moderation API credential, proxy, transport, timeout, non-2xx, malformed
-  response, empty response, and no-usable-key failures record stable error
-  telemetry but permit the current request without fabricating a Safe result.
-- Recharge quick amounts now stop at 500. Server-side amount limits and the
-  custom amount field remain unchanged.
+- New keyword evidence is redacted before encryption and can be retrieved only
+  through `GET /admin/risk-control/logs/:id/input`. Sensitive reads use private
+  no-store response headers and administrator audit logging.
+- Prompt Audit stores deduplicated chat records under a user-scoped session.
+  Unselected Pass payloads expire after seven days; selected Pass evidence and
+  risk findings remain until manual cleanup, while event metadata remains.
+- Session analysis is capped at 200 records and 120,000 Unicode characters,
+  prioritizes the selected event and recent context, compacts common cumulative
+  prefixes, and does not persist or log the generated report.
+- Scheduled cleanup drains bounded batches within its time budget and removes
+  orphaned chat records. Database backups retain audit metadata while excluding
+  Prompt Audit chat and legacy context payload rows.
+- Content Moderation keyword enforcement becomes shadow-only for the existing
+  blocking-exempt users. Hash checks and independent moderation checks remain
+  active, and the exemption is frozen once per request.
+- Account administration distinguishes groups with no linked accounts from
+  groups with no currently available accounts and refreshes coverage after
+  account mutations.
 
 ## Fixed
 
-- Prevent 413, timeout, upstream 4xx/5xx, proxy-resolution, invalid-response,
-  and temporary key-health failures from returning a user-facing Content
-  Moderation 503 for an otherwise admissible conversation.
-- Prevent users explicitly configured as Prompt Audit blocking-exempt from
-  waiting for image moderation or receiving image-derived hashes and
-  enforcement side effects.
-- Preserve synchronous local text keyword and text-only hash enforcement for
-  mixed text/image requests even when image review is exempt.
+- Prevent complete keyword evidence from falling back to plaintext when
+  encryption fails; the keyword decision is preserved and the missing evidence
+  remains observable.
+- Prevent Prompt Audit session deduplication from merging unrelated users,
+  protocols, or identifier sources, and stop using `prompt_cache_key` as a
+  conversation identity.
+- Prevent deletion previews from counting shared chat records that remain
+  referenced by other events.
+- Prevent the OpenAI OAuth restricted-account flow from failing with
+  `Cannot read properties of null (reading 'length')` when no users lose all
+  access. Backend collection fields now serialize as arrays and the frontend
+  normalizes nullable responses from older instances.
 
 ## Compatibility and migration
 
-- No database migration, dependency, configuration, port, Compose,
-  certificate, proxy, or persistent-volume change is required.
-- Existing Prompt Audit `blocking_exempt_user_ids` automatically become the
-  request-time authority for image Content Moderation exemption when blocking
-  Prompt Audit applies.
-- Canonical extraction failure, active-configuration failure, required hash
-  state failure, known keyword/hash findings, and successful non-exempt risk
-  findings retain their previous security behavior.
-- Roll back to `v0.1.183+custom.923` if required. The rollback restores
-  synchronous image moderation for blocking-exempt users, restores
-  Moderation-API availability failures as blocking unavailable decisions, and
-  restores the three high-value recharge quick buttons.
+- Forward-only migrations `245`, `246`, and `247` add encrypted moderation
+  evidence, Content Moderation blocking exemptions, and Prompt Audit session
+  and chat-record storage. Existing audit rows remain valid and are not
+  rewritten with reconstructed content.
+- Configure a stable `TOTP_ENCRYPTION_KEY` before expecting recoverable complete
+  keyword evidence. Missing or invalid encryption configuration does not weaken
+  keyword enforcement and never stores plaintext evidence.
+- Rolling deployments remain compatible: `.925` can read legacy Prompt Audit
+  payloads written by `.924` instances after migration. New `.925` chat payloads
+  are not readable by `.924` code because new events intentionally leave the
+  legacy `full_prompt` field empty.
+- Roll back application code to `v0.1.183+custom.924` if required. Leave the
+  forward migrations in place; rolled-back code ignores the added schema but
+  cannot display Prompt Audit payloads captured only by `.925`.
+- No dependency, port, certificate, proxy, or persistent-volume change is
+  required.
 - Personal images and binary archives remain Linux arm64 only.
 
 ## Known issues
 
-- A blocking-exempt image finding is intentionally non-enforcing and cannot
-  retroactively cancel a request that was already admitted.
-- Moderation API availability failures intentionally permit the current
-  request. Operators must monitor error records and key-health metrics because
-  these failures are not Safe moderation results.
-- Prompt Audit exemption can only be propagated while blocking Prompt Audit is
-  active and its request scope applies; otherwise Content Moderation uses its
-  ordinary independent policy.
+- Historical Content Moderation rows have no recoverable complete input and
+  return `complete: false`.
+- Prompt Audit chat payloads are intentionally omitted from database backups;
+  restoring a backup preserves event metadata but not retained conversations.
+- Session analysis is bounded context, not a complete account history, and is
+  available only while the selected event still references retained content.
+- Unselected Pass content can expire after seven days. Selecting evidence or
+  receiving a risk finding changes retention to indefinite until manual
+  cleanup.
 - Production deployment and configuration changes remain separate operations
   and are not part of release publication.
 

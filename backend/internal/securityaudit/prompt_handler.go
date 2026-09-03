@@ -21,6 +21,7 @@ type PromptAdminService interface {
 	Runtime(context.Context) RuntimeSnapshot
 	ListEvents(context.Context, EventFilter, int, int) (*EventPage, error)
 	GetEvent(context.Context, int64) (*Event, error)
+	AnalyzeEvent(context.Context, int64) (*UserAnalysis, error)
 	DownloadEventContext(context.Context, int64) (*EventContextDownload, error)
 	DeleteEvent(context.Context, int64) (*DeleteResult, error)
 	DeleteEventsByIDs(context.Context, []int64) (*DeleteResult, error)
@@ -150,6 +151,28 @@ func (h *PromptAdminHandler) GetEvent(c *gin.Context) {
 		return
 	}
 	response.Success(c, event)
+}
+
+func (h *PromptAdminHandler) AnalyzeEvent(c *gin.Context) {
+	c.Header("Cache-Control", "no-store")
+	c.Header("X-Content-Type-Options", "nosniff")
+	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil || id <= 0 {
+		setPromptAdminAudit(c, "failed", "prompt_audit_invalid_event_id", nil)
+		response.ErrorFrom(c, infraerrors.BadRequest("prompt_audit_invalid_event_id", "事件 ID 无效"))
+		return
+	}
+	analysis, err := h.service.AnalyzeEvent(c.Request.Context(), id)
+	if err != nil {
+		setPromptAdminAudit(c, "failed", infraerrors.Reason(err), map[string]any{"event_id": id})
+		response.ErrorFrom(c, err)
+		return
+	}
+	setPromptAdminAudit(c, "success", "", map[string]any{
+		"event_id": id, "user_id": analysis.UserID, "record_count": analysis.RecordCount,
+		"guard_endpoint_id": analysis.GuardEndpointID,
+	})
+	response.Success(c, analysis)
 }
 
 func (h *PromptAdminHandler) DownloadEventContext(c *gin.Context) {

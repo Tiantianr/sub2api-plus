@@ -2,6 +2,36 @@
   <AppLayout>
     <TablePageLayout>
       <template #filters>
+        <div
+          v-if="groupCoverageIssues.length"
+          role="alert"
+          data-test="group-coverage-warning"
+          class="mb-3 flex items-start gap-3 rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-amber-900 dark:border-amber-700/60 dark:bg-amber-950/30 dark:text-amber-100"
+        >
+          <Icon name="exclamationTriangle" size="md" class="mt-0.5 flex-shrink-0 text-amber-600 dark:text-amber-400" />
+          <div class="min-w-0 flex-1">
+            <p class="text-sm font-semibold">
+              {{ t('admin.accounts.groupCoverageWarning', { count: groupCoverageIssues.length }) }}
+            </p>
+            <div class="mt-2 flex flex-wrap gap-2">
+              <button
+                v-for="issue in groupCoverageIssues"
+                :key="issue.group.id"
+                type="button"
+                data-test="group-coverage-item"
+                class="inline-flex max-w-full items-center gap-2 rounded-md border border-amber-300 bg-white px-2.5 py-1.5 text-left text-xs font-medium text-amber-900 transition-colors hover:border-amber-500 hover:bg-amber-100 focus:outline-none focus:ring-2 focus:ring-amber-500 focus:ring-offset-1 dark:border-amber-700 dark:bg-dark-800 dark:text-amber-100 dark:hover:border-amber-500 dark:hover:bg-amber-900/30"
+                :title="t('admin.accounts.filterByGroup', { name: issue.group.name })"
+                :aria-label="t('admin.accounts.filterByGroup', { name: issue.group.name })"
+                @click="filterAccountsByGroup(issue.group.id)"
+              >
+                <span class="max-w-64 truncate">{{ issue.group.name }}</span>
+                <span class="whitespace-nowrap text-[11px] font-normal text-amber-700 dark:text-amber-300">
+                  {{ t(issue.reasonKey) }}
+                </span>
+              </button>
+            </div>
+          </div>
+        </div>
         <div class="flex flex-wrap-reverse items-start justify-between gap-3">
           <AccountTableFilters
             v-model:searchQuery="params.search"
@@ -529,6 +559,31 @@ const authStore = useAuthStore()
 
 const proxies = ref<AccountProxy[]>([])
 const groups = ref<AdminGroup[]>([])
+let groupAvailabilityRequestSeq = 0
+
+const refreshGroups = async () => {
+  const requestSeq = ++groupAvailabilityRequestSeq
+  try {
+    const nextGroups = await adminAPI.groups.getAll()
+    if (requestSeq === groupAvailabilityRequestSeq) {
+      groups.value = nextGroups
+    }
+  } catch (error) {
+    if (requestSeq === groupAvailabilityRequestSeq) {
+      console.error('Failed to load groups:', error)
+    }
+  }
+}
+
+const groupCoverageIssues = computed(() => groups.value
+  .filter(group => (group.active_account_count ?? 0) === 0)
+  .map(group => ({
+    group,
+    reasonKey: (group.account_count ?? 0) === 0
+      ? 'admin.accounts.groupCoverageUnbound'
+      : 'admin.accounts.groupCoverageUnavailable'
+  })))
+
 const accountTableRef = ref<HTMLElement | null>(null)
 const dataTableRef = ref<InstanceType<typeof DataTable> | null>(null)
 type AccountBulkEditTarget =
@@ -1152,8 +1207,14 @@ const reload = async () => {
   hasPendingListSync.value = false
   resetAutoRefreshCache()
   pendingTodayStatsRefresh.value = false
-  await baseReload()
+  await Promise.all([baseReload(), refreshGroups()])
   await refreshTodayStatsBatch()
+}
+
+const filterAccountsByGroup = async (groupID: number) => {
+  params.group = String(groupID)
+  clearSelection()
+  await reload()
 }
 
 const debouncedReload = () => {
@@ -1335,7 +1396,7 @@ const refreshAccountsIncrementally = async () => {
       hasPendingListSync.value = false
     }
 
-    await refreshTodayStatsBatch()
+    await Promise.all([refreshTodayStatsBatch(), refreshGroups()])
   } catch (error) {
     console.error('Auto refresh failed:', error)
   } finally {
@@ -1344,7 +1405,7 @@ const refreshAccountsIncrementally = async () => {
 }
 
 const handleManualRefresh = async () => {
-  await load()
+  await Promise.all([load(), refreshGroups()])
   // Force usage cells to refetch /usage on explicit user refresh.
   usageManualRefreshToken.value += 1
 }
@@ -1883,6 +1944,7 @@ const handleBulkToggleSchedulable = async (schedulable: boolean) => {
       if (hasIds) clearSelection()
       else setSelectedIds(accountIds)
     }
+    await refreshGroups()
   } catch (error) {
     console.error('Failed to bulk toggle schedulable:', error)
     appStore.showError(t('common.error'))
@@ -2043,6 +2105,7 @@ const syncPaginationAfterLocalRemoval = () => {
 }
 
 const patchAccountInList = (updatedAccount: Account) => {
+  void refreshGroups()
   const index = accounts.value.findIndex(account => account.id === updatedAccount.id)
   if (index === -1) return
   const mergedAccount = mergeRuntimeFields(accounts.value[index], updatedAccount)
@@ -2276,6 +2339,7 @@ const handleToggleSchedulable = async (a: Account) => {
   try {
     const updated = await adminAPI.accounts.setSchedulable(a.id, nextSchedulable)
     updateSchedulableInList([a.id], updated?.schedulable ?? nextSchedulable)
+    await refreshGroups()
     enterAutoRefreshSilentWindow()
   } catch (error) {
     console.error('Failed to toggle schedulable:', error)
@@ -2353,19 +2417,14 @@ onMounted(async () => {
   }
 
   load()
-  const [proxiesResult, groupsResult] = await Promise.allSettled([
+  const [proxiesResult] = await Promise.allSettled([
     adminAPI.proxies.getAll(),
-    adminAPI.groups.getAll()
+    refreshGroups()
   ])
   if (proxiesResult.status === 'fulfilled') {
     proxies.value = proxiesResult.value
   } else {
     console.error('Failed to load proxies:', proxiesResult.reason)
-  }
-  if (groupsResult.status === 'fulfilled') {
-    groups.value = groupsResult.value
-  } else {
-    console.error('Failed to load groups:', groupsResult.reason)
   }
   window.addEventListener('scroll', handleScroll, true)
   window.addEventListener('resize', handleViewportResize)

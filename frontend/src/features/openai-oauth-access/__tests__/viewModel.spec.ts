@@ -51,4 +51,13 @@ describe('OpenAI OAuth access view model', () => {
     setOAuthAccessGrant(draft, 12, true)
     expect(hasOAuthAccessGrant(draft, 12)).toBe(false)
   })
+
+  it('treats nullable arrays from older API responses as empty', () => {
+    const legacy = { ...account(), group_ids: null, granted_user_ids: null } as unknown as OAuthAccessAccount
+    const [draft] = cloneOAuthAccessAccounts([legacy])
+    expect(draft.group_ids).toEqual([])
+    expect(draft.granted_user_ids).toEqual([])
+    setOAuthAccessGrant(draft, 12, true)
+    expect(draft.granted_user_ids).toEqual([12])
+  })
 })

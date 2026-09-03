@@ -2,6 +2,10 @@ package securityaudit
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"strconv"
+	"strings"
 	"time"
 )
 
@@ -100,21 +104,23 @@ const (
 )
 
 type Request struct {
-	RequestID  string
-	ClientIP   string
-	UserID     int64
-	Username   string
-	UserEmail  string
-	APIKeyID   int64
-	APIKeyName string
-	GroupID    *int64
-	GroupName  string
-	Provider   string
-	Endpoint   string
-	Protocol   string
-	Model      string
-	Body       []byte
-	Stage      string
+	RequestID     string
+	ClientIP      string
+	UserID        int64
+	Username      string
+	UserEmail     string
+	APIKeyID      int64
+	APIKeyName    string
+	GroupID       *int64
+	GroupName     string
+	Provider      string
+	Endpoint      string
+	Protocol      string
+	Model         string
+	Body          []byte
+	Stage         string
+	SessionKey    string
+	SessionSource string
 
 	PromptTextAuthority     bool
 	BlockingExemptAtRequest bool
@@ -160,6 +166,9 @@ type PromptSnapshot struct {
 	MessageCount            int    `json:"message_count"`
 	Stage                   string `json:"stage"`
 	BlockingExemptAtRequest bool   `json:"blocking_exempt_at_request"`
+	SessionKey              string `json:"session_key,omitempty"`
+	SessionSource           string `json:"session_source,omitempty"`
+	ChatRecordID            int64  `json:"chat_record_id,omitempty"`
 
 	ScanText  string `json:"-"`
 	BodyBytes int    `json:"-"`
@@ -407,4 +416,65 @@ type Metrics interface {
 
 type PromptScanner interface {
 	Scan(ctx context.Context, endpoint ActiveEndpoint, chunk string, enabledScanners []string) (*NormalizedResult, error)
+}
+
+// PromptAnalyzer is intentionally separate from PromptScanner. Existing
+// scanner test doubles only implement the strict Guard classification API;
+// interactive administrator analysis is an explicit, non-hot-path capability.
+type PromptAnalyzer interface {
+	Analyze(ctx context.Context, endpoint ActiveEndpoint, transcript string) (string, error)
+}
+
+type UserChatRecord struct {
+	ID                  int64
+	SessionKey          string
+	SessionSource       string
+	ContentHash         string
+	FullPrompt          string
+	FullPromptTruncated bool
+	CreatedAt           time.Time
+}
+
+type UserChatSession struct {
+	UserID           int64
+	Username         string
+	UserEmail        string
+	SessionKey       string
+	SessionSource    string
+	SelectedRecordID int64
+	Records          []UserChatRecord
+}
+
+type UserAnalysis struct {
+	UserID            int64     `json:"user_id"`
+	Username          string    `json:"username"`
+	UserEmail         string    `json:"user_email"`
+	SessionKey        string    `json:"session_key"`
+	SessionSource     string    `json:"session_source"`
+	RecordCount       int       `json:"record_count"`
+	FirstRecordAt     time.Time `json:"first_record_at"`
+	LastRecordAt      time.Time `json:"last_record_at"`
+	GuardEndpointID   string    `json:"guard_endpoint_id"`
+	GuardEndpointName string    `json:"guard_endpoint_name"`
+	GuardModel        string    `json:"guard_model"`
+	GeneratedAt       time.Time `json:"generated_at"`
+	Report            string    `json:"report"`
+}
+
+const (
+	DefaultChatRetention   = 7 * 24 * time.Hour
+	maxUserAnalysisRecords = 200
+	maxUserAnalysisRunes   = 120000
+)
+
+// HashSessionKey produces an opaque, user-scoped session key. Raw client
+// session identifiers can contain account or workspace information and must
+// not be copied into Prompt Audit rows or administrator responses.
+func HashSessionKey(userID int64, protocol, source, raw string) string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return ""
+	}
+	digest := sha256.Sum256([]byte("sub2api:prompt-audit-session:v1:" + strconv.FormatInt(userID, 10) + ":" + strings.TrimSpace(protocol) + ":" + strings.TrimSpace(source) + ":" + raw))
+	return hex.EncodeToString(digest[:])
 }

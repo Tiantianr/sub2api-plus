@@ -5,6 +5,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/gin-gonic/gin"
+	"github.com/tidwall/gjson"
 )
 
 // maxPersistedSessionIDLength bounds the persisted client session identifier to the
@@ -32,23 +33,73 @@ var clientSessionIDHeaders = append(
 // routing, account selection, request_id semantics, or upstream prompt caching, which
 // keep their own (intentionally broader) session-signal resolution.
 func ExtractClientSessionID(c *gin.Context) string {
+	value, _ := ExtractClientSessionIdentityWithBody(c, nil)
+	return value
+}
+
+// ExtractClientSessionIDWithBody resolves the stable client session identity
+// from headers and, for OpenAI-compatible JSON requests, conversation_id or
+// thread_id. prompt_cache_key is deliberately excluded because it may be
+// shared by unrelated conversations.
+// The body fallback is used only for audit grouping; request-scoped IDs are
+// deliberately excluded so every turn does not become a new session.
+func ExtractClientSessionIDWithBody(c *gin.Context, body []byte) string {
+	value, _ := ExtractClientSessionIdentityWithBody(c, body)
+	return value
+}
+
+// ExtractClientSessionIdentityWithBody also returns a stable source namespace
+// so equal values from unrelated header/body fields cannot collapse together.
+func ExtractClientSessionIdentityWithBody(c *gin.Context, body []byte) (string, string) {
 	if c == nil || c.Request == nil {
-		return ""
+		return "", ""
 	}
 	for _, header := range clientSessionIDHeaders {
 		if sessionID := sanitizeSessionID(c.GetHeader(header)); sessionID != "" {
-			return sessionID
+			return sessionID, "header:" + strings.ToLower(header)
 		}
 	}
 	if sessionID := sanitizeSessionID(openAICodexTurnMetadataSessionID(c.GetHeader("X-Codex-Turn-Metadata"))); sessionID != "" {
-		return sessionID
+		return sessionID, "codex_turn_metadata"
 	}
 	if isGrokRequestContext(c) {
 		if sessionID := sanitizeSessionID(c.GetHeader(grokConversationIDHeader)); sessionID != "" {
-			return sessionID
+			return sessionID, "grok_conversation_header"
 		}
 	}
-	return ""
+	if sessionID, source := extractBodySessionID(body); sessionID != "" {
+		return sessionID, source
+	}
+	return "", ""
+}
+
+func extractBodySessionID(body []byte) (string, string) {
+	if len(body) == 0 || !gjson.ValidBytes(body) {
+		return "", ""
+	}
+	root := gjson.ParseBytes(body)
+	for _, path := range []string{"conversation_id", "thread_id"} {
+		if key := bodySessionValue(root.Get(path)); key != "" {
+			return key, "body:" + path
+		}
+	}
+	if eventType := strings.ToLower(strings.TrimSpace(root.Get("type").String())); strings.HasPrefix(eventType, "response.") {
+		if response := root.Get("response"); response.Exists() && response.IsObject() {
+			for _, path := range []string{"conversation_id", "thread_id"} {
+				if key := bodySessionValue(response.Get(path)); key != "" {
+					return key, "response:" + path
+				}
+			}
+		}
+	}
+	return "", ""
+}
+
+func bodySessionValue(value gjson.Result) string {
+	if value.Type != gjson.String {
+		return ""
+	}
+	return sanitizeSessionID(value.String())
 }
 
 // sanitizeSessionID normalizes a raw client-supplied session identifier for safe

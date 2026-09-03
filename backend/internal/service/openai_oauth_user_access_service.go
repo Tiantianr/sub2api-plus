@@ -112,7 +112,11 @@ func NewOpenAIOAuthUserAccessService(repo OpenAIOAuthUserAccessRepository) *Open
 }
 
 func (s *OpenAIOAuthUserAccessService) ListAccounts(ctx context.Context) ([]OpenAIOAuthAccessAccount, error) {
-	return s.repo.ListAccounts(ctx)
+	accounts, err := s.repo.ListAccounts(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return normalizeOpenAIOAuthAccessAccounts(accounts), nil
 }
 
 func (s *OpenAIOAuthUserAccessService) ListUsers(ctx context.Context, filter OpenAIOAuthAccessUserFilter) (*OpenAIOAuthAccessUserPage, error) {
@@ -125,6 +129,9 @@ func (s *OpenAIOAuthUserAccessService) ListUsers(ctx context.Context, filter Ope
 		return nil, err
 	}
 	for i := range users {
+		users[i].APIKeyGroupIDs = append([]int64{}, users[i].APIKeyGroupIDs...)
+		users[i].SubscriptionGroupIDs = append([]int64{}, users[i].SubscriptionGroupIDs...)
+		users[i].GrantedAccountIDs = append([]int64{}, users[i].GrantedAccountIDs...)
 		users[i].EffectiveAccountIDs = effectiveOpenAIOAuthAccountIDs(users[i], accounts)
 	}
 	access := strings.TrimSpace(filter.Access)
@@ -153,7 +160,7 @@ func (s *OpenAIOAuthUserAccessService) ListUsers(ctx context.Context, filter Ope
 		pages = 1
 	}
 	return &OpenAIOAuthAccessUserPage{
-		Items: append([]OpenAIOAuthAccessUser(nil), users[start:end]...),
+		Items: append([]OpenAIOAuthAccessUser{}, users[start:end]...),
 		Total: total,
 		Page:  page,
 		Limit: limit,
@@ -179,7 +186,10 @@ func (s *OpenAIOAuthUserAccessService) Preview(ctx context.Context, batch OpenAI
 		accountIndex[accounts[i].ID] = i
 	}
 	proposed := append([]OpenAIOAuthAccessAccount(nil), accounts...)
-	preview := &OpenAIOAuthAccessPreview{}
+	preview := &OpenAIOAuthAccessPreview{
+		Accounts:             []OpenAIOAuthAccessAccountImpact{},
+		UsersLosingAllAccess: []OpenAIOAuthAccessAffectedUser{},
+	}
 	for _, change := range changes {
 		index, ok := accountIndex[change.AccountID]
 		if !ok {
@@ -212,7 +222,7 @@ func (s *OpenAIOAuthUserAccessService) Preview(ctx context.Context, batch OpenAI
 			preview.UsersLosingAllAccess = append(preview.UsersLosingAllAccess, OpenAIOAuthAccessAffectedUser{
 				ID:             user.ID,
 				Email:          user.Email,
-				APIKeyGroupIDs: append([]int64(nil), user.APIKeyGroupIDs...),
+				APIKeyGroupIDs: append([]int64{}, user.APIKeyGroupIDs...),
 			})
 		}
 	}
@@ -244,8 +254,19 @@ func (s *OpenAIOAuthUserAccessService) Apply(ctx context.Context, batch OpenAIOA
 		slog.Warn("OpenAI OAuth access policies applied but response refresh failed", "error", listErr)
 		return result, nil
 	}
-	result.Accounts = accounts
+	result.Accounts = normalizeOpenAIOAuthAccessAccounts(accounts)
 	return result, nil
+}
+
+func normalizeOpenAIOAuthAccessAccounts(accounts []OpenAIOAuthAccessAccount) []OpenAIOAuthAccessAccount {
+	if accounts == nil {
+		return []OpenAIOAuthAccessAccount{}
+	}
+	for i := range accounts {
+		accounts[i].GroupIDs = append([]int64{}, accounts[i].GroupIDs...)
+		accounts[i].GrantedUserIDs = append([]int64{}, accounts[i].GrantedUserIDs...)
+	}
+	return accounts
 }
 
 func normalizeOpenAIOAuthAccessChanges(changes []OpenAIOAuthAccessPolicyChange) ([]OpenAIOAuthAccessPolicyChange, error) {

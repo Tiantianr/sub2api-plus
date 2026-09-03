@@ -107,8 +107,9 @@ row exists best-effort create the same safe failed event with its request-time
 marker. Guard invalid-response or outage after admission follows
 the asynchronous retry and terminal failure-event policy and cannot
 retroactively block the request. The same frozen exemption makes direct-user
-images asynchronous, non-enforcing Content Moderation observations. Local text
-keywords and text-only flagged hashes retain their independent authority.
+images and local text keyword matches asynchronous, non-enforcing Content
+Moderation observations recorded with the request-time exemption snapshot.
+Text-only flagged hashes retain their independent authority.
 
 ## Engine Selection
 
@@ -124,7 +125,7 @@ Historical rows are not rewritten: API reads use their persisted
 
 | Engine/mode | Segment selection |
 | --- | --- |
-| Content Moderation | Scans only current direct-user text and images. Chat and Anthropic require an explicit `user` role; Responses, Live, and Gemini also accept their protocol-defined roleless user forms. Direct Alpha Search queries, embedding strings, and media prompts remain eligible. Instructions, system/developer context, reusable prompt variables, assistant/model messages, reasoning, tool definitions/calls/results, approval responses, and tool-produced images are excluded so platform or external content is not attributed to the user. Ordinary pre-block images are synchronous. Images carrying the frozen Prompt Audit blocking-exempt marker enter bounded asynchronous shadow review and cannot create hashes or enforcement side effects. |
+| Content Moderation | Scans only current direct-user text and images. Chat and Anthropic require an explicit `user` role; Responses, Live, and Gemini also accept their protocol-defined roleless user forms. Direct Alpha Search queries, embedding strings, and media prompts remain eligible. Instructions, system/developer context, reusable prompt variables, assistant/model messages, reasoning, tool definitions/calls/results, approval responses, and tool-produced images are excluded so platform or external content is not attributed to the user. Ordinary pre-block images and text keyword hits are synchronous and enforcing. Requests carrying the frozen Prompt Audit blocking-exempt marker treat keyword hits and images as non-enforcing shadow observations that cannot create hashes or enforcement side effects. Keyword shadow recording does not bypass independent known text hashes or successful API findings under a configured blocking text policy. |
 | Prompt Audit async / async-deep | Selects user turns plus configured instructions/system/developer context, assistant/model messages, reasoning, reusable prompt variables, tool definitions, tool-call arguments, and tool outputs. An async-only current user turn is mandatory. Async-deep under blocking may omit current, historical, and automatic segments with valid per-segment Allow receipts, including the same request's trusted handoff. |
 | Prompt Audit blocking-exempt | Uses the complete async-deep module selection with all Allow receipts bypassed. The full job is reliably queued before forwarding, then Guard runs asynchronously. It never creates receipts or recovery state and is identified by its request-time exemption snapshot. |
 | Prompt Audit blocking | For non-exempt users, scans direct user text marked `Current` unless an unexpired blocking Allow receipt certifies the same user, policy, source, and receipt-normalized canonical text. Every historical user turn has the same receipt requirement; misses are synchronously reviewed so client-controlled role ordering cannot hide unreviewed text. Configuration independently adds the same source modules. `blocking_latest_turn_only` remains a compatibility field and does not override module selection. Any in-scope aggregate Block writes user-level deep-review state before returning 403. A user carrying that requirement is synchronously reviewed with the active async-deep module selection and all receipts bypassed regardless of API key or client session identity, but only while the request remains in configured group scope. |
@@ -189,20 +190,33 @@ to certify an older key.
 
 ## Prompt Audit Event Evidence
 
-Guard selection and review evidence are separate. The event `full_prompt`
-contains the exact unredacted Guard input. For each newly stored event, the
+Guard selection and review evidence are separate. The event stores only
+redacted metadata plus an opaque session/content reference. The associated
+chat record contains the exact unredacted Guard input. For each newly stored event, the
 complete canonical document is serialized with segment source, role, current,
 and client-controlled attributes, plus the exact Guard input and extraction
 diagnostics. This complete context includes instructions, assistant/model text,
 reasoning, prompt variables, tool definitions/calls/results, and harness blocks
 that were excluded from Guard selection.
 
-Complete context is gzip-compressed, application-encrypted, and stored in
-`prompt_audit_event_contexts`, separate from event list/detail rows. Only the
-authenticated admin download endpoint decrypts it; responses use `no-store`
-and downloads never enter application logs. Event deletion cascades to the
-context artifact. Events created before this migration have no recoverable
-complete-context artifact.
+Complete context is gzip-compressed, application-encrypted, and stored with
+the chat record in `prompt_audit_chat_records`, separate from event list/detail
+rows. Only the authenticated admin download endpoint decrypts it; responses
+use `no-store` and downloads never enter application logs. Event deletion
+removes orphaned chat records. The legacy `prompt_audit_event_contexts` table is
+kept empty after migration and is excluded from logical backups.
+
+Prompt content is grouped under an opaque user-scoped session. Stable client
+session headers plus explicit `conversation_id` and `thread_id` fields are
+preferred; cache-routing fields such as `prompt_cache_key` are not conversation
+identity. Requests without a stable identifier receive a request-scoped fallback. Equal prompt/context content within one
+session is stored once and events reference it. A later changed conversation
+version receives a new record so historical event detail remains accurate.
+Unselected Pass chat records expire after seven days from their latest
+occurrence. Selected Pass evidence and risk findings keep the existing
+indefinite evidence retention policy. Risk decisions and event metadata remain
+searchable even when an unretained Pass chat record expires. Logical PostgreSQL backups exclude chat content rows while
+retaining restorable event metadata.
 
 Complete context records `allow_receipt_status` and hit/miss counts. On a full
 or partial hit, `guard_input`, event prompt metadata, hashes, and chunk counts
@@ -233,11 +247,18 @@ content.
 Full Pass evidence retention is independently selected by authenticated user
 ID and defaults to an empty selection. Every completed Pass result still
 creates a lightweight list event containing its redacted preview and decision
-metadata. For an unselected user, `full_prompt` remains empty and no encrypted
-complete-context artifact is created. Flag and Critical events always retain
-the same full encrypted evidence regardless of this optional Pass-retention
-setting. Changing the retention list has its own revision and does not change
-Guard policy identity, invalidate receipts, or make queued jobs stale.
+metadata. An unselected user's Pass chat record expires after seven days; a
+selected user's Pass content remains eligible for indefinite retention. Flag
+and Critical events retain their decision metadata and chat evidence under the
+existing indefinite risk-evidence policy. Changing the retention list has its own
+revision and does not change Guard policy identity, invalidate receipts, or
+make queued jobs stale.
+
+The administrator may analyze the session attached to any event with a user
+identity. `POST /admin/prompt-audit/events/:id/analyze` reads only that session's
+bounded retained chat records and sends them through the configured Guard pool
+using the existing outbound redaction boundary. The report is returned
+ephemerally with `no-store`; it is not persisted or written to application logs.
 
 Each event also snapshots the deciding Guard endpoint ID, configured node name,
 and model. These fields identify the actual successful node after failover and
@@ -340,6 +361,20 @@ available. They do not create a Safe result, flagged hash, receipt, recovery
 state, notification, violation count, or ban. Prompt Audit applies the contract
 to enqueue, payload-store, job-claim, completion/retry/failure persistence, worker, reclaim, startup,
 shutdown, and runtime health failures.
+
+Content Moderation keyword findings retain the complete normalized text that
+actually participated in matching, bounded by the engine's existing input
+limit and passed through the existing credential redactor. The database stores
+that value only as AES-256-GCM ciphertext containing a fixed authenticated
+purpose/version prefix. The detail path rejects valid shared-key ciphertext
+from any other application purpose. Paginated log responses, searches,
+table cells, tooltips, notifications, and application logs continue to expose
+only the bounded `input_excerpt`. An authenticated administrator may fetch one
+record's decrypted keyword evidence by ID through the dedicated detail route;
+the route never returns ciphertext. Historical rows without ciphertext remain
+explicitly excerpt-only and cannot be backfilled. Encryption failure does not
+weaken or reverse an already-known keyword block and never falls back to
+plaintext persistence.
 
 | Engine/mode | Content-bearing extraction failure |
 | --- | --- |

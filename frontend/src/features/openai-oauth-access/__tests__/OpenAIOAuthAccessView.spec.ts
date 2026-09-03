@@ -120,6 +120,38 @@ describe('OpenAIOAuthAccessView', () => {
     expect(wrapper.find('[data-test="preview-dialog"]').exists()).toBe(true)
   })
 
+  it('restricts a new account, grants a user, previews, and saves it', async () => {
+    mocks.listAccounts.mockResolvedValueOnce([{
+      id: 2, name: 'New OAuth', status: 'active', group_ids: [], mode: 'public',
+      default_for_new_users: false, revision: 0, granted_user_ids: [],
+    }])
+    mocks.preview.mockResolvedValueOnce({
+      accounts: [{ account_id: 2, account_name: 'New OAuth', old_mode: 'public', new_mode: 'restricted', old_default_for_new_users: false, new_default_for_new_users: false, granted_user_count: 1, grant_added_count: 1, grant_removed_count: 0 }],
+      grant_added_count: 1, grant_removed_count: 0,
+      users_losing_all_access_count: 0, users_losing_all_access: [],
+    })
+    mocks.apply.mockResolvedValueOnce({
+      accounts: [{ id: 2, name: 'New OAuth', status: 'active', group_ids: [], mode: 'restricted', default_for_new_users: false, revision: 1, granted_user_ids: [101] }],
+      account_count: 1, grant_added_count: 1, grant_removed_count: 0,
+    })
+    const wrapper = mountView()
+    await flushPromises()
+
+    await wrapper.get('[data-test="mode-restricted-2"]').trigger('click')
+    await wrapper.get('[data-test="grant-101-2"]').trigger('change')
+    await wrapper.get('[data-test="preview-save"]').trigger('click')
+    await flushPromises()
+    expect(wrapper.get('[data-test="preview-dialog"]').text()).toContain('admin.oauthAccess.preview.noLoss')
+
+    await wrapper.get('[data-test="apply-save"]').trigger('click')
+    await flushPromises()
+    expect(mocks.apply).toHaveBeenCalledWith([{
+      account_id: 2, expected_revision: 0, mode: 'restricted',
+      default_for_new_users: false, granted_user_ids: [101],
+    }])
+    expect(mocks.showSuccess).toHaveBeenCalledWith('admin.oauthAccess.messages.saved')
+  })
+
   it('preserves the draft when atomic save reports a revision conflict', async () => {
     mocks.apply.mockRejectedValue({ status: 409, reason: 'OPENAI_OAUTH_ACCESS_REVISION_CONFLICT' })
     const wrapper = mountView()

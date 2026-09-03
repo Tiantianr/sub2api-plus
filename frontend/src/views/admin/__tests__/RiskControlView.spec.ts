@@ -11,6 +11,7 @@ const {
   updateConfig,
   getStatus,
   listLogs,
+  getLogInput,
   getGroups,
   getProxies,
   showError,
@@ -20,6 +21,7 @@ const {
   updateConfig: vi.fn(),
   getStatus: vi.fn(),
   listLogs: vi.fn(),
+  getLogInput: vi.fn(),
   getGroups: vi.fn(),
   getProxies: vi.fn(),
   showError: vi.fn(),
@@ -33,6 +35,7 @@ vi.mock('@/api/admin', () => ({
       updateConfig,
       getStatus,
       listLogs,
+      getLogInput,
       testAPIKeys: vi.fn(),
       deleteFlaggedHash: vi.fn(),
       clearFlaggedHashes: vi.fn(),
@@ -152,6 +155,37 @@ const runtimeStatus = () => ({
   last_cleanup_deleted_non_hit: 0,
 })
 
+const keywordLog = () => ({
+  id: 42,
+  request_id: 'request-42',
+  user_id: 7,
+  user_email: 'user@example.com',
+  api_key_id: 8,
+  api_key_name: 'test-key',
+  group_id: 9,
+  group_name: 'test-group',
+  endpoint: '/v1/chat/completions',
+  provider: 'openai',
+  model: 'gpt-5.5',
+  mode: 'pre_block',
+  action: 'keyword_block',
+  flagged: true,
+  highest_category: 'keyword',
+  highest_score: 1,
+  matched_keyword: 'blocked-keyword',
+  category_scores: { keyword: 1 },
+  threshold_snapshot: {},
+  input_excerpt: 'bounded input excerpt',
+  upstream_latency_ms: null,
+  error: '',
+  violation_count: 1,
+  auto_banned: false,
+  email_sent: false,
+  user_status: 'active',
+  queue_delay_ms: null,
+  created_at: '2026-09-02T01:00:00Z',
+})
+
 const AppLayoutStub = { template: '<div><slot /></div>' }
 const BaseDialogStub = defineComponent({
   props: {
@@ -204,6 +238,7 @@ describe('admin RiskControlView', () => {
     updateConfig.mockReset()
     getStatus.mockReset()
     listLogs.mockReset()
+    getLogInput.mockReset()
     getGroups.mockReset()
     showError.mockReset()
     showSuccess.mockReset()
@@ -211,6 +246,7 @@ describe('admin RiskControlView', () => {
     getConfig.mockResolvedValue(baseConfig())
     getStatus.mockResolvedValue(runtimeStatus())
     listLogs.mockResolvedValue({ items: [], total: 0, page: 1, page_size: 20, pages: 1 })
+    getLogInput.mockResolvedValue({ id: 42, content: 'complete audited content', complete: true })
     getGroups.mockResolvedValue([])
     getProxies.mockResolvedValue([])
     updateConfig.mockImplementation(async (payload: UpdateContentModerationConfig) => ({
@@ -433,5 +469,136 @@ describe('admin RiskControlView', () => {
       'max-h-[280px]',
       'overflow-y-auto',
     ]))
+  })
+
+  it('loads complete keyword-hit content only after opening the input detail', async () => {
+    listLogs.mockResolvedValue({ items: [keywordLog()], total: 1, page: 1, page_size: 20, pages: 1 })
+    getLogInput.mockResolvedValue({
+      id: 42,
+      content: 'complete audited content beyond the bounded excerpt',
+      complete: true,
+    })
+    const wrapper = mount(RiskControlView, {
+      global: {
+        stubs: {
+          AppLayout: AppLayoutStub,
+          BaseDialog: BaseDialogStub,
+          Icon: true,
+          Select: true,
+          Toggle: true,
+          Pagination: true,
+          ModelWhitelistSelector: ModelWhitelistSelectorStub,
+          ProxySelector: true,
+        },
+      },
+    })
+
+    await flushPromises()
+
+    expect(getLogInput).not.toHaveBeenCalled()
+    expect(wrapper.text()).toContain('bounded input excerpt')
+    expect(wrapper.text()).not.toContain('complete audited content beyond the bounded excerpt')
+
+    await wrapper.get('button[title="bounded input excerpt"]').trigger('click')
+    await flushPromises()
+
+    expect(getLogInput).toHaveBeenCalledWith(42)
+    expect(wrapper.text()).toContain('complete audited content beyond the bounded excerpt')
+    expect(wrapper.text()).not.toContain('admin.riskControl.inputDetailHistorical')
+  })
+
+  it('marks historical keyword rows as excerpt-only', async () => {
+    listLogs.mockResolvedValue({ items: [keywordLog()], total: 1, page: 1, page_size: 20, pages: 1 })
+    getLogInput.mockResolvedValue({ id: 42, content: 'bounded input excerpt', complete: false })
+    const wrapper = mount(RiskControlView, {
+      global: {
+        stubs: {
+          AppLayout: AppLayoutStub,
+          BaseDialog: BaseDialogStub,
+          Icon: true,
+          Select: true,
+          Toggle: true,
+          Pagination: true,
+          ModelWhitelistSelector: ModelWhitelistSelectorStub,
+          ProxySelector: true,
+        },
+      },
+    })
+
+    await flushPromises()
+    await wrapper.get('button[title="bounded input excerpt"]').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('admin.riskControl.inputDetailHistorical')
+    expect(wrapper.text()).toContain('bounded input excerpt')
+  })
+
+  it('ignores a late detail response after switching to another record', async () => {
+    const second = { ...keywordLog(), id: 43, input_excerpt: 'second bounded excerpt' }
+    listLogs.mockResolvedValue({ items: [keywordLog(), second], total: 2, page: 1, page_size: 20, pages: 1 })
+    let resolveFirst!: (value: { id: number; content: string; complete: boolean }) => void
+    const firstResponse = new Promise<{ id: number; content: string; complete: boolean }>((resolve) => {
+      resolveFirst = resolve
+    })
+    getLogInput.mockImplementation((id: number) => {
+      if (id === 42) return firstResponse
+      return Promise.resolve({ id: 43, content: 'second complete content', complete: true })
+    })
+    const wrapper = mount(RiskControlView, {
+      global: {
+        stubs: {
+          AppLayout: AppLayoutStub,
+          BaseDialog: BaseDialogStub,
+          Icon: true,
+          Select: true,
+          Toggle: true,
+          Pagination: true,
+          ModelWhitelistSelector: ModelWhitelistSelectorStub,
+          ProxySelector: true,
+        },
+      },
+    })
+
+    await flushPromises()
+    await wrapper.get('button[title="bounded input excerpt"]').trigger('click')
+    await wrapper.get('button[title="second bounded excerpt"]').trigger('click')
+    await flushPromises()
+    expect(wrapper.text()).toContain('second complete content')
+
+    resolveFirst({ id: 42, content: 'late first complete content', complete: true })
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('second complete content')
+    expect(wrapper.text()).not.toContain('late first complete content')
+  })
+
+  it('renders blocking exempt badge when blocking_exempt_at_request is true in list and modal', async () => {
+    const exemptLog = { ...keywordLog(), id: 45, action: 'shadow', blocking_exempt_at_request: true }
+    listLogs.mockResolvedValue({ items: [exemptLog], total: 1, page: 1, page_size: 20, pages: 1 })
+    getLogInput.mockResolvedValue({ id: 45, content: 'exempt keyword input', complete: true })
+    const wrapper = mount(RiskControlView, {
+      global: {
+        stubs: {
+          AppLayout: AppLayoutStub,
+          BaseDialog: BaseDialogStub,
+          Icon: true,
+          Select: true,
+          Toggle: true,
+          Pagination: true,
+          ModelWhitelistSelector: ModelWhitelistSelectorStub,
+          ProxySelector: true,
+        },
+      },
+    })
+
+    await flushPromises()
+    expect(wrapper.find('[data-test="blocking-exempt-at-request"]').exists()).toBe(true)
+    expect(wrapper.get('[data-test="blocking-exempt-at-request"]').text()).toBe('admin.riskControl.blockingExemptAtRequest')
+
+    await wrapper.get('button[title="bounded input excerpt"]').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.find('[data-test="modal-blocking-exempt-at-request"]').exists()).toBe(true)
+    expect(wrapper.text()).toContain('exempt keyword input')
   })
 })

@@ -1295,6 +1295,10 @@ func (r *contentModerationHandlerTestRepo) ListLogs(ctx context.Context, filter 
 	return nil, nil, nil
 }
 
+func (r *contentModerationHandlerTestRepo) GetLogInput(context.Context, int64) (*service.ContentModerationLogInput, error) {
+	return nil, service.ErrContentModerationLogNotFound
+}
+
 func (r *contentModerationHandlerTestRepo) CountFlaggedByUserSince(ctx context.Context, userID int64, since time.Time, excludeCyberPolicy bool) (int, error) {
 	return 0, nil
 }
