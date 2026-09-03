@@ -179,6 +179,42 @@ func TestOpenAIOAuthUserAccessRepositoryListsUsersByIDDescending(t *testing.T) {
 	require.Equal(t, []int64{newerID, olderID}, []int64{users[0].ID, users[1].ID})
 }
 
+func TestOpenAIOAuthUserAccessRepositoryListsAndGrantsAdministrator(t *testing.T) {
+	ctx := context.Background()
+	suffix := time.Now().UnixNano()
+	email := fmt.Sprintf("oauth-self-admin-%d@example.com", suffix)
+	rootID := insertOpenAIOAuthAccessTestAccount(t, fmt.Sprintf("oauth-admin-grant-%d", suffix), nil)
+	adminID := insertOpenAIOAuthAccessTestUser(t, email, "admin")
+	t.Cleanup(func() {
+		_, _ = integrationDB.ExecContext(ctx, "DELETE FROM users WHERE id = $1", adminID)
+		_, _ = integrationDB.ExecContext(ctx, "DELETE FROM accounts WHERE id = $1", rootID)
+	})
+
+	repo := &openAIOAuthUserAccessRepository{db: integrationDB}
+	users, err := repo.ListUsers(ctx, email, "")
+	require.NoError(t, err)
+	require.Len(t, users, 1)
+	require.Equal(t, adminID, users[0].ID)
+
+	err = repo.ApplyPolicies(ctx, []service.OpenAIOAuthAccessPolicyChange{{
+		AccountID:        rootID,
+		ExpectedRevision: 0,
+		Mode:             service.OpenAIOAuthUserAccessModeRestricted,
+		GrantedUserIDs:   []int64{adminID},
+	}})
+	require.NoError(t, err)
+
+	accounts, err := repo.ListAccounts(ctx)
+	require.NoError(t, err)
+	for _, account := range accounts {
+		if account.ID == rootID {
+			require.Equal(t, []int64{adminID}, account.GrantedUserIDs)
+			return
+		}
+	}
+	t.Fatal("OpenAI OAuth account was not returned after granting administrator access")
+}
+
 func TestOpenAIOAuthUserAccessRepositoryExcludesGhostGroupBindings(t *testing.T) {
 	ctx := context.Background()
 	suffix := time.Now().UnixNano()
