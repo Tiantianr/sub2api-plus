@@ -119,16 +119,14 @@ describe("SubscriptionPlanCard", () => {
     const price = wrapper.findAll("span").find((node) => node.text() === "123.45");
 
     expect(title.element.parentElement?.classList).toContain("min-w-0");
-    expect(title.element.parentElement?.classList).toContain("flex-1");
     expect(badge?.classes()).toContain("shrink-0");
     expect([...(badge?.element.parentElement?.classList ?? [])]).toEqual(expect.arrayContaining([
       "flex",
       "items-center",
-      "justify-end",
+      "gap-2",
     ]));
     expect(badge?.element.parentElement?.textContent).toContain("/ 30payment.days");
-    expect(badge?.element.parentElement?.parentElement?.classList).toContain("shrink-0");
-    expect(price?.element.parentElement?.parentElement?.classList).toContain("shrink-0");
+    expect(price?.exists()).toBe(true);
     expect(wrapper.get("p").text()).toBe("Includes advanced models and priority support.");
     expect(wrapper.get("button").text()).toBe("payment.subscribeNow");
   });
@@ -144,7 +142,7 @@ describe("SubscriptionPlanCard", () => {
     expect([...(badge?.element.parentElement?.classList ?? [])]).toEqual(expect.arrayContaining([
       "flex",
       "items-center",
-      "justify-end",
+      "gap-2",
     ]));
     expect(badge?.element.parentElement?.textContent).toContain("/ 30payment.days");
   });

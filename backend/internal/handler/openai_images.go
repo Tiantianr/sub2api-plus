@@ -166,7 +166,7 @@ func (h *OpenAIGatewayHandler) Images(c *gin.Context) {
 		)
 		if err != nil {
 			if errors.Is(err, service.ErrOpenAIOAuthSessionAccessDenied) {
-				h.handleStreamingAwareError(c, http.StatusForbidden, "permission_error", "This OpenAI OAuth account is restricted to authorized API key groups.", streamStarted)
+				h.handleStreamingAwareError(c, http.StatusForbidden, "permission_error", "This OpenAI account is restricted to authorized API key groups.", streamStarted)
 				return
 			}
 			if failoverClientGone(c) {

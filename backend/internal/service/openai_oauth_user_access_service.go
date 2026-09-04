@@ -15,6 +15,7 @@ const maxOpenAIOAuthAccessGrantUsers = 1000
 type OpenAIOAuthAccessAccount struct {
 	ID                 int64   `json:"id"`
 	Name               string  `json:"name"`
+	Type               string  `json:"type"`
 	Status             string  `json:"status"`
 	GroupIDs           []int64 `json:"group_ids"`
 	Mode               string  `json:"mode"`
@@ -193,7 +194,7 @@ func (s *OpenAIOAuthUserAccessService) Preview(ctx context.Context, batch OpenAI
 	for _, change := range changes {
 		index, ok := accountIndex[change.AccountID]
 		if !ok {
-			return nil, infraerrors.NotFound("OPENAI_OAUTH_ACCESS_ACCOUNT_NOT_FOUND", "OpenAI OAuth account not found")
+			return nil, infraerrors.NotFound("OPENAI_OAUTH_ACCESS_ACCOUNT_NOT_FOUND", "OpenAI account not found")
 		}
 		current := accounts[index]
 		if current.Revision != change.ExpectedRevision {
@@ -251,7 +252,7 @@ func (s *OpenAIOAuthUserAccessService) Apply(ctx context.Context, batch OpenAIOA
 	result.AuditAccountIDs, result.AuditRevisions, result.AuditModes = openAIOAuthAccessAuditSummary(changes, preview.Accounts)
 	accounts, listErr := s.repo.ListAccounts(ctx)
 	if listErr != nil {
-		slog.Warn("OpenAI OAuth access policies applied but response refresh failed", "error", listErr)
+		slog.Warn("OpenAI account access policies applied but response refresh failed", "error", listErr)
 		return result, nil
 	}
 	result.Accounts = normalizeOpenAIOAuthAccessAccounts(accounts)
@@ -406,7 +407,7 @@ func normalizeOpenAIOAuthAccessPage(page, limit int) (int, int) {
 }
 
 func OpenAIOAuthAccessRevisionConflict(accountID, currentRevision int64) error {
-	return infraerrors.Conflict("OPENAI_OAUTH_ACCESS_REVISION_CONFLICT", "OpenAI OAuth access policy changed; refresh and try again").
+	return infraerrors.Conflict("OPENAI_OAUTH_ACCESS_REVISION_CONFLICT", "OpenAI account access policy changed; refresh and try again").
 		WithMetadata(map[string]string{
 			"account_id":       strconv.FormatInt(accountID, 10),
 			"current_revision": strconv.FormatInt(currentRevision, 10),

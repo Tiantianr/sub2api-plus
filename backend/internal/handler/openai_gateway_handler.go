@@ -683,7 +683,7 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 		)
 		if err != nil {
 			if errors.Is(err, service.ErrOpenAIOAuthSessionAccessDenied) {
-				h.handleStreamingAwareError(c, http.StatusForbidden, "permission_error", "This OpenAI OAuth account is restricted to authorized API key groups.", streamStarted)
+				h.handleStreamingAwareError(c, http.StatusForbidden, "permission_error", "This OpenAI account is restricted to authorized API key groups.", streamStarted)
 				return
 			}
 			if failoverClientGone(c) {
@@ -1288,7 +1288,7 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 		)
 		if err != nil {
 			if errors.Is(err, service.ErrOpenAIOAuthSessionAccessDenied) {
-				h.anthropicStreamingAwareError(c, http.StatusForbidden, "permission_error", "This OpenAI OAuth account is restricted to authorized API key groups.", streamStarted)
+				h.anthropicStreamingAwareError(c, http.StatusForbidden, "permission_error", "This OpenAI account is restricted to authorized API key groups.", streamStarted)
 				return
 			}
 			if failoverClientGone(c) {
@@ -2256,7 +2256,7 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 		)
 		if err != nil {
 			if errors.Is(err, service.ErrOpenAIOAuthSessionAccessDenied) {
-				closeOpenAIClientWS(wsConn, coderws.StatusPolicyViolation, "OpenAI OAuth account access denied")
+				closeOpenAIClientWS(wsConn, coderws.StatusPolicyViolation, "OpenAI account access denied")
 				return
 			}
 			// A policy close is correct only when the scheduler actually exhausted

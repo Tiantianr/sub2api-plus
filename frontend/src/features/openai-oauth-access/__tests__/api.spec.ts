@@ -38,10 +38,11 @@ describe('OpenAI OAuth access API', () => {
 
   it('normalizes nullable collection fields from new or older policies', async () => {
     client.get.mockResolvedValueOnce({ data: [{
-      id: 7, name: 'New OAuth', status: 'active', group_ids: null, mode: 'public',
+      id: 7, name: 'New OAuth', type: 'apikey', status: 'active', group_ids: null, mode: 'public',
       default_for_new_users: false, revision: 0, granted_user_ids: null,
     }] })
     await expect(openAIOAuthAccessAPI.listAccounts()).resolves.toEqual([expect.objectContaining({
+      type: 'apikey',
       group_ids: [], granted_user_ids: [],
     })])
 

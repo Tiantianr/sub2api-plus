@@ -335,7 +335,8 @@ func (s *OpenAIGatewayService) ProfitControlVetoLatest(ctx context.Context, sele
 		return selected, false, ""
 	}
 	latest := selected
-	if selected != nil && selected.Platform == PlatformOpenAI && selected.Type == AccountTypeOAuth {
+	if selected != nil && selected.Platform == PlatformOpenAI &&
+		(selected.Type == AccountTypeOAuth || selected.Type == AccountTypeAPIKey) {
 		if s.accountRepo == nil {
 			return selected, true, openAIOAuthUserAccessRecheckReason
 		}

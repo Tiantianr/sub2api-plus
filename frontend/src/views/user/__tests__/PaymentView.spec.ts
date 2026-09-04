@@ -307,7 +307,7 @@ describe('PaymentView checkout tabs', () => {
     await flushPromises()
 
     const rechargeTab = wrapper.findAll('button').find(button => button.text() === 'payment.tabTopUp')
-    expect(rechargeTab?.classes()).toContain('bg-white')
+    expect(rechargeTab?.classes()).toContain('text-blue-700')
     expect(wrapper.findAllComponents(SubscriptionPlanCard)).toHaveLength(0)
   })
 

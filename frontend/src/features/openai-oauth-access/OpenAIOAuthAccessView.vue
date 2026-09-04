@@ -121,6 +121,9 @@
                       <div class="min-w-0 flex-1">
                         <div class="flex items-center gap-2">
                           <span class="min-w-0 truncate font-semibold text-gray-900 dark:text-white" :title="account.name">{{ account.name }}</span>
+                          <span class="shrink-0 rounded bg-gray-100 px-1.5 py-0.5 text-[10px] font-medium text-gray-600 dark:bg-dark-700 dark:text-dark-200">
+                            {{ accountTypeLabel(account.type) }}
+                          </span>
                           <span v-if="account.status !== 'active'" class="shrink-0 rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-800 dark:bg-amber-950/50 dark:text-amber-200">
                             {{ t('admin.oauthAccess.account.inactive') }}
                           </span>
@@ -599,6 +602,12 @@ function statusLabel(status: string): string {
 
 function modeLabel(mode: OAuthAccessMode): string {
   return t(`admin.oauthAccess.account.${mode}`)
+}
+
+function accountTypeLabel(type: string): string {
+  return type === 'apikey'
+    ? t('admin.oauthAccess.account.apiKey')
+    : t('admin.oauthAccess.account.oauth')
 }
 
 function defaultLabel(enabled: boolean): string {

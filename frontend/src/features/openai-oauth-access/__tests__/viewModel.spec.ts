@@ -11,6 +11,7 @@ import {
 const account = (): OAuthAccessAccount => ({
   id: 7,
   name: 'OAuth A',
+  type: 'oauth',
   status: 'active',
   group_ids: [2],
   mode: 'restricted',

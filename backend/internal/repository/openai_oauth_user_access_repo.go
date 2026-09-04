@@ -37,6 +37,7 @@ func (r *openAIOAuthUserAccessRepository) ListAccounts(ctx context.Context) ([]s
 		SELECT
 			a.id,
 			a.name,
+			a.type,
 			a.status,
 			COALESCE(a.extra, '{}'::jsonb),
 			COALESCE(groups.group_ids, '{}'::bigint[]),
@@ -69,7 +70,7 @@ func (r *openAIOAuthUserAccessRepository) ListAccounts(ctx context.Context) ([]s
 			WHERE g.account_id = a.id
 		) AS grants ON TRUE
 		WHERE a.platform = 'openai'
-		  AND a.type = 'oauth'
+		  AND a.type IN ('oauth', 'apikey')
 		  AND a.parent_account_id IS NULL
 		  AND a.deleted_at IS NULL
 		ORDER BY a.priority, a.id
@@ -87,6 +88,7 @@ func (r *openAIOAuthUserAccessRepository) ListAccounts(ctx context.Context) ([]s
 		if err := rows.Scan(
 			&account.ID,
 			&account.Name,
+			&account.Type,
 			&account.Status,
 			&extraJSON,
 			&groupIDs,
@@ -99,10 +101,10 @@ func (r *openAIOAuthUserAccessRepository) ListAccounts(ctx context.Context) ([]s
 		}
 		var extra map[string]any
 		if err := json.Unmarshal(extraJSON, &extra); err != nil {
-			return nil, fmt.Errorf("decode OpenAI OAuth account %d extra: %w", account.ID, err)
+			return nil, fmt.Errorf("decode OpenAI account %d extra: %w", account.ID, err)
 		}
 		account.GroupIDs = service.EffectiveOpenAIAccountGroupIDs(&service.Account{
-			ID: account.ID, Platform: service.PlatformOpenAI, Type: service.AccountTypeOAuth,
+			ID: account.ID, Platform: service.PlatformOpenAI, Type: account.Type,
 			Extra: extra, GroupIDs: []int64(groupIDs),
 		})
 		account.GrantedUserIDs = []int64(userIDs)
@@ -198,7 +200,7 @@ func (r *openAIOAuthUserAccessRepository) ApplyPolicies(ctx context.Context, cha
 		FROM accounts
 		WHERE id = ANY($1)
 		  AND platform = 'openai'
-		  AND type = 'oauth'
+		  AND type IN ('oauth', 'apikey')
 		  AND parent_account_id IS NULL
 		  AND deleted_at IS NULL
 		ORDER BY id
@@ -220,7 +222,7 @@ func (r *openAIOAuthUserAccessRepository) ApplyPolicies(ctx context.Context, cha
 		return err
 	}
 	if len(lockedAccounts) != len(accountIDs) {
-		return infraerrors.NotFound("OPENAI_OAUTH_ACCESS_ACCOUNT_NOT_FOUND", "OpenAI OAuth account not found")
+		return infraerrors.NotFound("OPENAI_OAUTH_ACCESS_ACCOUNT_NOT_FOUND", "OpenAI account not found")
 	}
 
 	policyRows, err := tx.QueryContext(ctx, `

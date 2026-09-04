@@ -287,7 +287,7 @@ func (h *OpenAIGatewayHandler) CountTokens(c *gin.Context) {
 		service.SetOpsLatencyMs(c, service.OpsAuthLatencyMsKey, time.Since(requestStart).Milliseconds())
 		if err != nil {
 			if errors.Is(err, service.ErrOpenAIOAuthSessionAccessDenied) {
-				h.anthropicErrorResponse(c, http.StatusForbidden, "permission_error", "This OpenAI OAuth account is restricted to authorized API key groups.")
+				h.anthropicErrorResponse(c, http.StatusForbidden, "permission_error", "This OpenAI account is restricted to authorized API key groups.")
 				return
 			}
 			if policyRejectedAccountCount > 0 && errors.Is(err, service.ErrNoAvailableAccounts) {

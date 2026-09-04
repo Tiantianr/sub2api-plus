@@ -2956,7 +2956,7 @@ func (r *accountRepository) loadOpenAIOAuthUserAccess(
 	accountIDs = uniquePositiveInt64s(accountIDs)
 	accessByAccount := make(map[int64]*service.OpenAIOAuthUserAccessSnapshot, len(accountIDs))
 	if len(accountIDs) > 0 && r.sql == nil {
-		return nil, errors.New("OpenAI OAuth user access requires SQL executor")
+		return nil, errors.New("OpenAI account user access requires SQL executor")
 	}
 	for start := 0; start < len(accountIDs); start += postgresParameterBatchSize {
 		end := start + postgresParameterBatchSize
