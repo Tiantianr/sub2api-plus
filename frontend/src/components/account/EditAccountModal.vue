@@ -1620,19 +1620,57 @@
         v-if="account?.platform === 'openai' && !isSparkShadow"
         class="border-t border-gray-200 pt-4 dark:border-dark-600"
       >
-        <label class="input-label" for="edit-openai-account-user-agent">
-          {{ t('admin.accounts.openai.accountUserAgent') }}
-        </label>
+        <div class="mb-2 flex flex-wrap items-center justify-between gap-2">
+          <label class="input-label mb-0" for="edit-openai-account-user-agent">
+            {{ t('admin.accounts.openai.accountIdentityChannel') }}
+          </label>
+          <div class="flex items-center gap-1.5">
+            <button
+              type="button"
+              @click="openaiAccountUserAgent = ''"
+              class="rounded-md px-2.5 py-1 text-xs font-medium transition-colors"
+              :class="!openaiAccountUserAgent?.trim()
+                ? 'bg-primary-100 text-primary-700 dark:bg-primary-900/40 dark:text-primary-300'
+                : 'bg-gray-100 text-gray-600 hover:bg-gray-200 dark:bg-dark-700 dark:text-gray-400 dark:hover:bg-dark-600'"
+            >
+              {{ t('admin.accounts.openai.channelDefault') }}
+            </button>
+            <button
+              type="button"
+              @click="openaiAccountUserAgent = 'pi/0.85.0 (darwin 24.1.0; arm64)'"
+              class="rounded-md px-2.5 py-1 text-xs font-medium transition-colors"
+              :class="openaiAccountUserAgent?.trim()?.startsWith('pi')
+                ? 'bg-primary-100 text-primary-700 dark:bg-primary-900/40 dark:text-primary-300'
+                : 'bg-gray-100 text-gray-600 hover:bg-gray-200 dark:bg-dark-700 dark:text-gray-400 dark:hover:bg-dark-600'"
+            >
+              {{ t('admin.accounts.openai.channelPiAgent') }}
+            </button>
+            <button
+              type="button"
+              @click="openaiAccountUserAgent = 'codex-tui/0.144.0 (Mac OS X 14.0; arm64) iTerm'"
+              class="rounded-md px-2.5 py-1 text-xs font-medium transition-colors"
+              :class="openaiAccountUserAgent?.trim()?.startsWith('codex-tui')
+                ? 'bg-primary-100 text-primary-700 dark:bg-primary-900/40 dark:text-primary-300'
+                : 'bg-gray-100 text-gray-600 hover:bg-gray-200 dark:bg-dark-700 dark:text-gray-400 dark:hover:bg-dark-600'"
+            >
+              {{ t('admin.accounts.openai.channelCodexTui') }}
+            </button>
+          </div>
+        </div>
         <input
           id="edit-openai-account-user-agent"
           v-model="openaiAccountUserAgent"
           type="text"
           maxlength="512"
-          class="input"
+          class="input font-mono text-xs"
           data-testid="edit-openai-account-user-agent"
           :placeholder="t('admin.accounts.openai.accountUserAgentPlaceholder')"
         />
-        <p class="input-hint">{{ t('admin.accounts.openai.accountUserAgentDesc') }}</p>
+        <p class="input-hint">
+          {{ openaiAccountUserAgent?.trim()?.startsWith('pi')
+            ? t('admin.accounts.openai.channelPiAgentHint')
+            : t('admin.accounts.openai.accountUserAgentDesc') }}
+        </p>
       </div>
 
       <div
@@ -2075,9 +2113,9 @@
         </div>
       </div>
 
-      <!-- Codex 指纹收敛模式（仅 OpenAI OAuth） -->
+      <!-- Codex 指纹收敛模式（OpenAI OAuth 及 API Key） -->
       <div
-        v-if="account?.platform === 'openai' && account?.type === 'oauth' && !isSparkShadow"
+        v-if="account?.platform === 'openai' && (account?.type === 'oauth' || account?.type === 'apikey') && !isSparkShadow"
         class="border-t border-gray-200 pt-4 dark:border-dark-600"
       >
         <div class="flex items-center justify-between gap-4">
@@ -3776,12 +3814,17 @@ const syncFormFromAccount = (newAccount: Account | null) => {
     if (newAccount.type === 'oauth' || newAccount.type === 'setup-token') {
       codexCLIOnlyEnabled.value = extra?.codex_cli_only === true
     }
+    const fpMode = extra?.codex_fingerprint_mode as string | undefined
     if (newAccount.type === 'oauth') {
-      const fpMode = extra?.codex_fingerprint_mode as string | undefined
       // Missing or invalid legacy values use the device-only default.
       codexFingerprintMode.value = (['off', 'device', 'session', 'full'].includes(fpMode || '')
         ? fpMode as CodexFingerprintMode
         : 'device')
+    } else if (newAccount.type === 'apikey') {
+      // API key accounts default to off when unconfigured or invalid.
+      codexFingerprintMode.value = (['off', 'device', 'session', 'full'].includes(fpMode || '')
+        ? fpMode as CodexFingerprintMode
+        : 'off')
     }
     const credentials = newAccount.credentials as Record<string, unknown> | undefined
 		openaiAccountUserAgent.value = !isSparkShadow.value && typeof credentials?.user_agent === 'string'
@@ -5244,6 +5287,13 @@ const handleSubmit = async () => {
       // Every mode is persisted explicitly so account behavior is version-independent.
       if (props.account.type === 'oauth' && !isSparkShadow.value) {
         newExtra.codex_fingerprint_mode = codexFingerprintMode.value
+      } else if (props.account.type === 'apikey' && props.account.platform === 'openai' && !isSparkShadow.value) {
+        const existingExtra = props.account.extra as Record<string, unknown> | undefined
+        if (codexFingerprintMode.value !== 'off' || existingExtra?.codex_fingerprint_mode !== undefined) {
+          newExtra.codex_fingerprint_mode = codexFingerprintMode.value
+        } else {
+          delete newExtra.codex_fingerprint_mode
+        }
       } else {
         delete newExtra.codex_fingerprint_mode
       }

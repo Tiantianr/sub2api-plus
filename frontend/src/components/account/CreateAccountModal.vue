@@ -2961,19 +2961,57 @@
         v-if="form.platform === 'openai'"
         class="border-t border-gray-200 pt-4 dark:border-dark-600"
       >
-        <label class="input-label" for="create-openai-account-user-agent">
-          {{ t('admin.accounts.openai.accountUserAgent') }}
-        </label>
+        <div class="mb-2 flex flex-wrap items-center justify-between gap-2">
+          <label class="input-label mb-0" for="create-openai-account-user-agent">
+            {{ t('admin.accounts.openai.accountIdentityChannel') }}
+          </label>
+          <div class="flex items-center gap-1.5">
+            <button
+              type="button"
+              @click="openaiAccountUserAgent = ''"
+              class="rounded-md px-2.5 py-1 text-xs font-medium transition-colors"
+              :class="!openaiAccountUserAgent?.trim()
+                ? 'bg-primary-100 text-primary-700 dark:bg-primary-900/40 dark:text-primary-300'
+                : 'bg-gray-100 text-gray-600 hover:bg-gray-200 dark:bg-dark-700 dark:text-gray-400 dark:hover:bg-dark-600'"
+            >
+              {{ t('admin.accounts.openai.channelDefault') }}
+            </button>
+            <button
+              type="button"
+              @click="openaiAccountUserAgent = 'pi/0.85.0 (darwin 24.1.0; arm64)'"
+              class="rounded-md px-2.5 py-1 text-xs font-medium transition-colors"
+              :class="openaiAccountUserAgent?.trim()?.startsWith('pi')
+                ? 'bg-primary-100 text-primary-700 dark:bg-primary-900/40 dark:text-primary-300'
+                : 'bg-gray-100 text-gray-600 hover:bg-gray-200 dark:bg-dark-700 dark:text-gray-400 dark:hover:bg-dark-600'"
+            >
+              {{ t('admin.accounts.openai.channelPiAgent') }}
+            </button>
+            <button
+              type="button"
+              @click="openaiAccountUserAgent = 'codex-tui/0.144.0 (Mac OS X 14.0; arm64) iTerm'"
+              class="rounded-md px-2.5 py-1 text-xs font-medium transition-colors"
+              :class="openaiAccountUserAgent?.trim()?.startsWith('codex-tui')
+                ? 'bg-primary-100 text-primary-700 dark:bg-primary-900/40 dark:text-primary-300'
+                : 'bg-gray-100 text-gray-600 hover:bg-gray-200 dark:bg-dark-700 dark:text-gray-400 dark:hover:bg-dark-600'"
+            >
+              {{ t('admin.accounts.openai.channelCodexTui') }}
+            </button>
+          </div>
+        </div>
         <input
           id="create-openai-account-user-agent"
           v-model="openaiAccountUserAgent"
           type="text"
           maxlength="512"
-          class="input"
+          class="input font-mono text-xs"
           data-testid="create-openai-account-user-agent"
           :placeholder="t('admin.accounts.openai.accountUserAgentPlaceholder')"
         />
-        <p class="input-hint">{{ t('admin.accounts.openai.accountUserAgentDesc') }}</p>
+        <p class="input-hint">
+          {{ openaiAccountUserAgent?.trim()?.startsWith('pi')
+            ? t('admin.accounts.openai.channelPiAgentHint')
+            : t('admin.accounts.openai.accountUserAgentDesc') }}
+        </p>
       </div>
 
       <div
@@ -3191,9 +3229,9 @@
         </div>
       </div>
 
-      <!-- Codex 指纹收敛模式（仅 OpenAI OAuth） -->
+      <!-- Codex 指纹收敛模式（OpenAI OAuth 及 API Key） -->
       <div
-        v-if="form.platform === 'openai' && form.type === 'oauth'"
+        v-if="form.platform === 'openai' && (form.type === 'oauth' || form.type === 'apikey')"
         class="border-t border-gray-200 pt-4 dark:border-dark-600"
       >
         <div class="flex items-center justify-between gap-4">
@@ -4767,6 +4805,19 @@ watch(
   }
 )
 
+watch(
+  [accountCategory, () => form.platform],
+  ([cat, platform]) => {
+    if (platform === 'openai') {
+      if (cat === 'apikey') {
+        codexFingerprintMode.value = 'off'
+      } else if (cat === 'oauth-based') {
+        codexFingerprintMode.value = 'device'
+      }
+    }
+  }
+)
+
 // Model mapping helpers
 const addModelMapping = () => {
   modelMappings.value.push({ from: '', to: '' })
@@ -5227,6 +5278,8 @@ const buildOpenAIExtra = (base?: Record<string, unknown>): Record<string, unknow
   // The retired app-server exception must never be persisted by newly created accounts.
   delete extra.codex_cli_only_allow_app_server
   if (form.type === 'oauth') {
+    extra.codex_fingerprint_mode = codexFingerprintMode.value
+  } else if (form.type === 'apikey' && codexFingerprintMode.value !== 'off') {
     extra.codex_fingerprint_mode = codexFingerprintMode.value
   } else {
     delete extra.codex_fingerprint_mode

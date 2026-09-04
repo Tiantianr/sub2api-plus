@@ -617,6 +617,11 @@ export default {
         oauthPassthroughDesc:
           '开启后，该 OpenAI 账号将自动透传请求与响应，仅替换认证并保留计费/并发/审计及必要安全过滤；如遇兼容性问题可随时关闭回滚。',
         accountUserAgent: '账号级 Codex User-Agent',
+        accountIdentityChannel: 'Codex 身份通道',
+        channelDefault: '系统默认',
+        channelPiAgent: 'Pi Agent 模拟',
+        channelCodexTui: 'Codex TUI',
+        channelPiAgentHint: '已选择 Pi Agent 官方身份模拟：请求将自动携带 originator: pi，免除版本号请求头与最低版本限制。',
         accountUserAgentPlaceholder: '留空：继承全局 Codex User-Agent',
         accountUserAgentDesc: '可选。为当前账号覆盖全局 Codex 身份；必须是受支持的 Codex User-Agent，清空后恢复继承。旧版身份需先在全局设置开启「旧版 Codex 客户端档案兼容模式」。',
         oauthSessionSharing: 'OAuth 会话共享白名单',
@@ -675,7 +680,8 @@ export default {
         codexCLIOnly: '仅允许 Codex 官方客户端档案',
         codexCLIOnlyDesc: '仅对 OpenAI OAuth 生效。开启后仅允许已验证的 Codex 请求档案（包括官方 CLI、App 与 IDE 所共享的底层传输身份）；请求头特征可被伪造，不能证明客户端二进制官方性，也不能单独判断账号分享。',
         codexFingerprintMode: 'Codex 指纹收敛',
-        codexFingerprintModeDesc: '对 OpenAI OAuth Responses 会话，将指纹层拥有的客户端标识收敛为账号级恒定值，默认仅收敛设备标识。Native Compact v2 遵循所选模式；ChatGPT Codex OAuth 的 legacy compact 兼容路径仅使用稳定 installation 标识。关闭只停用指纹改写，不会停用 Plus 缓存、安全或会话策略。',
+        codexFingerprintModeDesc:
+          '对 OpenAI Responses 会话，将客户端标识收敛为账号级恒定值（OAuth 默认仅收敛设备标识，API Key 默认关闭）。可避免因客户端历史会话指纹导致上游聚合分流时持续粘滞在低优先级账号。Native Compact v2 遵循所选模式；关闭只停用指纹改写，不会停用 Plus 缓存、安全或会话策略。',
         codexFingerprintOff: '关闭（不改写指纹）',
         codexFingerprintDevice: '仅设备（默认）',
         codexFingerprintSession: '设备+会话',

@@ -188,16 +188,6 @@ func (s *OpenAIGatewayService) forwardOpenAIPassthrough(
 		if accountScoped {
 			body = accountScopedBody
 		}
-
-		// Resolve the request policy once and reuse the exact same fingerprint IDs
-		// for headers and client_metadata. Legacy /responses/compact intentionally
-		// converges only the installation identity; ordinary/native compact turns
-		// retain their configured device/session/full policy.
-		fingerprintedBody, _, fingerprintErr := s.prepareCodexFingerprintRaw(ctx, c, account, body)
-		if fingerprintErr != nil {
-			return nil, fingerprintErr
-		}
-		body = fingerprintedBody
 	}
 	if account != nil && account.IsOpenAI() {
 		responsesLite := isOpenAIResponsesLiteHeader(c.GetHeader(responsesLiteHeader)) || isOpenAIResponsesLiteWebSocketPayload(body)
@@ -218,6 +208,16 @@ func (s *OpenAIGatewayService) forwardOpenAIPassthrough(
 				body = aliasedBody
 			}
 		}
+
+		// Resolve the request policy once and reuse the exact same fingerprint IDs
+		// for headers and client_metadata. Legacy /responses/compact intentionally
+		// converges only the installation identity; ordinary/native compact turns
+		// retain their configured device/session/full policy.
+		fingerprintedBody, _, fingerprintErr := s.prepareCodexFingerprintRaw(ctx, c, account, body)
+		if fingerprintErr != nil {
+			return nil, fingerprintErr
+		}
+		body = fingerprintedBody
 	}
 
 	if account != nil && account.Platform == PlatformOpenAI && account.Type == AccountTypeAPIKey &&

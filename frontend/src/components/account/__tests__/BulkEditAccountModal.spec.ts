@@ -881,6 +881,27 @@ describe('BulkEditAccountModal', () => {
     })
   })
 
+  it('OpenAI API-Key 批量编辑支持配置 codex_fingerprint_mode', async () => {
+    const wrapper = mountModal({
+      selectedPlatforms: ['openai'],
+      selectedTypes: ['apikey']
+    })
+
+    expect(wrapper.find('[data-testid="bulk-codex-fingerprint-mode-enabled"]').exists()).toBe(true)
+    await wrapper.get('#bulk-edit-openai-codex-fingerprint-mode-enabled').setValue(true)
+    await wrapper
+      .get('[data-testid="bulk-codex-fingerprint-mode-select"]')
+      .setValue('session')
+    await wrapper.get('#bulk-edit-account-form').trigger('submit.prevent')
+    await flushPromises()
+
+    expect(adminAPI.accounts.bulkUpdate).toHaveBeenCalledWith([1, 2], {
+      extra: {
+        codex_fingerprint_mode: 'session'
+      }
+    })
+  })
+
   // 未勾选「编辑该项」时不得写入该键，否则批量编辑别的字段会顺手清掉账号的收敛设置。
   it('未勾选编辑该项时不写入 codex_fingerprint_mode', async () => {
     const wrapper = mountModal({

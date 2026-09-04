@@ -56,7 +56,10 @@ func TestGetCodexFingerprintMode(t *testing.T) {
 		expected codexFingerprintMode
 	}{
 		{"nil 账号", nil, codexFingerprintOff},
-		{"非 OAuth 账号", &Account{Platform: PlatformOpenAI, Type: "api_key"}, codexFingerprintOff},
+		{"非 OpenAI 账号", &Account{Platform: PlatformAnthropic, Type: AccountTypeAPIKey, Extra: map[string]any{CodexFingerprintModeExtraKey: "device"}}, codexFingerprintOff},
+		{"SetupToken 账号不持有模式", &Account{Platform: PlatformOpenAI, Type: AccountTypeSetupToken, Extra: map[string]any{CodexFingerprintModeExtraKey: "full"}}, codexFingerprintOff},
+		{"OpenAI APIKey 无 extra 默认 off", &Account{Platform: PlatformOpenAI, Type: AccountTypeAPIKey}, codexFingerprintOff},
+		{"OpenAI APIKey 显式 device", &Account{Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Extra: map[string]any{CodexFingerprintModeExtraKey: "device"}}, codexFingerprintDevice},
 		{"影子账号不持有模式", shadow, codexFingerprintOff},
 		{"无 extra 默认 device", newTestOAuthAccount(1, nil), codexFingerprintDevice},
 		{"空值默认 device", newTestOAuthAccount(1, map[string]any{CodexFingerprintModeExtraKey: ""}), codexFingerprintDevice},
@@ -88,28 +91,59 @@ func TestNormalizeCodexFingerprintMode(t *testing.T) {
 		assert.Equal(t, "session", account.Extra[CodexFingerprintModeExtraKey])
 	})
 
+	t.Run("shadow account drops the mode", func(t *testing.T) {
+		parentID := int64(8)
+		account := newTestOAuthAccount(2, map[string]any{CodexFingerprintModeExtraKey: "session"})
+		account.ParentAccountID = &parentID
+		require.NoError(t, account.NormalizeCodexFingerprintMode())
+		assert.NotContains(t, account.Extra, CodexFingerprintModeExtraKey)
+	})
+
+	t.Run("SetupToken account drops the inapplicable mode", func(t *testing.T) {
+		account := &Account{
+			Platform: PlatformOpenAI,
+			Type:     AccountTypeSetupToken,
+			Extra:    map[string]any{CodexFingerprintModeExtraKey: "full"},
+		}
+		require.NoError(t, account.NormalizeCodexFingerprintMode())
+		assert.NotContains(t, account.Extra, CodexFingerprintModeExtraKey)
+	})
+
+	t.Run("non OpenAI account drops the inapplicable mode", func(t *testing.T) {
+		account := &Account{
+			Platform: PlatformAnthropic,
+			Type:     AccountTypeAPIKey,
+			Extra:    map[string]any{CodexFingerprintModeExtraKey: "device"},
+		}
+		require.NoError(t, account.NormalizeCodexFingerprintMode())
+		assert.NotContains(t, account.Extra, CodexFingerprintModeExtraKey)
+	})
+
 	t.Run("invalid explicit value is rejected", func(t *testing.T) {
 		account := newTestOAuthAccount(1, map[string]any{CodexFingerprintModeExtraKey: "invalid"})
 		err := account.NormalizeCodexFingerprintMode()
 		require.ErrorContains(t, err, "codex_fingerprint_mode must be one of")
 	})
 
-	t.Run("credential shadow remains unset", func(t *testing.T) {
-		parentID := int64(9)
-		account := newTestOAuthAccount(1, nil)
-		account.ParentAccountID = &parentID
-		require.NoError(t, account.NormalizeCodexFingerprintMode())
-		assert.Nil(t, account.Extra)
-	})
-
-	t.Run("non OAuth account drops the inapplicable mode", func(t *testing.T) {
+	t.Run("OpenAI APIKey account defaults to off", func(t *testing.T) {
 		account := &Account{
 			Platform: PlatformOpenAI,
 			Type:     AccountTypeAPIKey,
-			Extra:    map[string]any{CodexFingerprintModeExtraKey: "device"},
 		}
 		require.NoError(t, account.NormalizeCodexFingerprintMode())
-		assert.NotContains(t, account.Extra, CodexFingerprintModeExtraKey)
+		assert.Equal(t, "off", account.Extra[CodexFingerprintModeExtraKey])
+		assert.Equal(t, codexFingerprintOff, account.GetCodexFingerprintMode())
+	})
+
+	t.Run("OpenAI APIKey account retains explicit mode", func(t *testing.T) {
+		account := &Account{
+			Platform: PlatformOpenAI,
+			Type:     AccountTypeAPIKey,
+			Extra:    map[string]any{CodexFingerprintModeExtraKey: "session"},
+		}
+		require.NoError(t, account.NormalizeCodexFingerprintMode())
+		assert.Equal(t, "session", account.Extra[CodexFingerprintModeExtraKey])
+		assert.Equal(t, codexFingerprintSession, account.GetCodexFingerprintMode())
 	})
 }
 
@@ -217,6 +251,33 @@ func TestResolveCodexFingerprintIDsFromRequest_ExplicitModesHonored(t *testing.T
 			account := newTestOAuthAccount(1, map[string]any{CodexFingerprintModeExtraKey: mode})
 			ids := resolveCodexFingerprintIDsFromRequest(account, nil)
 			require.NotNil(t, ids, "显式配置必须生效")
+			assert.Equal(t, codexFingerprintMode(mode), ids.mode)
+			assert.NotEmpty(t, ids.installationID)
+		})
+	}
+}
+
+func TestResolveCodexFingerprintIDsFromRequest_APIKeyDefaultIsOff(t *testing.T) {
+	account := &Account{
+		ID:       10,
+		Platform: PlatformOpenAI,
+		Type:     AccountTypeAPIKey,
+	}
+	ids := resolveCodexFingerprintIDsFromRequest(account, nil)
+	assert.Nil(t, ids, "APIKey 默认 off 模式应返回 nil")
+}
+
+func TestResolveCodexFingerprintIDsFromRequest_APIKeyExplicitModesHonored(t *testing.T) {
+	for _, mode := range []string{"device", "session", "full"} {
+		t.Run(mode, func(t *testing.T) {
+			account := &Account{
+				ID:       10,
+				Platform: PlatformOpenAI,
+				Type:     AccountTypeAPIKey,
+				Extra:    map[string]any{CodexFingerprintModeExtraKey: mode},
+			}
+			ids := resolveCodexFingerprintIDsFromRequest(account, nil)
+			require.NotNil(t, ids, "APIKey 显式配置必须生效")
 			assert.Equal(t, codexFingerprintMode(mode), ids.mode)
 			assert.NotEmpty(t, ids.installationID)
 		})
@@ -714,35 +775,78 @@ func TestPrepareCodexFingerprintIDs_PATAndAgentIdentityFollowEndpointSemantics(t
 	}
 }
 
-func TestPrepareCodexFingerprintIDs_ExcludesAPIKeyAndSetupToken(t *testing.T) {
+func TestPrepareCodexFingerprintIDs_ExcludesIneligibleAccounts(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	svc := &OpenAIGatewayService{}
-	for _, accountType := range []string{AccountTypeAPIKey, AccountTypeSetupToken} {
-		t.Run(accountType, func(t *testing.T) {
-			account := &Account{
+	tests := []struct {
+		name    string
+		account *Account
+	}{
+		{
+			name: "setup-token",
+			account: &Account{
 				ID:       22,
 				Platform: PlatformOpenAI,
-				Type:     accountType,
+				Type:     AccountTypeSetupToken,
 				Extra: map[string]any{
 					CodexFingerprintModeExtraKey: "full",
 					"openai_device_id":           "must-not-apply",
 				},
-			}
+			},
+		},
+		{
+			name: "anthropic",
+			account: &Account{
+				ID:       23,
+				Platform: PlatformAnthropic,
+				Type:     AccountTypeAPIKey,
+				Extra: map[string]any{
+					CodexFingerprintModeExtraKey: "full",
+					"openai_device_id":           "must-not-apply",
+				},
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
 			c, _ := gin.CreateTestContext(httptest.NewRecorder())
 			c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
 
 			ids, err := svc.prepareCodexFingerprintIDs(
 				t.Context(),
 				c,
-				account,
+				tt.account,
 				http.Header{"Session-Id": []string{"client-session"}},
 				resolveCodexFingerprintRequestPolicy(c, nil),
 			)
 			require.NoError(t, err)
 			require.Nil(t, ids)
-			require.Nil(t, loadCodexFingerprintIDs(c, account))
+			require.Nil(t, loadCodexFingerprintIDs(c, tt.account))
 		})
 	}
+}
+
+func TestPrepareCodexFingerprintIDs_APIKeyDefaultOff(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	svc := &OpenAIGatewayService{}
+	account := &Account{
+		ID:       24,
+		Platform: PlatformOpenAI,
+		Type:     AccountTypeAPIKey,
+	}
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
+
+	ids, err := svc.prepareCodexFingerprintIDs(
+		t.Context(),
+		c,
+		account,
+		http.Header{"Session-Id": []string{"client-session"}},
+		resolveCodexFingerprintRequestPolicy(c, nil),
+	)
+	require.NoError(t, err)
+	require.Nil(t, ids)
+	require.Nil(t, loadCodexFingerprintIDs(c, account))
 }
 
 func TestPrepareCodexFingerprintMap_OffDoesNotMutateBody(t *testing.T) {
@@ -1274,4 +1378,58 @@ func TestApplyCodexFingerprintClientMetadataRaw_NonObjectBodyUntouched(t *testin
 		assert.False(t, changed, "非 JSON 对象 body 不应被改写: %s", body)
 		assert.Equal(t, []byte(body), out)
 	}
+}
+
+func TestPrepareCodexFingerprintRaw_APIKeyAccountConvergence(t *testing.T) {
+	svc := &OpenAIGatewayService{}
+	account := &Account{
+		ID:       5566,
+		Platform: PlatformOpenAI,
+		Type:     AccountTypeAPIKey,
+		Extra: map[string]any{
+			CodexFingerprintModeExtraKey: "session",
+		},
+	}
+	c := newFingerprintStageTestContext(t)
+	c.Request.Header.Set("session-id", "client-sticky-session")
+	body := []byte(`{"model":"gpt-5.4","input":[{"type":"message","content":"hi"}]}`)
+
+	got, changed, err := svc.prepareCodexFingerprintRaw(context.Background(), c, account, body)
+	require.NoError(t, err)
+	require.True(t, changed)
+
+	ids := loadCodexFingerprintIDs(c, account)
+	require.NotNil(t, ids)
+	require.Equal(t, codexFingerprintSession, ids.mode)
+	require.NotEmpty(t, ids.installationID)
+	require.NotEmpty(t, ids.sessionID)
+	require.NotEmpty(t, ids.threadID)
+	require.NotEmpty(t, ids.turnID)
+
+	var decoded map[string]any
+	require.NoError(t, json.Unmarshal(got, &decoded))
+	metadata, ok := decoded["client_metadata"].(map[string]any)
+	require.True(t, ok)
+	require.Equal(t, ids.installationID, metadata["x-codex-installation-id"])
+	require.Equal(t, ids.sessionID, metadata["session_id"])
+	require.Equal(t, ids.turnID, metadata["turn_id"])
+}
+
+func TestPrepareCodexFingerprintRaw_APIKeyAccountOff(t *testing.T) {
+	svc := &OpenAIGatewayService{}
+	account := &Account{
+		ID:       5567,
+		Platform: PlatformOpenAI,
+		Type:     AccountTypeAPIKey,
+		// No extra or extra with off
+	}
+	c := newFingerprintStageTestContext(t)
+	c.Request.Header.Set("session-id", "client-sticky-session")
+	body := []byte(`{"model":"gpt-5.4","input":[{"type":"message","content":"hi"}]}`)
+
+	got, changed, err := svc.prepareCodexFingerprintRaw(context.Background(), c, account, body)
+	require.NoError(t, err)
+	require.False(t, changed)
+	require.Equal(t, body, got)
+	require.Nil(t, loadCodexFingerprintIDs(c, account))
 }

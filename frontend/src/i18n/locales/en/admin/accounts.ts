@@ -532,6 +532,11 @@ export default {
         oauthPassthroughDesc:
           'When enabled, this OpenAI account uses automatic passthrough: the gateway forwards request/response as-is and only swaps auth, while keeping billing/concurrency/audit and necessary safety filtering.',
         accountUserAgent: 'Account Codex User-Agent',
+        accountIdentityChannel: 'Codex Identity Channel',
+        channelDefault: 'System Default',
+        channelPiAgent: 'Pi Agent Simulation',
+        channelCodexTui: 'Codex TUI',
+        channelPiAgentHint: 'Simulating Pi Agent official identity: requests automatically include originator: pi with no version header or minimum version requirement.',
         accountUserAgentPlaceholder: 'Empty: inherit the global Codex User-Agent',
         accountUserAgentDesc: 'Optional. Overrides the global Codex identity for this account. It must be a supported Codex User-Agent; clearing it restores inheritance. Historical identities require the global Legacy Codex Client Profile Compatibility mode.',
         oauthSessionSharing: 'OAuth session-sharing allowlist',
@@ -596,7 +601,8 @@ export default {
         codexCLIOnlyDesc:
           'Only applies to OpenAI OAuth. When enabled, only verified Codex request profiles are allowed, including the underlying transport identities shared by official CLI, App, and IDE surfaces. Request headers are spoofable: this does not attest a client binary or by itself determine account sharing.',
         codexFingerprintMode: 'Codex fingerprint convergence',
-        codexFingerprintModeDesc: 'For OpenAI OAuth Responses sessions, converge fingerprint-owned client identifiers to account-level stable values. Device-only is the default. Native Compact v2 follows the selected mode; the ChatGPT Codex OAuth legacy compact compatibility path uses only the stable installation identifier. Off disables fingerprint mutation but does not disable Plus cache, security, or session policy.',
+        codexFingerprintModeDesc:
+          'For OpenAI Responses sessions, converge client identifiers to account-level stable values (OAuth defaults to device-only, API Key defaults to off). Helps avoid sticking to low-priority upstream worker accounts due to client session stickiness. Native Compact v2 follows the selected mode; Off disables fingerprint mutation without disabling Plus cache, security, or session policy.',
         codexFingerprintOff: 'Off (no fingerprint rewrite)',
         codexFingerprintDevice: 'Device only (default)',
         codexFingerprintSession: 'Device + Session',
