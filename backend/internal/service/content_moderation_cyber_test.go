@@ -41,16 +41,34 @@ func (r *cyberOrderingTestRepo) ListLogs(ctx context.Context, filter ContentMode
 	return nil, nil, nil
 }
 
-func (r *cyberOrderingTestRepo) GetLogInput(ctx context.Context, id int64) (*ContentModerationLogInput, error) {
-	return nil, ErrContentModerationLogNotFound
-}
-
 func (r *cyberOrderingTestRepo) CountFlaggedByUserSince(ctx context.Context, userID int64, since time.Time, excludeCyberPolicy bool) (int, error) {
 	return 0, nil
 }
 
 func (r *cyberOrderingTestRepo) CleanupExpiredLogs(ctx context.Context, hitBefore time.Time, nonHitBefore time.Time) (*ContentModerationCleanupResult, error) {
 	return &ContentModerationCleanupResult{}, nil
+}
+
+func (r *cyberOrderingTestRepo) UpsertSessionBlock(ctx context.Context, block *ContentModerationSessionBlock) error {
+	return nil
+}
+func (r *cyberOrderingTestRepo) ListSessionBlocks(ctx context.Context, filter ContentModerationSessionBlockFilter) ([]ContentModerationSessionBlock, *pagination.PaginationResult, error) {
+	return nil, nil, nil
+}
+func (r *cyberOrderingTestRepo) GetSessionBlockByKey(ctx context.Context, blockKey string) (*ContentModerationSessionBlock, error) {
+	return nil, nil
+}
+func (r *cyberOrderingTestRepo) DeleteSessionBlockByKey(ctx context.Context, blockKey string) (int64, error) {
+	return 0, nil
+}
+func (r *cyberOrderingTestRepo) ClearSessionBlocks(ctx context.Context) (int64, error) {
+	return 0, nil
+}
+func (r *cyberOrderingTestRepo) CountActiveSessionBlocks(ctx context.Context, now time.Time) (int64, error) {
+	return 0, nil
+}
+func (r *cyberOrderingTestRepo) DeleteExpiredSessionBlocks(ctx context.Context, now time.Time) (int64, error) {
+	return 0, nil
 }
 
 func (r *cyberOrderingTestRepo) snapshot() []string {

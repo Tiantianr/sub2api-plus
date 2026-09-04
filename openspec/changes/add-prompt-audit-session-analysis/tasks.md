@@ -1,7 +1,0 @@
-- [x] Add user-scoped session and deduplicated chat content storage.
-- [x] Move event detail/context reads to the chat content store.
-- [x] Add bounded session analysis through the configured audit pool.
-- [x] Add the administration action and localized session analysis dialog.
-- [x] Add automatic seven-day cleanup and backup data exclusions.
-- [x] Add focused repository, handler, scanner, retention, and frontend regression tests.
-- [x] Update protocol/security and deployment documentation and run strict validation.

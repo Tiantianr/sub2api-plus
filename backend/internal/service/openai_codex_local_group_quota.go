@@ -145,6 +145,7 @@ func (s *OpenAIGatewayService) finalizeCodexClientQuotaHeaders(dst http.Header, 
 
 // finalizeCodexClientQuotaEvent applies the same policy to the default
 // codex.rate_limits event family used by the official WebSocket client.
+// Model-specific metered limit families remain untouched.
 func (s *OpenAIGatewayService) finalizeCodexClientQuotaEvent(payload []byte, c *gin.Context, account *Account) ([]byte, bool) {
 	if strings.TrimSpace(gjson.GetBytes(payload, "type").String()) != "codex.rate_limits" || !isDefaultCodexRateLimitEvent(payload) {
 		return payload, true

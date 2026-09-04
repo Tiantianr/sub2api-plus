@@ -70,7 +70,8 @@ procedures are documented in [`docs/RELEASING.md`](docs/RELEASING.md).
 | `v0.1.183+custom.924` | `v0.1.183` | `e8cb019fabf8b55199436229044cbf9aa7a82564` | published |
 | `v0.1.183+custom.925` | `v0.1.183` | `e8cb019fabf8b55199436229044cbf9aa7a82564` | published |
 | `v0.1.183+custom.926` | `v0.1.183` | `e8cb019fabf8b55199436229044cbf9aa7a82564` | published |
-| `v0.1.183+custom.927` | `v0.1.183` | `e8cb019fabf8b55199436229044cbf9aa7a82564` | planned |
+| `v0.1.183+custom.927` | `v0.1.183` | `e8cb019fabf8b55199436229044cbf9aa7a82564` | published |
+| `v0.2.0+custom.901` | `v0.2.0` | `aa236488351eb71e120fc2b6fb32e36b0374c918` | planned |
 
 `v0.1.166+custom.007` is marked invalid because its tag contains embedded and
 documented version `0.1.166+custom.006`. Remote Release and OCI artifact status
@@ -79,9 +80,9 @@ still require a maintainer audit. Do not reuse or retag `.007`.
 ## Current Version
 
 ```text
-Git/GitHub: v0.1.183+custom.927
-Application: 0.1.183+custom.927
-GHCR: ghcr.io/tiantianr/sub2api-plus:v0.1.183-custom.927
+Git/GitHub: v0.2.0+custom.901
+Application: 0.2.0+custom.901
+GHCR: ghcr.io/tiantianr/sub2api-plus:v0.2.0-custom.901
 ```
 
 ## Naming
@@ -111,6 +112,10 @@ and reset to `901` only after importing a Plus release based on a newer official
 Local clones may need to add the `upstream` remote before an upstream sync.
 Preserve intentional Plus changes during merges and update this mapping in the
 same release-preparation change.
+
+The `v0.2.0+custom.901` synchronization imports the published Plus tag
+`v0.2.0+custom.002` at commit
+`cd1d8438cbe19358936605af7e6b20954283bf15`.
 
 Historical `-custom.NNN` Git naming was migrated to the canonical
 `+custom.NNN` form. OCI tags continue to use `-custom.NNN` because OCI tags do

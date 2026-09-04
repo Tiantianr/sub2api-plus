@@ -23,7 +23,14 @@ const (
 	// profile. It represents one of the four historic wire identities that an
 	// administrator explicitly enabled while migrating old clients.
 	CodexClientProfileLegacyCompatibility CodexClientProfile = "codex-legacy-compatible"
+	CodexClientProfilePi                  CodexClientProfile = "pi"
 )
+
+// DefaultPiVersion is the baseline Pi AI package version for Pi Agent wire identity.
+const DefaultPiVersion = "0.85.0"
+
+// DefaultPiUserAgent is the standard wire identity for Pi Agent.
+const DefaultPiUserAgent = "pi/0.85.0 (darwin 24.1.0; arm64)"
 
 // CodexClientProfileMatch is the result of a strict built-in profile match.
 // Header values are caller controlled and consequently this is request-feature
@@ -47,6 +54,7 @@ var codexBuiltInProfileByOriginator = map[string]CodexClientProfile{
 	"codex_vscode":          CodexClientProfileIDE,
 	"codex_chatgpt_desktop": CodexClientProfileDesktop,
 	"codex_atlas":           CodexClientProfileDesktop,
+	"pi":                    CodexClientProfilePi,
 }
 
 // codexLegacyCompatibilityOriginators is a temporary, deliberately closed
@@ -88,6 +96,9 @@ func ClassifyCodexClientProfile(userAgent, originator string, allowLegacyCompati
 
 	slash := strings.IndexByte(ua, '/')
 	if slash <= 0 {
+		if originator == "pi" && (ua == "pi" || strings.HasPrefix(ua, "pi (")) {
+			return CodexClientProfileMatch{Profile: CodexClientProfilePi, Originator: "pi", Version: DefaultPiVersion}, true
+		}
 		return CodexClientProfileMatch{}, false
 	}
 	uaOriginator := ua[:slash]
@@ -141,6 +152,12 @@ func PairConfiguredCodexClientIdentity(userAgent string, allowLegacyCompatibilit
 	ua := strings.TrimSpace(userAgent)
 	slash := strings.IndexByte(ua, '/')
 	if slash <= 0 {
+		if ua == "pi" || strings.HasPrefix(ua, "pi (") {
+			profile, ok := ClassifyCodexClientProfile(ua, "pi", allowLegacyCompatibility)
+			if ok {
+				return profile, ua, true
+			}
+		}
 		return CodexClientProfileMatch{}, "", false
 	}
 	originator := ua[:slash]
@@ -192,6 +209,9 @@ func HasCoherentConfiguredClientIdentity(userAgent, originator string) bool {
 	originator = strings.TrimSpace(originator)
 	slash := strings.IndexByte(ua, '/')
 	if slash <= 0 || originator == "" {
+		if normalizeCodexClientHeader(originator) == "pi" && (ua == "pi" || strings.HasPrefix(ua, "pi (")) {
+			return true
+		}
 		return false
 	}
 	return normalizeCodexClientHeader(ua[:slash]) == normalizeCodexClientHeader(originator)

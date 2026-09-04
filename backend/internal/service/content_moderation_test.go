@@ -3,7 +3,6 @@ package service
 import (
 	"bytes"
 	"context"
-	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -15,8 +14,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+	"unicode/utf8"
 
-	infraerrors "github.com/LuckyKuang/sub2api-plus/internal/pkg/errors"
 	"github.com/LuckyKuang/sub2api-plus/internal/pkg/pagination"
 	"github.com/stretchr/testify/require"
 )
@@ -101,8 +100,10 @@ func (r *contentModerationTestSettingRepo) Delete(ctx context.Context, key strin
 }
 
 type contentModerationTestRepo struct {
-	mu   sync.Mutex
-	logs []ContentModerationLog
+	mu                 sync.Mutex
+	logs               []ContentModerationLog
+	sessionBlocks      []ContentModerationSessionBlock
+	getSessionBlockErr error
 }
 
 func (r *contentModerationTestRepo) CreateLog(ctx context.Context, log *ContentModerationLog) error {
@@ -119,54 +120,6 @@ func (r *contentModerationTestRepo) CreateLog(ctx context.Context, log *ContentM
 
 func (r *contentModerationTestRepo) ListLogs(ctx context.Context, filter ContentModerationLogFilter) ([]ContentModerationLog, *pagination.PaginationResult, error) {
 	return nil, nil, nil
-}
-
-func (r *contentModerationTestRepo) GetLogInput(ctx context.Context, id int64) (*ContentModerationLogInput, error) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	for i := range r.logs {
-		log := r.logs[i]
-		if log.ID == id {
-			return &ContentModerationLogInput{
-				ID:              log.ID,
-				Action:          log.Action,
-				MatchedKeyword:  log.MatchedKeyword,
-				InputExcerpt:    log.InputExcerpt,
-				InputCiphertext: log.InputCiphertext,
-			}, nil
-		}
-	}
-	return nil, ErrContentModerationLogNotFound
-}
-
-type contentModerationTestEncryptor struct {
-	encryptErr     error
-	decryptErr     error
-	lastPlaintext  string
-	lastCiphertext string
-}
-
-func (e *contentModerationTestEncryptor) Encrypt(plaintext string) (string, error) {
-	if e.encryptErr != nil {
-		return "", e.encryptErr
-	}
-	e.lastPlaintext = plaintext
-	e.lastCiphertext = "enc:" + base64.StdEncoding.EncodeToString([]byte(plaintext))
-	return e.lastCiphertext, nil
-}
-
-func (e *contentModerationTestEncryptor) Decrypt(ciphertext string) (string, error) {
-	if e.decryptErr != nil {
-		return "", e.decryptErr
-	}
-	if !strings.HasPrefix(ciphertext, "enc:") {
-		return "", errors.New("invalid ciphertext")
-	}
-	plain, err := base64.StdEncoding.DecodeString(strings.TrimPrefix(ciphertext, "enc:"))
-	if err != nil {
-		return "", err
-	}
-	return string(plain), nil
 }
 
 func (r *contentModerationTestRepo) CountFlaggedByUserSince(ctx context.Context, userID int64, since time.Time, excludeCyberPolicy bool) (int, error) {
@@ -195,6 +148,71 @@ func (r *contentModerationTestRepo) CleanupExpiredLogs(ctx context.Context, hitB
 
 func (r *contentModerationTestRepo) UpdateLogEmailSent(ctx context.Context, id int64, sent bool) error {
 	return nil
+}
+
+func (r *contentModerationTestRepo) UpsertSessionBlock(ctx context.Context, block *ContentModerationSessionBlock) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if block == nil {
+		return nil
+	}
+	now := time.Now()
+	for i, existing := range r.sessionBlocks {
+		if existing.BlockKey != block.BlockKey {
+			continue
+		}
+		if existing.ExpiresAt.After(now) {
+			block.ExpiresAt = existing.ExpiresAt
+			block.CreatedAt = existing.CreatedAt
+		} else if block.CreatedAt.IsZero() {
+			block.CreatedAt = now
+		}
+		block.ID = existing.ID
+		r.sessionBlocks[i] = *block
+		return nil
+	}
+	if block.CreatedAt.IsZero() {
+		block.CreatedAt = now
+	}
+	block.ID = int64(len(r.sessionBlocks) + 1)
+	r.sessionBlocks = append(r.sessionBlocks, *block)
+	return nil
+}
+
+func (r *contentModerationTestRepo) ListSessionBlocks(ctx context.Context, filter ContentModerationSessionBlockFilter) ([]ContentModerationSessionBlock, *pagination.PaginationResult, error) {
+	return nil, nil, nil
+}
+
+func (r *contentModerationTestRepo) GetSessionBlockByKey(ctx context.Context, blockKey string) (*ContentModerationSessionBlock, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.getSessionBlockErr != nil {
+		return nil, r.getSessionBlockErr
+	}
+	blockKey = strings.TrimSpace(blockKey)
+	for _, item := range r.sessionBlocks {
+		if item.BlockKey == blockKey {
+			clone := item
+			return &clone, nil
+		}
+	}
+	return nil, nil
+}
+
+func (r *contentModerationTestRepo) DeleteSessionBlockByKey(ctx context.Context, blockKey string) (int64, error) {
+	return 0, nil
+}
+
+func (r *contentModerationTestRepo) ClearSessionBlocks(ctx context.Context) (int64, error) {
+	return 0, nil
+}
+
+func (r *contentModerationTestRepo) CountActiveSessionBlocks(ctx context.Context, now time.Time) (int64, error) {
+	return 0, nil
+}
+
+func (r *contentModerationTestRepo) DeleteExpiredSessionBlocks(ctx context.Context, now time.Time) (int64, error) {
+	return 0, nil
 }
 
 func (r *contentModerationTestRepo) snapshotLogs() []ContentModerationLog {
@@ -228,6 +246,7 @@ func requireRecordedHashCount(t *testing.T, cache *contentModerationTestHashCach
 type contentModerationTestHashCache struct {
 	mu            sync.Mutex
 	hashes        map[string]struct{}
+	sessions      map[string]struct{}
 	recorded      []string
 	checked       []string
 	deleted       []string
@@ -449,6 +468,41 @@ func (c *contentModerationTestHashCache) CountFlaggedInputHashes(ctx context.Con
 	return int64(len(c.hashes)), nil
 }
 
+func (c *contentModerationTestHashCache) RecordBlockedSession(ctx context.Context, blockKey string, ttl time.Duration) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.sessions == nil {
+		c.sessions = map[string]struct{}{}
+	}
+	c.sessions[blockKey] = struct{}{}
+	return nil
+}
+
+func (c *contentModerationTestHashCache) HasBlockedSession(ctx context.Context, blockKey string) (bool, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	_, ok := c.sessions[blockKey]
+	return ok, nil
+}
+
+func (c *contentModerationTestHashCache) DeleteBlockedSession(ctx context.Context, blockKey string) (bool, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if _, ok := c.sessions[blockKey]; !ok {
+		return false, nil
+	}
+	delete(c.sessions, blockKey)
+	return true, nil
+}
+
+func (c *contentModerationTestHashCache) ClearBlockedSessions(ctx context.Context) (int64, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	deleted := int64(len(c.sessions))
+	c.sessions = map[string]struct{}{}
+	return deleted, nil
+}
+
 func (c *contentModerationTestHashCache) snapshotRecorded() []string {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -493,6 +547,67 @@ func TestBuildContentModerationLog_RedactsInputExcerpt(t *testing.T) {
 
 	require.NotContains(t, log.InputExcerpt, "sk-proj-1234567890abcdef")
 	require.Contains(t, log.InputExcerpt, "[已脱敏]")
+	require.Equal(t, log.InputExcerpt, log.InputContent)
+	require.False(t, log.InputContentTruncated)
+}
+
+func TestBuildContentModerationLog_PersistsScanWindowNotListExcerpt(t *testing.T) {
+	svc := &ContentModerationService{}
+	cfg := defaultContentModerationConfig()
+	long := strings.Repeat("审", 300)
+	log := svc.buildLog(ContentModerationCheckInput{Endpoint: "/v1/chat/completions"}, cfg, ContentModerationActionBlock, true, "sexual", 0.9, map[string]float64{"sexual": 0.9}, long, nil, nil, "")
+	require.Equal(t, 240, utf8.RuneCountInString(log.InputExcerpt))
+	require.Equal(t, 300, utf8.RuneCountInString(log.InputContent))
+	require.False(t, log.InputContentTruncated)
+	require.True(t, strings.HasPrefix(log.InputContent, log.InputExcerpt))
+
+	overWindow := strings.Repeat("窗", maxModerationInputRunes+20)
+	truncated := svc.buildLog(ContentModerationCheckInput{Endpoint: "/v1/chat/completions"}, cfg, ContentModerationActionBlock, true, "sexual", 0.9, map[string]float64{"sexual": 0.9}, overWindow, nil, nil, "")
+	require.Equal(t, maxModerationExcerptRunes, utf8.RuneCountInString(truncated.InputExcerpt))
+	require.Equal(t, maxModerationInputRunes, utf8.RuneCountInString(truncated.InputContent))
+	require.True(t, truncated.InputContentTruncated)
+}
+
+func TestContentModerationCheck_PersistsNormalizedScanWindowWithoutTruncationFlag(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(moderationAPIResponse{Results: []moderationAPIResult{{CategoryScores: map[string]float64{"sexual": 0.01}}}})
+	}))
+	defer server.Close()
+
+	cfg := defaultContentModerationConfig()
+	cfg.Enabled = true
+	cfg.Mode = ContentModerationModePreBlock
+	cfg.BaseURL = server.URL
+	cfg.APIKeys = []string{"sk-test"}
+	cfg.RecordNonHits = true
+	rawCfg, err := json.Marshal(cfg)
+	require.NoError(t, err)
+
+	repo := &contentModerationTestRepo{}
+	svc := NewContentModerationService(
+		&contentModerationTestSettingRepo{values: map[string]string{
+			SettingKeyRiskControlEnabled:      "true",
+			SettingKeyContentModerationConfig: string(rawCfg),
+		}},
+		repo,
+		&contentModerationTestHashCache{},
+		nil, nil, nil, nil, nil,
+	)
+
+	prompt := strings.Repeat("窗", maxModerationInputRunes+50)
+	body, err := json.Marshal(map[string]any{"messages": []map[string]string{{"role": "user", "content": prompt}}})
+	require.NoError(t, err)
+	decision, err := svc.Check(context.Background(), ContentModerationCheckInput{
+		Endpoint: "/v1/chat/completions",
+		Protocol: ContentModerationProtocolOpenAIChat,
+		Body:     body,
+	})
+	require.NoError(t, err)
+	require.False(t, decision.Blocked)
+	logs := requireContentModerationLogCount(t, repo, 1)
+	require.Equal(t, maxModerationExcerptRunes, utf8.RuneCountInString(logs[0].InputExcerpt))
+	require.Equal(t, maxModerationInputRunes, utf8.RuneCountInString(logs[0].InputContent))
+	require.False(t, logs[0].InputContentTruncated, "Normalize already clipped the scan window before persist")
 }
 
 func TestRedactContentModerationSecrets_LongHexAndTokens(t *testing.T) {
@@ -584,7 +699,7 @@ func TestContentModerationCheck_PreBlockKeywordHitSkipsUpstreamCall(t *testing.T
 	require.Equal(t, "secret-token", logs[0].MatchedKeyword, "blocked log must record which keyword was hit")
 }
 
-func TestContentModerationKeywordBlockRetainsEncryptedCompleteRedactedInput(t *testing.T) {
+func TestContentModerationKeywordBlockRetainsBoundedRedactedInput(t *testing.T) {
 	cfg := defaultContentModerationConfig()
 	cfg.Enabled = true
 	cfg.Mode = ContentModerationModePreBlock
@@ -594,7 +709,6 @@ func TestContentModerationKeywordBlockRetainsEncryptedCompleteRedactedInput(t *t
 	require.NoError(t, err)
 
 	repo := &contentModerationTestRepo{}
-	encryptor := &contentModerationTestEncryptor{}
 	svc := NewContentModerationService(
 		&contentModerationTestSettingRepo{values: map[string]string{
 			SettingKeyRiskControlEnabled:      "true",
@@ -608,7 +722,6 @@ func TestContentModerationKeywordBlockRetainsEncryptedCompleteRedactedInput(t *t
 		nil,
 		nil,
 	)
-	svc.SetSecretEncryptor(encryptor)
 	prompt := strings.Repeat("long audited text ", 30) + "blocked-keyword token=top-secret-token-value"
 	body, err := json.Marshal(map[string]any{
 		"messages": []map[string]string{{"role": "user", "content": prompt}},
@@ -624,98 +737,10 @@ func TestContentModerationKeywordBlockRetainsEncryptedCompleteRedactedInput(t *t
 	require.True(t, decision.Blocked)
 	logs := requireContentModerationLogCount(t, repo, 1)
 	require.Len(t, []rune(logs[0].InputExcerpt), maxModerationExcerptRunes)
-	require.NotEmpty(t, logs[0].InputCiphertext)
-	require.NotContains(t, logs[0].InputCiphertext, prompt)
-	require.NotContains(t, encryptor.lastPlaintext, "top-secret-token-value")
-	require.Contains(t, encryptor.lastPlaintext, "[已脱敏]")
-	retainedInput, hasPurpose := strings.CutPrefix(encryptor.lastPlaintext, contentModerationKeywordInputPrefix)
-	require.True(t, hasPurpose)
-	require.Greater(t, len([]rune(retainedInput)), maxModerationExcerptRunes)
-
-	detail, err := svc.GetLogInput(context.Background(), logs[0].ID)
-	require.NoError(t, err)
-	require.True(t, detail.Complete)
-	require.Equal(t, retainedInput, detail.Content)
-	require.Empty(t, detail.InputCiphertext, "ciphertext must not be exposed by JSON-visible fields")
-
-	encoded, err := json.Marshal(detail)
-	require.NoError(t, err)
-	require.NotContains(t, string(encoded), "input_ciphertext")
-	require.NotContains(t, string(encoded), logs[0].InputCiphertext)
-}
-
-func TestContentModerationKeywordBlockEncryptionFailureKeepsBlockAndExcerpt(t *testing.T) {
-	cfg := defaultContentModerationConfig()
-	cfg.Enabled = true
-	cfg.Mode = ContentModerationModePreBlock
-	cfg.KeywordBlockingMode = ContentModerationKeywordModeKeywordOnly
-	cfg.BlockedKeywords = []string{"blocked-keyword"}
-	rawCfg, err := json.Marshal(cfg)
-	require.NoError(t, err)
-
-	repo := &contentModerationTestRepo{}
-	svc := NewContentModerationService(
-		&contentModerationTestSettingRepo{values: map[string]string{
-			SettingKeyRiskControlEnabled:      "true",
-			SettingKeyContentModerationConfig: string(rawCfg),
-		}},
-		repo,
-		&contentModerationTestHashCache{}, nil, nil, nil, nil, nil,
-	)
-	svc.SetSecretEncryptor(&contentModerationTestEncryptor{encryptErr: errors.New("cipher unavailable")})
-
-	decision, err := svc.Check(context.Background(), ContentModerationCheckInput{
-		Protocol: ContentModerationProtocolOpenAIChat,
-		Body:     []byte(`{"messages":[{"role":"user","content":"blocked-keyword remains blocked"}]}`),
-	})
-	require.NoError(t, err)
-	require.True(t, decision.Blocked)
-	logs := requireContentModerationLogCount(t, repo, 1)
-	require.Empty(t, logs[0].InputCiphertext)
-	require.NotEmpty(t, logs[0].InputExcerpt)
-}
-
-func TestContentModerationGetLogInputHistoricalAndDecryptFailure(t *testing.T) {
-	repo := &contentModerationTestRepo{logs: []ContentModerationLog{
-		{ID: 1, Action: ContentModerationActionKeywordBlock, MatchedKeyword: "old", InputExcerpt: "historical excerpt"},
-		{ID: 2, Action: ContentModerationActionKeywordBlock, MatchedKeyword: "new", InputExcerpt: "fallback", InputCiphertext: "enc:invalid"},
-	}}
-	svc := NewContentModerationService(nil, repo, nil, nil, nil, nil, nil, nil)
-	svc.SetSecretEncryptor(&contentModerationTestEncryptor{decryptErr: errors.New("authentication failed")})
-
-	historical, err := svc.GetLogInput(context.Background(), 1)
-	require.NoError(t, err)
-	require.False(t, historical.Complete)
-	require.Equal(t, "historical excerpt", historical.Content)
-
-	_, err = svc.GetLogInput(context.Background(), 2)
-	require.Error(t, err)
-	require.NotContains(t, err.Error(), "enc:invalid")
-	require.NotContains(t, err.Error(), "authentication failed")
-
-	_, err = svc.GetLogInput(context.Background(), 999)
-	require.Error(t, err)
-	require.ErrorIs(t, err, infraerrors.NotFound("CONTENT_MODERATION_LOG_NOT_FOUND", ""))
-}
-
-func TestContentModerationGetLogInputRejectsCiphertextFromAnotherPurpose(t *testing.T) {
-	encryptor := &contentModerationTestEncryptor{}
-	ciphertext, err := encryptor.Encrypt("sub2api:totp:v1:cross-purpose-secret")
-	require.NoError(t, err)
-	repo := &contentModerationTestRepo{logs: []ContentModerationLog{{
-		ID:              1,
-		Action:          ContentModerationActionKeywordBlock,
-		MatchedKeyword:  "blocked",
-		InputExcerpt:    "safe excerpt",
-		InputCiphertext: ciphertext,
-	}}}
-	svc := NewContentModerationService(nil, repo, nil, nil, nil, nil, nil, nil)
-	svc.SetSecretEncryptor(encryptor)
-
-	_, err = svc.GetLogInput(context.Background(), 1)
-	require.Error(t, err)
-	require.NotContains(t, err.Error(), "cross-purpose-secret")
-	require.NotContains(t, err.Error(), "totp")
+	require.Greater(t, len([]rune(logs[0].InputContent)), maxModerationExcerptRunes)
+	require.NotContains(t, logs[0].InputContent, "top-secret-token-value")
+	require.Contains(t, logs[0].InputContent, "[已脱敏]")
+	require.False(t, logs[0].InputContentTruncated)
 }
 
 func TestContentModerationCheck_ContentBearingExtractionFailureFollowsMode(t *testing.T) {
@@ -1490,7 +1515,6 @@ func TestContentModerationBlockingExemptAllowsAndLogsKeywordHit(t *testing.T) {
 	require.NoError(t, err)
 
 	repo := &contentModerationTestRepo{}
-	encryptor := &contentModerationTestEncryptor{}
 	userRepo := &contentModerationTestUserRepo{}
 	svc := NewContentModerationService(
 		&contentModerationTestSettingRepo{values: map[string]string{
@@ -1499,8 +1523,6 @@ func TestContentModerationBlockingExemptAllowsAndLogsKeywordHit(t *testing.T) {
 		}},
 		repo, nil, nil, userRepo, nil, nil, nil,
 	)
-	svc.SetSecretEncryptor(encryptor)
-
 	// 1. Blocking-exempt user matches keyword: allowed, logged as shadow with matched_keyword and exempt marker
 	decision, err := svc.Check(context.Background(), ContentModerationCheckInput{
 		RequestID:               "exempt-kw-req",
@@ -1522,14 +1544,8 @@ func TestContentModerationBlockingExemptAllowsAndLogsKeywordHit(t *testing.T) {
 	require.True(t, logs[0].BlockingExemptAtRequest)
 	require.False(t, logs[0].AutoBanned)
 	require.Zero(t, logs[0].ViolationCount)
-	require.NotEmpty(t, logs[0].InputCiphertext)
+	require.Contains(t, logs[0].InputContent, "LOCAL-BLOCK")
 	require.GreaterOrEqual(t, upstreamCalls.Load(), int64(1), "keyword exemption must continue configured API moderation")
-
-	// Administrator can decrypt complete text for the exempt keyword hit
-	inputDetail, err := svc.GetLogInput(context.Background(), logs[0].ID)
-	require.NoError(t, err)
-	require.True(t, inputDetail.Complete)
-	require.Contains(t, inputDetail.Content, "LOCAL-BLOCK")
 
 	// 2. Non-exempt user matches keyword: blocked with keyword_block
 	blockDecision, err := svc.Check(context.Background(), ContentModerationCheckInput{
@@ -1573,8 +1589,6 @@ func TestContentModerationBlockingExemptKeywordHitStillEnforcesKnownHash(t *test
 		}},
 		repo, hashes, nil, nil, nil, nil, nil,
 	)
-	svc.SetSecretEncryptor(&contentModerationTestEncryptor{})
-
 	decision, err := svc.Check(context.Background(), ContentModerationCheckInput{
 		RequestID:               "exempt-keyword-known-hash",
 		BlockingExemptAtRequest: true,
@@ -1622,8 +1636,6 @@ func TestContentModerationBlockingExemptKeywordHitStillEnforcesBlockingAPIFindin
 		}},
 		repo, nil, nil, nil, nil, nil, nil,
 	)
-	svc.SetSecretEncryptor(&contentModerationTestEncryptor{})
-
 	decision, err := svc.Check(context.Background(), ContentModerationCheckInput{
 		RequestID:               "exempt-keyword-api-risk",
 		BlockingExemptAtRequest: true,
@@ -1877,7 +1889,7 @@ func TestContentModerationLoadConfig_LegacyConfigDefaultsModelFilterToAll(t *tes
 	require.True(t, cfg.includesModel("gpt-5.4"))
 }
 
-func TestContentModerationUpdateConfigPersistsTextAPIMode(t *testing.T) {
+func TestContentModerationUpdateConfigPersistsTextAPIModeFromEmptyConfig(t *testing.T) {
 	cfg := defaultContentModerationConfig()
 	rawCfg, err := json.Marshal(cfg)
 	require.NoError(t, err)
@@ -2026,6 +2038,50 @@ func TestContentModerationUpdateConfig_SavesCustomThresholds(t *testing.T) {
 	require.Equal(t, 0.72, saved.Thresholds["sexual"])
 	require.Equal(t, 1.0, saved.Thresholds["harassment"])
 	require.NotContains(t, saved.Thresholds, "unknown")
+}
+
+func TestContentModerationUpdateConfigPersistsTextAPIMode(t *testing.T) {
+	settingRepo := &contentModerationTestSettingRepo{values: map[string]string{}}
+	svc := NewContentModerationService(settingRepo, nil, nil, nil, nil, nil, nil, nil)
+	observe := ContentModerationTextAPIModeObserve
+
+	view, err := svc.UpdateConfig(context.Background(), UpdateContentModerationConfigInput{TextAPIMode: &observe})
+	require.NoError(t, err)
+	require.Equal(t, ContentModerationTextAPIModeObserve, view.TextAPIMode)
+
+	var saved ContentModerationConfig
+	require.NoError(t, json.Unmarshal([]byte(settingRepo.values[SettingKeyContentModerationConfig]), &saved))
+	require.Equal(t, ContentModerationTextAPIModeObserve, saved.TextAPIMode)
+
+	legacy := `{"enabled":true,"mode":"pre_block"}`
+	parsed, err := parseContentModerationConfig(legacy)
+	require.NoError(t, err)
+	require.Equal(t, ContentModerationTextAPIModeAuto, parsed.TextAPIMode)
+}
+
+func TestContentModerationEndpointPoolMigratesLegacyAndPreservesStoredKeys(t *testing.T) {
+	legacy := `{"enabled":true,"mode":"pre_block","base_url":"https://legacy.example","model":"legacy-model","api_keys":["sk-legacy"],"timeout_ms":4321}`
+	cfg, err := parseContentModerationConfig(legacy)
+	require.NoError(t, err)
+	require.Len(t, cfg.Endpoints, 1)
+	require.Equal(t, "https://legacy.example", cfg.Endpoints[0].BaseURL)
+	require.Equal(t, "legacy-model", cfg.Endpoints[0].Model)
+	require.Equal(t, []string{"sk-legacy"}, cfg.Endpoints[0].APIKeys)
+	require.Equal(t, 4321, cfg.Endpoints[0].TimeoutMS)
+
+	repo := &contentModerationTestSettingRepo{values: map[string]string{SettingKeyContentModerationConfig: legacy}}
+	svc := NewContentModerationService(repo, nil, nil, nil, nil, nil, nil, nil)
+	update := cfg.Endpoints[0]
+	update.Name = "Primary"
+	update.APIKeys = nil // Omitted secrets from the admin view must be retained.
+	view, err := svc.UpdateConfig(context.Background(), UpdateContentModerationConfigInput{Endpoints: &[]ContentModerationEndpoint{update}})
+	require.NoError(t, err)
+	require.Equal(t, "Primary", view.Endpoints[0].Name)
+	require.Equal(t, 1, view.Endpoints[0].APIKeyCount)
+
+	saved, err := parseContentModerationConfig(repo.values[SettingKeyContentModerationConfig])
+	require.NoError(t, err)
+	require.Equal(t, []string{"sk-legacy"}, saved.Endpoints[0].APIKeys)
 }
 
 func TestExtractContentModerationInput_AnthropicImageSourceOnlyParticipatesInMemory(t *testing.T) {
@@ -2528,6 +2584,77 @@ func TestContentModerationCallModeration_FreezesByHTTPStatus(t *testing.T) {
 	}
 }
 
+func TestContentModerationEndpointPool_FailsOverAndRecoversOnRealRequest(t *testing.T) {
+	primaryCalls := 0
+	primaryHealthy := false
+	primary := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		primaryCalls++
+		if !primaryHealthy {
+			_ = json.NewEncoder(w).Encode(moderationAPIResponse{})
+			return
+		}
+		_ = json.NewEncoder(w).Encode(moderationAPIResponse{Results: []moderationAPIResult{{Flagged: false}}})
+	}))
+	defer primary.Close()
+
+	secondaryCalls := 0
+	secondary := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		secondaryCalls++
+		_ = json.NewEncoder(w).Encode(moderationAPIResponse{Results: []moderationAPIResult{{Flagged: false}}})
+	}))
+	defer secondary.Close()
+
+	cfg := defaultContentModerationConfig()
+	cfg.RetryCount = 0
+	cfg.Endpoints = []ContentModerationEndpoint{
+		{ID: "a", Name: "A", Enabled: true, Priority: 1, BaseURL: primary.URL, Model: "test", APIKeys: []string{"key-a"}, TimeoutMS: 1000, CooldownSeconds: 60, FailureThreshold: 1},
+		{ID: "b", Name: "B", Enabled: true, Priority: 2, BaseURL: secondary.URL, Model: "test", APIKeys: []string{"key-b"}, TimeoutMS: 1000, CooldownSeconds: 60, FailureThreshold: 1},
+	}
+	cfg.normalize()
+	svc := NewContentModerationService(nil, nil, nil, nil, nil, nil, nil, nil)
+
+	result, err := svc.callModeration(context.Background(), cfg, "hello")
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.Equal(t, "b", result.EndpointID)
+	require.Equal(t, "B", result.EndpointName)
+	require.Equal(t, 1, primaryCalls)
+	require.Equal(t, 1, secondaryCalls)
+	require.Equal(t, "cooldown", svc.endpointRuntime(cfg.Endpoints[0]).Status)
+
+	// Cooldown expiry itself sends no traffic. The next real request becomes
+	// the passive half-open recovery call.
+	svc.endpointHealthMu.Lock()
+	svc.endpointHealth["a"].CooldownUntil = time.Now().Add(-time.Second)
+	svc.endpointHealthMu.Unlock()
+	primaryHealthy = true
+	require.Equal(t, 1, primaryCalls)
+
+	result, err = svc.callModeration(context.Background(), cfg, "next")
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.Equal(t, 2, primaryCalls)
+	require.Equal(t, 1, secondaryCalls)
+	require.Equal(t, "healthy", svc.endpointRuntime(cfg.Endpoints[0]).Status)
+}
+
+func TestContentModerationEndpointRuntimeDistinguishesDegradedAndError(t *testing.T) {
+	endpoint := ContentModerationEndpoint{
+		ID: "endpoint-a", Name: "A", Enabled: true, APIKeys: []string{"key-a"},
+		FailureThreshold: 2, CooldownSeconds: 60,
+	}
+	svc := NewContentModerationService(nil, nil, nil, nil, nil, nil, nil, nil)
+	svc.markModerationEndpointFailure(context.Background(), endpoint, http.StatusInternalServerError, errors.New("upstream failed"))
+	require.Equal(t, "degraded", svc.endpointRuntime(endpoint).Status)
+
+	svc.markAPIKeyError("key-a", "invalid credentials", 10, http.StatusUnauthorized)
+	require.Equal(t, "error", svc.endpointRuntime(endpoint).Status)
+
+	svc.markModerationEndpointSuccess(context.Background(), endpoint.ID)
+	svc.markAPIKeySuccess("key-a", 8, http.StatusOK)
+	require.Equal(t, "healthy", svc.endpointRuntime(endpoint).Status)
+}
+
 func TestContentModerationTestAPIKeys_400DoesNotFreezeAPIKey(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusBadRequest)
@@ -2780,6 +2907,11 @@ func TestContentModerationCheck_PreBlockFlaggedWritesRedisHashCache(t *testing.T
 	cfg.PreHashCheckEnabled = true
 	cfg.BaseURL = server.URL
 	cfg.APIKeys = []string{"sk-test"}
+	cfg.Endpoints = []ContentModerationEndpoint{{
+		ID: "primary-moderation", Name: "Primary Moderation", Enabled: true,
+		BaseURL: server.URL, Model: cfg.Model, APIKeys: []string{"sk-test"},
+		TimeoutMS: cfg.TimeoutMS, CooldownSeconds: 60, FailureThreshold: 1,
+	}}
 	cfg.BlockStatus = http.StatusConflict
 	cfg.BlockMessage = "命中风险输入"
 	rawCfg, err := json.Marshal(cfg)
@@ -2824,7 +2956,11 @@ func TestContentModerationCheck_PreBlockFlaggedWritesRedisHashCache(t *testing.T
 	require.Equal(t, 1, requestCount)
 	logs := requireContentModerationLogCount(t, repo, 2)
 	require.Equal(t, ContentModerationActionBlock, logs[0].Action)
+	require.Equal(t, "primary-moderation", logs[0].ModerationEndpointID)
+	require.Equal(t, "Primary Moderation", logs[0].ModerationEndpointName)
 	require.Equal(t, ContentModerationActionHashBlock, logs[1].Action)
+	require.Empty(t, logs[1].ModerationEndpointID)
+	require.Empty(t, logs[1].ModerationEndpointName)
 }
 
 func TestContentModerationDeleteFlaggedInputHash_NormalizesAndDeletes(t *testing.T) {
@@ -2918,7 +3054,7 @@ func TestContentModerationCheck_AsyncFlaggedWritesRedisHashCache(t *testing.T) {
 	decision := svc.checkSync(context.Background(), ContentModerationCheckInput{
 		Protocol: ContentModerationProtocolOpenAIChat,
 		Body:     []byte(`{"messages":[{"role":"user","content":"bad prompt"}]}`),
-	}, cfg, ContentModerationInput{Text: "bad prompt"}, strings.Repeat("b", 64), contentModerationIntPtr(25), false)
+	}, cfg, ContentModerationInput{Text: "bad prompt"}, strings.Repeat("b", 64), contentModerationIntPtr(25), false, true)
 
 	require.False(t, decision.Blocked)
 	requireRecordedHashCount(t, hashCache, 1)

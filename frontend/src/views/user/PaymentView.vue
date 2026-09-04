@@ -107,7 +107,6 @@
                     @select="selectedMethod = $event"
                   />
                 </div>
-
                 <!-- Fee / Calculation details -->
                 <div v-if="validAmount > 0 && (feeRate > 0 || balanceRechargeMultiplier !== 1)" class="rounded-2xl border border-slate-100 bg-white p-5 shadow-sm dark:border-dark-700 dark:bg-dark-800">
                   <div class="space-y-2 text-sm">
@@ -128,7 +127,7 @@
                       <span class="text-slate-900 dark:text-white">${{ creditedAmount.toFixed(2) }}</span>
                     </div>
                     <p v-if="balanceRechargeMultiplier !== 1" class="border-t border-slate-100 pt-2 text-xs text-slate-500 dark:border-dark-700 dark:text-dark-400">
-                      {{ t('payment.rechargeRatePreview', { usd: balanceRechargeMultiplier.toFixed(2) }) }}
+                      {{ t('payment.rechargeRatePreview', { currency: selectedCurrency, usd: balanceRechargeMultiplier.toFixed(2) }) }}
                     </p>
                   </div>
                 </div>

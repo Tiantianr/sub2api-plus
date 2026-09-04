@@ -31,8 +31,9 @@ func (c *advancingClock) Now() time.Time {
 }
 
 type fakeConfigStore struct {
-	cfg    ActiveConfig
-	active bool
+	cfg      ActiveConfig
+	active   bool
+	degraded bool
 }
 
 func (s *fakeConfigStore) Start(context.Context) error    { return nil }
@@ -50,7 +51,7 @@ func (s *fakeConfigStore) EffectiveMode() Mode {
 	}
 	return s.cfg.EffectiveMode()
 }
-func (s *fakeConfigStore) BlockingActivationDegraded() bool { return false }
+func (s *fakeConfigStore) BlockingActivationDegraded() bool { return s.degraded }
 func (s *fakeConfigStore) Public() (PublicConfig, error)    { return PublicConfig{}, nil }
 func (s *fakeConfigStore) Save(context.Context, UpdateConfigRequest, int64) (PublicConfig, error) {
 	return PublicConfig{}, nil
@@ -780,6 +781,39 @@ func TestWorkerPanicLeaseLossAndLifecycleAreContained(t *testing.T) {
 		defer cancel2()
 		require.NoError(t, runner.Shutdown(ctx2))
 	})
+}
+
+func TestWorkerSuccessAdvancesProcessedTimeWithoutOverwritingPriorError(t *testing.T) {
+	repo := &fakeJobRepository{}
+	payload := &fakePayloadStore{values: map[int64]string{51: "abc"}}
+	scanCalls := 0
+	runner := NewRunner(&fakeConfigStore{cfg: asyncConfig(), active: true}, repo, payload, PromptScannerFunc(func(context.Context, ActiveEndpoint, string, []string) (*NormalizedResult, error) {
+		scanCalls++
+		if scanCalls == 1 {
+			return nil, &GuardError{Code: ErrorCodeUnavailable, Retryable: true}
+		}
+		return integrationResult(EventPass), nil
+	}), NewAtomicMetrics())
+
+	errorAt := time.Unix(123, 0).UTC()
+	runner.clock = fixedClock{now: errorAt}
+	runner.processSafely(context.Background(), 0, asyncConfig(), workerJob(1, 3))
+	_, processed, failed, _, lastProcessed, code, _ := runner.Snapshot()
+	require.Zero(t, processed)
+	require.Equal(t, int64(1), failed)
+	require.Nil(t, lastProcessed)
+	require.Equal(t, ErrorCodeUnavailable, code)
+	require.Equal(t, errorAt, *runner.LastErrorAt())
+
+	successAt := time.Unix(456, 0).UTC()
+	runner.clock = fixedClock{now: successAt}
+	runner.processSafely(context.Background(), 0, asyncConfig(), workerJob(2, 3))
+	_, processed, failed, _, lastProcessed, code, _ = runner.Snapshot()
+	require.Equal(t, int64(1), processed)
+	require.Equal(t, int64(1), failed)
+	require.Equal(t, successAt, *lastProcessed)
+	require.Equal(t, ErrorCodeUnavailable, code)
+	require.Equal(t, errorAt, *runner.LastErrorAt())
 }
 
 func TestPromptAuditSyntheticAsyncBaseline(t *testing.T) {

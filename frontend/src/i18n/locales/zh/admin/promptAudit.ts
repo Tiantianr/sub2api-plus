@@ -54,7 +54,7 @@ export default {
       probeProgress: '配置校验 ✓ · 请求已发送 · 等待服务响应…', probeResult: '配置校验 ✓ · 请求 ✓ · HTTP {http} · {status} · {latency} ms',
       name: '节点名称', id: '稳定节点 ID', baseUrl: 'Base URL', apiKey: 'API Key', keepSecret: '留空以保留已保存的 API Key', reenterSecret: '已保存的 API Key 无法解密（加密密钥已变更），请重新输入',
       secretHint: '明文只在本次编辑内存中存在；保存成功后会立即清除。', clearSecret: '显式清除已保存的 API Key', timeout: '单节点单片超时（毫秒）', inputLimit: '单片 Unicode 字符上限',
-      timeoutRange: '支持范围：{min}–{max} 毫秒。', inputLimitRange: '支持范围：{min}–{max} 个 Unicode 字符。', inputLimitBehavior: '同步审计检查无有效 Allow 凭据的当前与历史 user；异步-only 的 current user 始终审核。超过该值时继续分片。',
+      timeoutRange: '支持范围：{min}–{max} 毫秒。', inputLimitRange: '支持范围：{min}–{max} 个 Unicode 字符。', inputLimitBehavior: '最新输入先于历史内容送检。同步审计检查无有效 Allow 凭据的当前与历史 user；异步-only 的 current user 始终审核。超过所有启用节点中的最小上限时，优先片段会继续分片；若需保持单条消息完整，上限不得低于该消息字符数。',
       priority: '优先级 {value}', moveUp: '提高节点 {name} 的优先级', moveDown: '降低节点 {name} 的优先级',
       toggleNode: '切换节点 {name}', deleteConfirm: '从草稿中删除节点“{name}”？保存配置后生效。',
     },
@@ -77,7 +77,7 @@ export default {
       confirm: '理解风险并开启',
     },
     events: {
-      title: '审计事件', description: '按身份、IP、入口、风险、Hash 和时间复核事件；每条事件都可分析所属用户会话。', decision: '判定', risk: '风险等级', failureReason: '异常原因', failureReasonFallback: '审计异常', failureReasons: { prompt_guard_unavailable: 'Guard 暂时不可用', prompt_guard_invalid_response: 'Guard 返回无效响应', payload_missing: '审计载荷不可用', config_version_changed: '审计配置已变化', no_enabled_endpoint: '没有启用 Guard 节点' }, endpoint: '入口', clientIp: '客户端 IP', filterByIp: '筛选 IP {ip}', groupId: '分组 ID', userId: '用户 ID', filterByUserId: '筛选用户 ID {id}', apiKeyId: 'API Key ID', keyword: '关键词',
+      title: '审计事件', description: '按身份、IP、入口、风险、Hash 和时间复核已留存事件；每条事件都可分析所属用户会话。', decision: '判定', risk: '风险等级', failureReason: '异常原因', failureReasonFallback: '审计异常', failureReasons: { prompt_guard_unavailable: 'Guard 暂时不可用', prompt_guard_invalid_response: 'Guard 返回无效响应', payload_missing: '审计载荷不可用', config_version_changed: '审计配置已变化', no_enabled_endpoint: '没有启用 Guard 节点' }, endpoint: '入口', clientIp: '客户端 IP', filterByIp: '筛选 IP {ip}', groupId: '分组 ID', userId: '用户 ID', filterByUserId: '筛选用户 ID {id}', apiKeyId: 'API Key ID', keyword: '关键词',
       startAt: '开始时间', endAt: '结束时间', deleteSelected: '删除选中项（{count}）', deleteByFilter: '按筛选删除',
       filterDeleteDialogTitle: '按筛选删除审计事件', filterDeleteDialogDesc: '选择删除的时间范围与风险条件后即可执行删除；删除不可恢复。如需提前查看匹配数量，可先获取删除预览。',
       filterTimeRange: '删除时间范围', filterTimeRangeHint: '将删除所选截止时间之前产生的事件；预览后新产生的事件不受影响。',

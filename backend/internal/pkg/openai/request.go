@@ -6,11 +6,14 @@ import (
 )
 
 // CodexCLIUserAgentPrefixes matches Codex CLI User-Agent patterns
-// Examples: "codex-tui/1.0.0", "codex_vscode/1.0.0", "codex_cli_rs/0.1.2"
+// Examples: "codex-tui/1.0.0", "codex_vscode/1.0.0", "codex_cli_rs/0.1.2", "pi/0.85.0"
 var CodexCLIUserAgentPrefixes = []string{
 	"codex-tui/",
 	"codex_vscode/",
 	"codex_cli_rs/",
+	"pi/",
+	"pi (",
+	"pi",
 }
 
 // IsCodexCLIRequest checks if the User-Agent indicates a Codex CLI request
@@ -29,6 +32,10 @@ func IsCodexOfficialClientRequest(userAgent string) bool {
 	ua := strings.TrimSpace(userAgent)
 	slash := strings.IndexByte(ua, '/')
 	if slash <= 0 {
+		if ua == "pi" || strings.HasPrefix(ua, "pi (") {
+			_, ok := ClassifyOfficialCodexClientProfile(ua, "pi")
+			return ok
+		}
 		return false
 	}
 	_, ok := ClassifyOfficialCodexClientProfile(ua, strings.TrimSpace(ua[:slash]))
@@ -165,11 +172,25 @@ func SetCodexUserAgentVersion(userAgent, version string) string {
 	}
 	slash := strings.IndexByte(ua, '/')
 	if slash <= 0 {
+		if ua == "pi" || strings.HasPrefix(ua, "pi (") {
+			return ua
+		}
 		return ""
 	}
 	client := strings.TrimSpace(ua[:slash])
 	if client == "" {
 		return ""
+	}
+	if client == "pi" {
+		if isStrictCodexClientProfileVersion(version) {
+			rest := ua[slash+1:]
+			tail := ""
+			if space := strings.IndexByte(rest, ' '); space >= 0 {
+				tail = rest[space:]
+			}
+			return client + "/" + version + tail
+		}
+		return ua
 	}
 	rest := ua[slash+1:]
 	tail := ""

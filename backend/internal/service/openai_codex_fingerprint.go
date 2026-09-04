@@ -33,7 +33,7 @@ func stageCodexFingerprintIDs(c *gin.Context, ids *codexFingerprintIDs) {
 }
 
 func stagedCodexFingerprintIDs(c *gin.Context, account *Account) *codexFingerprintIDs {
-	if c == nil || account == nil || !account.UsesOpenAICodexProtocol() {
+	if c == nil || account == nil || !account.IsOpenAI() {
 		return nil
 	}
 	value, ok := c.Get(codexFingerprintIDsContextKey)
@@ -53,12 +53,15 @@ func (s *OpenAIGatewayService) applyStagedCodexFingerprintHeadersForAccount(
 	account *Account,
 	headers http.Header,
 ) error {
-	if account == nil || !account.UsesOpenAICodexProtocol() {
+	if account == nil || !account.IsOpenAI() {
 		return nil
 	}
 	fingerprintAccount, err := s.resolveCodexFingerprintAccount(ctx, account)
 	if err != nil {
 		return fmt.Errorf("resolve Codex fingerprint credential account: %w", err)
+	}
+	if !isCodexFingerprintEligibleAccount(fingerprintAccount) {
+		return nil
 	}
 	applyCodexFingerprintHeaders(headers, loadCodexFingerprintIDs(c, fingerprintAccount))
 	return nil
@@ -93,8 +96,12 @@ const (
 const CodexFingerprintModeExtraKey = "codex_fingerprint_mode"
 
 func normalizeCodexFingerprintMode(raw any) (codexFingerprintMode, error) {
+	return normalizeCodexFingerprintModeWithDefault(raw, codexFingerprintDevice)
+}
+
+func normalizeCodexFingerprintModeWithDefault(raw any, defaultMode codexFingerprintMode) (codexFingerprintMode, error) {
 	if raw == nil {
-		return codexFingerprintDevice, nil
+		return defaultMode, nil
 	}
 	value, ok := raw.(string)
 	if !ok {
@@ -105,7 +112,7 @@ func normalizeCodexFingerprintMode(raw any) (codexFingerprintMode, error) {
 	}
 	mode := codexFingerprintMode(strings.TrimSpace(value))
 	if mode == "" {
-		return codexFingerprintDevice, nil
+		return defaultMode, nil
 	}
 	switch mode {
 	case codexFingerprintOff, codexFingerprintDevice, codexFingerprintSession, codexFingerprintFull:
@@ -118,13 +125,21 @@ func normalizeCodexFingerprintMode(raw any) (codexFingerprintMode, error) {
 	}
 }
 
+// isCodexFingerprintEligibleAccount reports whether an account is eligible for
+// Codex fingerprint convergence. Only credential-owning OpenAI OAuth and
+// API-Key accounts participate; SetupToken, non-OpenAI, and shadow accounts
+// are strictly excluded.
+func isCodexFingerprintEligibleAccount(a *Account) bool {
+	return a != nil && (a.IsOpenAIOAuth() || a.IsOpenAIApiKey()) && !a.IsCredentialShadow()
+}
+
 // NormalizeCodexFingerprintMode persists an explicit canonical mode for every
-// credential-owning OpenAI OAuth account. Shadows inherit their parent's mode.
+// credential-owning OpenAI account. Shadows and ineligible accounts drop the mode.
 func (a *Account) NormalizeCodexFingerprintMode() error {
 	if a == nil {
 		return nil
 	}
-	if !a.IsOpenAIOAuth() || a.IsCredentialShadow() {
+	if !isCodexFingerprintEligibleAccount(a) {
 		if a.Extra != nil {
 			delete(a.Extra, CodexFingerprintModeExtraKey)
 		}
@@ -134,7 +149,11 @@ func (a *Account) NormalizeCodexFingerprintMode() error {
 	if a.Extra != nil {
 		raw = a.Extra[CodexFingerprintModeExtraKey]
 	}
-	mode, err := normalizeCodexFingerprintMode(raw)
+	defaultMode := codexFingerprintDevice
+	if a.IsOpenAIApiKey() {
+		defaultMode = codexFingerprintOff
+	}
+	mode, err := normalizeCodexFingerprintModeWithDefault(raw, defaultMode)
 	if err != nil {
 		return err
 	}
@@ -147,9 +166,9 @@ func (a *Account) NormalizeCodexFingerprintMode() error {
 
 // withExistingCodexFingerprintModeIfOmitted carries the account's effective
 // mode into a replacement extra map. It also canonicalizes malformed legacy
-// values to the defensive device default when an update omits the field.
+// values to the defensive default when an update omits the field.
 func withExistingCodexFingerprintModeIfOmitted(account *Account, extra map[string]any) map[string]any {
-	if account == nil || !account.IsOpenAIOAuth() || account.IsCredentialShadow() {
+	if !isCodexFingerprintEligibleAccount(account) {
 		return extra
 	}
 	if _, provided := extra[CodexFingerprintModeExtraKey]; provided {
@@ -163,7 +182,7 @@ func withExistingCodexFingerprintModeIfOmitted(account *Account, extra map[strin
 }
 
 func canonicalizeCodexFingerprintModeForOmittedExtraUpdate(account *Account) {
-	if account == nil || !account.IsOpenAIOAuth() || account.IsCredentialShadow() {
+	if !isCodexFingerprintEligibleAccount(account) {
 		return
 	}
 	mode := account.GetCodexFingerprintMode()
@@ -192,19 +211,23 @@ func normalizeCodexFingerprintModeUpdateExtra(extra map[string]any) error {
 // GetCodexFingerprintMode 从账号 extra JSON 读取指纹收敛模式。
 //
 // Device-only convergence is the defensive fallback for missing or malformed
-// legacy data. Canonical persistence stores every mode explicitly. Accounts
-// that do not own OpenAI OAuth credentials always remain off.
+// legacy data on OAuth accounts. API-key accounts default to off when unconfigured
+// or malformed. Accounts that do not own OpenAI credentials always remain off.
 func (a *Account) GetCodexFingerprintMode() codexFingerprintMode {
-	if a == nil || !a.IsOpenAIOAuth() || a.IsCredentialShadow() {
+	if !isCodexFingerprintEligibleAccount(a) {
 		return codexFingerprintOff
 	}
 	var raw any
 	if a.Extra != nil {
 		raw = a.Extra[CodexFingerprintModeExtraKey]
 	}
-	mode, err := normalizeCodexFingerprintMode(raw)
+	defaultMode := codexFingerprintDevice
+	if a.IsOpenAIApiKey() {
+		defaultMode = codexFingerprintOff
+	}
+	mode, err := normalizeCodexFingerprintModeWithDefault(raw, defaultMode)
 	if err != nil {
-		return codexFingerprintDevice
+		return defaultMode
 	}
 	return mode
 }
@@ -419,13 +442,16 @@ func (s *OpenAIGatewayService) prepareCodexFingerprintIDs(
 	policy codexFingerprintRequestPolicy,
 ) (*codexFingerprintIDs, error) {
 	storeCodexFingerprintIDs(c, nil)
-	if account == nil || !account.IsOpenAIOAuth() || policy == codexFingerprintPolicyNonSession {
+	if account == nil || policy == codexFingerprintPolicyNonSession {
 		return nil, nil
 	}
 
 	fingerprintAccount, err := s.resolveCodexFingerprintAccount(ctx, account)
 	if err != nil {
 		return nil, fmt.Errorf("resolve Codex fingerprint credential account: %w", err)
+	}
+	if !isCodexFingerprintEligibleAccount(fingerprintAccount) {
+		return nil, nil
 	}
 	ids := resolveCodexFingerprintIDsForPolicy(fingerprintAccount, clientHeaders, policy)
 	storeCodexFingerprintIDs(c, ids)
@@ -437,7 +463,7 @@ func resolveCodexFingerprintIDsForPolicy(
 	clientHeaders http.Header,
 	policy codexFingerprintRequestPolicy,
 ) *codexFingerprintIDs {
-	if account == nil || !account.IsOpenAIOAuth() || policy == codexFingerprintPolicyNonSession {
+	if !isCodexFingerprintEligibleAccount(account) || policy == codexFingerprintPolicyNonSession {
 		return nil
 	}
 	mode := account.GetCodexFingerprintMode()

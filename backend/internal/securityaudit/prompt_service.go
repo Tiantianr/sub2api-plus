@@ -821,6 +821,8 @@ func (s *PromptService) Runtime(ctx context.Context) RuntimeSnapshot {
 		}
 	} else {
 		runtime.DatabaseStatus = "error"
+		now := s.clock.Now()
+		applyRuntimeError(&runtime, "database_unavailable", "", &now)
 	}
 	payloadUnavailable := s.payload == nil
 	if !payloadUnavailable {
@@ -869,6 +871,20 @@ func (s *PromptService) Runtime(ctx context.Context) RuntimeSnapshot {
 		}
 	}
 	return runtime
+}
+
+func applyRuntimeError(runtime *RuntimeSnapshot, code, message string, occurredAt *time.Time) {
+	if runtime == nil || code == "" {
+		return
+	}
+	if runtime.LastErrorCode != "" {
+		if occurredAt == nil || runtime.LastErrorAt != nil && !occurredAt.After(*runtime.LastErrorAt) {
+			return
+		}
+	}
+	runtime.LastErrorCode = code
+	runtime.LastErrorMessage = message
+	runtime.LastErrorAt = occurredAt
 }
 
 type ProbeRequest struct {
