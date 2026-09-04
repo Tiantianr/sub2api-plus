@@ -279,13 +279,13 @@ async function mountSubscriptionPlanList(planCount: number) {
 }
 
 describe('PaymentView checkout tabs', () => {
-  it('shows recharge on the left and subscription on the right', async () => {
+  it('shows subscription on the left and recharge on the right', async () => {
     const wrapper = await mountSubscriptionPlanList(1)
     const tabLabels = wrapper.findAll('button')
       .map(button => button.text())
       .filter(label => ['payment.tabSubscribe', 'payment.tabTopUp'].includes(label))
 
-    expect(tabLabels).toEqual(['payment.tabTopUp', 'payment.tabSubscribe'])
+    expect(tabLabels).toEqual(['payment.tabSubscribe', 'payment.tabTopUp'])
   })
 
   it('defaults to the recharge tab when no tab query is provided', async () => {
@@ -307,7 +307,7 @@ describe('PaymentView checkout tabs', () => {
     await flushPromises()
 
     const rechargeTab = wrapper.findAll('button').find(button => button.text() === 'payment.tabTopUp')
-    expect(rechargeTab?.classes()).toContain('bg-white')
+    expect(rechargeTab?.classes()).toContain('text-blue-700')
     expect(wrapper.findAllComponents(SubscriptionPlanCard)).toHaveLength(0)
   })
 
