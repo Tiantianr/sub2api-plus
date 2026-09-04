@@ -62,6 +62,7 @@ describe('OpenAIOAuthAccessView', () => {
     mocks.listAccounts.mockResolvedValue([{
       id: 1,
       name: 'OAuth A',
+      type: 'oauth',
       status: 'active',
       group_ids: [10],
       mode: 'public',
@@ -99,6 +100,36 @@ describe('OpenAIOAuthAccessView', () => {
       grant_added_count: 0,
       grant_removed_count: 0,
     })
+  })
+
+  it('renders and controls an OpenAI API-key account in the same matrix', async () => {
+    mocks.listAccounts.mockReset()
+    mocks.listAccounts.mockResolvedValue([{
+      id: 3,
+      name: 'API account',
+      type: 'apikey',
+      status: 'active',
+      group_ids: [10],
+      mode: 'restricted',
+      default_for_new_users: false,
+      revision: 2,
+      granted_user_ids: [],
+    }])
+    const wrapper = mountView()
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('admin.oauthAccess.account.apiKey')
+    await wrapper.get('[data-test="grant-101-3"]').trigger('change')
+    await wrapper.get('[data-test="preview-save"]').trigger('click')
+    await flushPromises()
+
+    expect(mocks.preview).toHaveBeenCalledWith([{
+      account_id: 3,
+      expected_revision: 2,
+      mode: 'restricted',
+      default_for_new_users: false,
+      granted_user_ids: [101],
+    }])
   })
 
   it('keeps edits local and previews the exact revision-bound policy', async () => {

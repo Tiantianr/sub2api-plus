@@ -139,7 +139,7 @@ func (h *OpenAIGatewayHandler) AlphaSearch(c *gin.Context) {
 		)
 		if err != nil || selection == nil || selection.Account == nil {
 			if errors.Is(err, service.ErrOpenAIOAuthSessionAccessDenied) {
-				h.errorResponse(c, http.StatusForbidden, "permission_error", "This OpenAI OAuth account is restricted to authorized API key groups.")
+				h.errorResponse(c, http.StatusForbidden, "permission_error", "This OpenAI account is restricted to authorized API key groups.")
 				return
 			}
 			if policyRejectedAccountCount > 0 && (selection == nil || errors.Is(err, service.ErrNoAvailableAccounts)) {

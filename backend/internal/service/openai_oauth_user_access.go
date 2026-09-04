@@ -13,10 +13,10 @@ const (
 	openAIOAuthUserAccessRecheckReason  = "oauth_user_access_recheck_failed"
 )
 
-var ErrOpenAIOAuthUserAccessDenied = errors.New("OpenAI OAuth account is not available for this user")
+var ErrOpenAIOAuthUserAccessDenied = errors.New("OpenAI account is not available for this user")
 
-// OpenAIOAuthUserAccessSnapshot is the scheduler-safe projection of one root
-// account's local-user access policy. A nil snapshot preserves public access.
+// OpenAIOAuthUserAccessSnapshot is the scheduler-safe projection of one OpenAI
+// root account's local-user access policy. A nil snapshot preserves public access.
 type OpenAIOAuthUserAccessSnapshot struct {
 	Mode               string  `json:"mode"`
 	DefaultForNewUsers bool    `json:"default_for_new_users,omitempty"`
@@ -47,7 +47,8 @@ func (s *OpenAIOAuthUserAccessSnapshot) AllowsUser(userID int64) bool {
 }
 
 func openAIOAuthUserAccessFailureReason(ctx context.Context, account *Account) string {
-	if account == nil || account.Platform != PlatformOpenAI || account.Type != AccountTypeOAuth {
+	if account == nil || account.Platform != PlatformOpenAI ||
+		(account.Type != AccountTypeOAuth && account.Type != AccountTypeAPIKey) {
 		return ""
 	}
 	if account.OpenAIOAuthUserAccess.AllowsUser(openAIRequestUserID(ctx)) {

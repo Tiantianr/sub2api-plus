@@ -65,3 +65,29 @@ func TestOpenAIOAuthUserAccessHandlerRejectsMalformedBatch(t *testing.T) {
 	router.ServeHTTP(recorder, request)
 	require.Equal(t, http.StatusBadRequest, recorder.Code)
 }
+
+func TestOpenAIOAuthUserAccessHandlerListAccountsReturnsType(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	repo := &openAIOAuthAccessHandlerRepo{accounts: []service.OpenAIOAuthAccessAccount{
+		{ID: 1, Name: "OAuth Root", Type: "oauth", Mode: service.OpenAIOAuthUserAccessModePublic},
+		{ID: 2, Name: "APIKey Root", Type: "apikey", Mode: service.OpenAIOAuthUserAccessModeRestricted, GrantedUserIDs: []int64{10}},
+	}}
+	handler := NewOpenAIOAuthUserAccessHandler(service.NewOpenAIOAuthUserAccessService(repo))
+	router := gin.New()
+	router.GET("/accounts", handler.ListAccounts)
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodGet, "/accounts", nil)
+	router.ServeHTTP(recorder, request)
+	require.Equal(t, http.StatusOK, recorder.Code)
+
+	var payload struct {
+		Code int                                `json:"code"`
+		Data []service.OpenAIOAuthAccessAccount `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &payload))
+	require.Len(t, payload.Data, 2)
+	require.Equal(t, "oauth", payload.Data[0].Type)
+	require.Equal(t, "apikey", payload.Data[1].Type)
+}
+

@@ -3,10 +3,12 @@ import { apiClient } from '@/api/client'
 const basePath = '/admin/openai-oauth-access'
 
 export type OAuthAccessMode = 'public' | 'restricted'
+export type OAuthAccessAccountType = 'oauth' | 'apikey'
 
 export interface OAuthAccessAccount {
   id: number
   name: string
+  type: OAuthAccessAccountType
   status: string
   group_ids: number[]
   mode: OAuthAccessMode
@@ -144,6 +146,7 @@ function arrayValue<T>(value: T[] | null | undefined): T[] {
 function normalizeAccount(account: OAuthAccessAccount): OAuthAccessAccount {
   return {
     ...account,
+    type: account.type === 'apikey' ? 'apikey' : 'oauth',
     group_ids: arrayValue(account.group_ids),
     granted_user_ids: arrayValue(account.granted_user_ids),
   }

@@ -51,6 +51,23 @@ func TestOpenAIOAuthUserAccessIsFailClosedAcrossSchedulers(t *testing.T) {
 	require.Equal(t, openAIOAuthUserAccessDeniedReason, reason)
 }
 
+func TestOpenAIAPIKeyUserAccessUsesTheSameRestrictedGate(t *testing.T) {
+	account := &Account{
+		ID:       12,
+		Platform: PlatformOpenAI,
+		Type:     AccountTypeAPIKey,
+		OpenAIOAuthUserAccess: &OpenAIOAuthUserAccessSnapshot{
+			Mode:           OpenAIOAuthUserAccessModeRestricted,
+			GrantedUserIDs: []int64{7},
+		},
+	}
+	allowedCtx := context.WithValue(context.Background(), ctxkey.UserID, int64(7))
+	deniedCtx := context.WithValue(context.Background(), ctxkey.UserID, int64(8))
+
+	require.Empty(t, openAIOAuthUserAccessFailureReason(allowedCtx, account))
+	require.Equal(t, openAIOAuthUserAccessDeniedReason, openAIOAuthUserAccessFailureReason(deniedCtx, account))
+}
+
 func TestOpenAIOAuthUserAccessSnapshotCompatibility(t *testing.T) {
 	var missing *OpenAIOAuthUserAccessSnapshot
 	require.True(t, missing.AllowsUser(0), "missing policy remains public after migration")
@@ -317,8 +334,53 @@ func (*openAIOAuthAccessRefreshFailureRepo) GetByID(context.Context, int64) (*Ac
 
 func TestOpenAIOAuthUserAccessTerminalRecheckFailsClosed(t *testing.T) {
 	svc := &OpenAIGatewayService{accountRepo: &openAIOAuthAccessRefreshFailureRepo{}}
-	account := &Account{ID: 30, Platform: PlatformOpenAI, Type: AccountTypeOAuth}
-	_, vetoed, reason := svc.ProfitControlVetoLatest(context.Background(), account)
-	require.True(t, vetoed)
-	require.Equal(t, openAIOAuthUserAccessRecheckReason, reason)
+	for _, accType := range []string{AccountTypeOAuth, AccountTypeAPIKey} {
+		account := &Account{ID: 30, Platform: PlatformOpenAI, Type: accType}
+		_, vetoed, reason := svc.ProfitControlVetoLatest(context.Background(), account)
+		require.True(t, vetoed)
+		require.Equal(t, openAIOAuthUserAccessRecheckReason, reason)
+	}
 }
+
+func TestOpenAIAPIKeyUserAccessRevalidatesWebSocketAndLiveTurns(t *testing.T) {
+	account := &Account{
+		ID:          21,
+		Platform:    PlatformOpenAI,
+		Type:        AccountTypeAPIKey,
+		Status:      StatusActive,
+		Schedulable: true,
+		OpenAIOAuthUserAccess: &OpenAIOAuthUserAccessSnapshot{
+			Mode:           OpenAIOAuthUserAccessModeRestricted,
+			GrantedUserIDs: []int64{7},
+		},
+	}
+	svc := &OpenAIGatewayService{accountRepo: &openAIOAuthAccessAccountRepoFake{account: account}}
+	allowedCtx := context.WithValue(context.Background(), ctxkey.UserID, int64(7))
+	deniedCtx := context.WithValue(context.Background(), ctxkey.UserID, int64(8))
+
+	revalidated, err := svc.RevalidateOpenAIAccountForWebSocketTurn(
+		allowedCtx, account, nil, PlatformOpenAI, "", "", "",
+	)
+	require.NoError(t, err)
+	require.NotNil(t, revalidated)
+	revalidated, err = svc.RevalidateOpenAIAccountForWebSocketTurn(
+		deniedCtx, account, nil, PlatformOpenAI, "", "", "",
+	)
+	require.NoError(t, err)
+	require.Nil(t, revalidated)
+
+	record := &LiveCallRecord{AccountID: account.ID, UserID: 7}
+	require.ErrorIs(t, svc.RevalidateLiveCallUserAccess(allowedCtx, record), ErrOpenAIOAuthUserAccessDenied)
+	require.ErrorIs(t, svc.RevalidateLiveCallUserAccess(deniedCtx, record), ErrOpenAIOAuthUserAccessDenied)
+
+	staleSelection := *account
+	staleSelection.OpenAIOAuthUserAccess = &OpenAIOAuthUserAccessSnapshot{
+		Mode:           OpenAIOAuthUserAccessModeRestricted,
+		GrantedUserIDs: []int64{8},
+	}
+	latest, vetoed, reason := svc.ProfitControlVetoLatest(deniedCtx, &staleSelection)
+	require.True(t, vetoed, "revocation while waiting for a slot must block terminal admission for apikey accounts")
+	require.Equal(t, openAIOAuthUserAccessDeniedReason, reason)
+	require.Same(t, account, latest)
+}
+

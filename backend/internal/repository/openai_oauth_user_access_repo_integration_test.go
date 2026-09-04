@@ -99,6 +99,71 @@ func TestOpenAIOAuthDefaultGrantTriggerAndShadowHydration(t *testing.T) {
 	require.Zero(t, grantCount)
 }
 
+func TestOpenAIOAuthUserAccessRepositoryListsAndGrantsOpenAIAPIKey(t *testing.T) {
+	ctx := context.Background()
+	suffix := time.Now().UnixNano()
+	accountID := insertOpenAIUserAccessTestAccount(t, fmt.Sprintf("apikey-access-%d", suffix), "apikey", nil)
+	userID := insertOpenAIOAuthAccessTestUser(t, fmt.Sprintf("apikey-access-%d@example.com", suffix), "user")
+	t.Cleanup(func() {
+		_, _ = integrationDB.ExecContext(ctx, "DELETE FROM users WHERE id = $1", userID)
+		_, _ = integrationDB.ExecContext(ctx, "DELETE FROM accounts WHERE id = $1", accountID)
+	})
+
+	repo := &openAIOAuthUserAccessRepository{db: integrationDB}
+	accounts, err := repo.ListAccounts(ctx)
+	require.NoError(t, err)
+	var listed *service.OpenAIOAuthAccessAccount
+	for i := range accounts {
+		if accounts[i].ID == accountID {
+			listed = &accounts[i]
+			break
+		}
+	}
+	require.NotNil(t, listed)
+	require.Equal(t, "apikey", listed.Type)
+	require.Equal(t, service.OpenAIOAuthUserAccessModePublic, listed.Mode)
+
+	require.NoError(t, repo.ApplyPolicies(ctx, []service.OpenAIOAuthAccessPolicyChange{{
+		AccountID:        accountID,
+		ExpectedRevision: 0,
+		Mode:             service.OpenAIOAuthUserAccessModeRestricted,
+		GrantedUserIDs:   []int64{userID},
+	}}))
+
+	accountRepo := newAccountRepositoryWithSQL(integrationEntClient, integrationDB, nil)
+	account, err := accountRepo.GetByID(ctx, accountID)
+	require.NoError(t, err)
+	require.NotNil(t, account.OpenAIOAuthUserAccess)
+	require.Equal(t, []int64{userID}, account.OpenAIOAuthUserAccess.GrantedUserIDs)
+}
+
+func TestOpenAIOAuthDefaultGrantTriggerIncludesOpenAIAPIKey(t *testing.T) {
+	ctx := context.Background()
+	suffix := time.Now().UnixNano()
+	accountID := insertOpenAIUserAccessTestAccount(t, fmt.Sprintf("apikey-default-%d", suffix), "apikey", nil)
+	require.NoError(t, func() error {
+		_, err := integrationDB.ExecContext(ctx, `
+			INSERT INTO openai_oauth_account_access_policies
+				(account_id, mode, default_for_new_users, revision)
+			VALUES ($1, 'restricted', TRUE, 1)
+		`, accountID)
+		return err
+	}())
+	userID := insertOpenAIOAuthAccessTestUser(t, fmt.Sprintf("apikey-default-%d@example.com", suffix), "user")
+	t.Cleanup(func() {
+		_, _ = integrationDB.ExecContext(ctx, "DELETE FROM users WHERE id = $1", userID)
+		_, _ = integrationDB.ExecContext(ctx, "DELETE FROM accounts WHERE id = $1", accountID)
+	})
+
+	var grantCount int
+	require.NoError(t, integrationDB.QueryRowContext(ctx, `
+		SELECT COUNT(*)
+		FROM openai_oauth_account_user_grants
+		WHERE account_id = $1 AND user_id = $2
+	`, accountID, userID).Scan(&grantCount))
+	require.Equal(t, 1, grantCount)
+}
+
 func TestOpenAIOAuthUserAccessRepositoryAppliesRevisionCheckedPolicies(t *testing.T) {
 	ctx := context.Background()
 	suffix := time.Now().UnixNano()
@@ -315,6 +380,10 @@ func TestOpenAIOAuthDefaultGrantTriggerLocksAccountBeforePolicy(t *testing.T) {
 }
 
 func insertOpenAIOAuthAccessTestAccount(t *testing.T, name string, parentID *int64) int64 {
+	return insertOpenAIUserAccessTestAccount(t, name, "oauth", parentID)
+}
+
+func insertOpenAIUserAccessTestAccount(t *testing.T, name, accountType string, parentID *int64) int64 {
 	t.Helper()
 	quotaDimension := "global"
 	if parentID != nil {
@@ -322,11 +391,11 @@ func insertOpenAIOAuthAccessTestAccount(t *testing.T, name string, parentID *int
 	}
 	query := `
 		INSERT INTO accounts (name, platform, type, credentials, extra, parent_account_id, quota_dimension)
-		VALUES ($1, 'openai', 'oauth', '{}'::jsonb, '{}'::jsonb, $2, $3)
+		VALUES ($1, 'openai', $2, '{}'::jsonb, '{}'::jsonb, $3, $4)
 		RETURNING id
 	`
 	var id int64
-	require.NoError(t, integrationDB.QueryRowContext(context.Background(), query, name, parentID, quotaDimension).Scan(&id))
+	require.NoError(t, integrationDB.QueryRowContext(context.Background(), query, name, accountType, parentID, quotaDimension).Scan(&id))
 	return id
 }
 

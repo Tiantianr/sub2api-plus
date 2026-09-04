@@ -177,7 +177,7 @@ export default {
     modelPlaza: 'Model Plaza',
     subscriptions: 'Subscriptions',
     accounts: 'Accounts',
-    oauthAccess: 'OAuth Access',
+    oauthAccess: 'OpenAI Account Access',
     plugins: 'Plugins',
     proxies: 'Proxies',
     redeemCodes: 'Redeem Codes',
