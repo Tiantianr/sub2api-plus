@@ -11,7 +11,7 @@
             <!-- Sliding background pill -->
             <div
               class="absolute inset-y-1.5 w-[160px] rounded-xl border border-slate-100 bg-white shadow-sm transition-all duration-300 cubic-bezier(0.4, 0, 0.2, 1) dark:border-dark-600 dark:bg-dark-700"
-              :style="{ transform: activeTab === 'recharge' ? 'translateX(100%)' : 'translateX(0)' }"
+              :style="{ transform: activeTab === 'subscription' ? 'translateX(100%)' : 'translateX(0)' }"
             />
             <button
               v-for="tab in tabs"
@@ -578,9 +578,9 @@ const checkout = ref<CheckoutInfoResponse>({
 })
 
 const tabs = computed(() => {
-  const result: { key: 'subscription' | 'recharge'; label: string }[] = []
-  result.push({ key: 'subscription', label: t('payment.tabSubscribe') })
+  const result: { key: 'recharge' | 'subscription'; label: string }[] = []
   if (!checkout.value.balance_disabled) result.push({ key: 'recharge', label: t('payment.tabTopUp') })
+  result.push({ key: 'subscription', label: t('payment.tabSubscribe') })
   return result
 })
 
