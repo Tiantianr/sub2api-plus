@@ -383,4 +383,3 @@ func TestOpenAIAPIKeyUserAccessRevalidatesWebSocketAndLiveTurns(t *testing.T) {
 	require.Equal(t, openAIOAuthUserAccessDeniedReason, reason)
 	require.Same(t, account, latest)
 }
-

@@ -90,4 +90,3 @@ func TestOpenAIOAuthUserAccessHandlerListAccountsReturnsType(t *testing.T) {
 	require.Equal(t, "oauth", payload.Data[0].Type)
 	require.Equal(t, "apikey", payload.Data[1].Type)
 }
-

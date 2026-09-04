@@ -57,4 +57,3 @@ func TestOpenAIOAuthUserAccessRepositoryListAccountsIncludesAPIKeys(t *testing.T
 	require.Equal(t, []int64{101, 102}, accounts[1].GrantedUserIDs)
 	require.NoError(t, mock.ExpectationsWereMet())
 }
-
