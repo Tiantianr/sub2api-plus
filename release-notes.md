@@ -9,10 +9,17 @@ Sub2API Plus v0.2.0+custom.901
   automatic user disabling, and administrator event review.
 - Add durable Content Moderation session blocks, endpoint failover, and bounded
   redacted input retention for administrator review.
+- Add Codex fingerprint convergence (`codex_fingerprint_mode`) for OpenAI API Key
+  accounts, preventing upstream sticky-session routing lock on degraded accounts.
+- Support Pi Agent wire identity simulation (`pi/0.85.0`) and one-click channel
+  switching in the Admin UI.
 
 ## Changed
 
 - Allow administrators to manage user access grants for both OpenAI OAuth and OpenAI API Key accounts.
+- Extend Codex fingerprint convergence (`off`, `device`, `session`, `full`) to OpenAI
+  API Key accounts; unconfigured API Key accounts default to `off` for 100% backward compatibility.
+- Support Pi Agent client profile and wire identity across OAuth refresh and gateway paths.
 - Preserve the redesigned Billing & Subscription checkout and multi-currency
   recharge presentation introduced in the previous personal release.
 - Prompt Audit scans the canonical client-controlled transcript; latest-turn
@@ -33,8 +40,9 @@ Sub2API Plus v0.2.0+custom.901
 
 - Forward-only database migrations add moderation observability, native
   compaction metadata, OpenAI Fast controls, disconnect lifecycle state,
-  durable moderation session blocks, and redacted moderation input. A final
-  migration removes the superseded `input_ciphertext` column.
+  durable moderation session blocks, redacted moderation input, and OpenAI API
+  Key Codex fingerprint support (migration 264). A final migration removes
+  the superseded `input_ciphertext` column.
 - Existing published migrations remain byte-for-byte unchanged; imported
   migrations are renumbered above the personal fork's existing `248` boundary.
 - Existing user subscriptions, payment orders, provider configurations, and
