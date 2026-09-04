@@ -1,47 +1,36 @@
-Sub2API Plus v0.1.183+custom.926
+Sub2API Plus v0.1.183+custom.927
 
 ## Highlights
 
-- Allow administrators to include their own local identity in explicit
-  restricted OpenAI OAuth account grants.
-- Keep administrator grants subject to the same API-key group eligibility,
-  atomic policy updates, revision checks, and scheduler enforcement as ordinary
-  user grants.
+- Extend OpenAI account user access management to include OpenAI API key accounts
+  alongside OAuth accounts in the administrative access matrix.
+- Redesign and optimize the user Billing & Subscription checkout page (`/purchase`)
+  with a centered sliding-pill switcher, dedicated recharge balance layout,
+  feature-rich plan cards with stats metrics, and unified primary action buttons.
 
 ## Changed
 
-- The OpenAI OAuth user/account matrix now lists non-deleted `user` and `admin`
-  local identities.
-- Transactional grant validation accepts either supported role while continuing
-  to reject missing, deleted, or unsupported identities.
-- Future-user defaults remain limited to newly inserted ordinary users and do
-  not automatically grant administrator identities.
+- Allow administrators to manage user access grants for both OpenAI OAuth and OpenAI API Key accounts.
+- Reorganize checkout tabs to place recharge balance first and subscription plans second with smooth animated indicators.
+- Upgrade subscription plan cards with structured rate, limit, and quota metrics boxes and feature check lists.
+- Standardize checkout confirmation buttons to the system royal-blue color scheme.
 
 ## Fixed
 
-- Prevent administrator identities from being absent from the OpenAI OAuth
-  access matrix.
-- Prevent an explicit restricted-account grant for an administrator from being
-  rejected as an invalid user.
+- Prevent confirmation buttons from inheriting inconsistent payment-channel background colors during checkout.
+- Ensure all subscription plan cards remain interactive and visible when selecting plans.
 
 ## Compatibility and migration
 
 - No database migration, dependency, configuration, port, certificate, proxy,
   or persistent-volume change is required.
-- Existing public/restricted policies and grants remain unchanged. `.925` can
-  enforce administrator grant rows created by `.926`, although its matrix does
-  not list administrators for further editing.
-- Administrators still require an active API key whose group intersects the
-  selected OpenAI OAuth account's effective groups.
-- Roll back application code to `v0.1.183+custom.925` if required.
+- Existing user subscriptions, payment orders, and provider configurations remain fully compatible.
+- Roll back application code to `v0.1.183+custom.926` if required.
 - Personal images and binary archives remain Linux arm64 only.
 
 ## Known issues
 
-- Future-user defaults intentionally do not grant administrators; administrator
-  access must be selected explicitly in the matrix.
-- A disabled administrator remains visible when no status filter is selected,
-  but ordinary authentication status checks still prevent API use.
+- Invoicing remains unsupported for direct online recharges.
 - Production deployment and configuration changes remain separate operations
   and are not part of release publication.
 
