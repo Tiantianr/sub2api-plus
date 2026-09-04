@@ -65,9 +65,25 @@ func profitSlotTestContext(t *testing.T, gw *service.OpenAIGatewayService, group
 	return ctx
 }
 
+type profitTestAccountRepoStub struct {
+	service.AccountRepository
+	accounts map[int64]*service.Account
+}
+
+func (r *profitTestAccountRepoStub) GetByID(_ context.Context, id int64) (*service.Account, error) {
+	return r.accounts[id], nil
+}
+
 func TestAcquireResponsesAccountSlotProfitRecheck(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	gw := &service.OpenAIGatewayService{}
+	gw.SetAccountRepoForTest(&profitTestAccountRepoStub{
+		accounts: map[int64]*service.Account{
+			1: profitSlotTestAccount(1, 0.8),
+			2: profitSlotTestAccount(2, 0.3),
+			3: profitSlotTestAccount(3, 0.8),
+		},
+	})
 	groupID := int64(50)
 
 	newHandler := func(cache *profitCountingConcurrencyCache) *OpenAIGatewayHandler {

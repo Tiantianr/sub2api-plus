@@ -577,6 +577,11 @@ func NewOpenAIGatewayService(
 	return svc
 }
 
+// SetAccountRepoForTest overrides the account repository for testing.
+func (s *OpenAIGatewayService) SetAccountRepoForTest(repo AccountRepository) {
+	s.accountRepo = repo
+}
+
 // ResolveChannelMapping 解析渠道级模型映射（代理到 ChannelService）
 func (s *OpenAIGatewayService) ResolveChannelMapping(ctx context.Context, groupID int64, model string) ChannelMappingResult {
 	if s.channelService == nil {
