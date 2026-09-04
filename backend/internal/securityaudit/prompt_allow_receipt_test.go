@@ -409,7 +409,7 @@ func TestAsyncCurrentUserReviewsAgainWhileHistoryUsesReceipts(t *testing.T) {
 	require.Len(t, secondPayload.AllowReceiptKeys, 1)
 }
 
-func TestBlockingAllowIsReusedBySameRequestDeepReview(t *testing.T) {
+func TestBlockingAllowForPreviousOutputIsReusedBySameRequestDeepReview(t *testing.T) {
 	cfg := allowReceiptTestConfig()
 	cfg.DeepReviewModules.Assistant = true
 	config := &fakeConfigStore{active: true, cfg: cfg}
@@ -427,17 +427,15 @@ func TestBlockingAllowIsReusedBySameRequestDeepReview(t *testing.T) {
 	decision, err := service.Evaluate(context.Background(), req)
 	require.NoError(t, err)
 	require.Equal(t, DecisionAllow, decision.Kind)
-	require.Len(t, decision.AllowReceiptKeys, 2)
+	require.Len(t, decision.AllowReceiptKeys, 3)
 	service.commitAllowReceipts(context.Background(), decision)
 
 	deepReq := req.Clone()
 	deepReq.AllowReceiptKeys = append([]string(nil), decision.AllowReceiptKeys...)
 	repo := &fakeJobRepository{}
 	require.NoError(t, NewEnqueuer(config, repo, receipts, metrics).EnqueueDeep(context.Background(), deepReq))
-	payload := decodeTransientPromptPayload(receipts.payloads[1])
-	require.Equal(t, "historical assistant", payload.ScanText)
-	require.Equal(t, 2, payload.AllowReceiptHitCount)
-	require.Len(t, payload.AllowReceiptKeys, 1)
+	require.Nil(t, repo.createJob)
+	require.Empty(t, receipts.payloads)
 }
 
 func TestFailureAllowedDeepReviewCannotWriteAllowReceipts(t *testing.T) {

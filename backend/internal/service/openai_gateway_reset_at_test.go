@@ -83,7 +83,7 @@ func (localQuotaEnabledSettingRepo) GetMultiple(_ context.Context, _ []string) (
 	return map[string]string{}, nil
 }
 
-func newCodexLocalQuotaResponseTestContext(t *testing.T, enabled bool, path string) (*OpenAIGatewayService, *gin.Context, *httptest.ResponseRecorder) {
+func newCodexLocalQuotaResponseTestContext(t *testing.T, enabled bool, path string) (*OpenAIGatewayService, *gin.Context, *httptest.ResponseRecorder, *Group, *UserSubscription) {
 	t.Helper()
 	gin.SetMode(gin.TestMode)
 	weeklyLimit := 100.0
@@ -113,7 +113,7 @@ func newCodexLocalQuotaResponseTestContext(t *testing.T, enabled bool, path stri
 		settingService: NewSettingService(localQuotaEnabledSettingRepo{enabled: enabled}, &config.Config{}),
 		toolCorrector:  NewCodexToolCorrector(),
 	}
-	return svc, c, recorder
+	return svc, c, recorder, group, subscription
 }
 
 func requireLocalCodexQuotaHeaders(t *testing.T, headers http.Header) {
@@ -147,23 +147,23 @@ func TestFinalizeCodexClientQuotaHeadersPolicy(t *testing.T) {
 	}
 
 	for _, account := range passthroughAccounts {
-		enabledSvc, enabledContext, _ := newCodexLocalQuotaResponseTestContext(t, true, "/v1/responses")
+		enabledSvc, enabledContext, _, _, _ := newCodexLocalQuotaResponseTestContext(t, true, "/v1/responses")
 		local := enabledSvc.finalizeCodexClientQuotaHeaders(upstream.Clone(), enabledContext, account)
 		requireLocalCodexQuotaHeaders(t, local)
 
-		disabledSvc, disabledContext, _ := newCodexLocalQuotaResponseTestContext(t, false, "/v1/responses")
+		disabledSvc, disabledContext, _, _, _ := newCodexLocalQuotaResponseTestContext(t, false, "/v1/responses")
 		passthrough := disabledSvc.finalizeCodexClientQuotaHeaders(upstream.Clone(), disabledContext, account)
 		require.Equal(t, "upstream-primary", passthrough.Get("X-Codex-Primary-Reset-At"))
 		require.Equal(t, "upstream-secondary", passthrough.Get("X-Codex-Secondary-Reset-At"))
 	}
 
-	disabledSvc, disabledContext, _ := newCodexLocalQuotaResponseTestContext(t, false, "/v1/responses")
+	disabledSvc, disabledContext, _, _, _ := newCodexLocalQuotaResponseTestContext(t, false, "/v1/responses")
 	hidden := disabledSvc.finalizeCodexClientQuotaHeaders(upstream.Clone(), disabledContext, &Account{Platform: PlatformOpenAI, Type: AccountTypeOAuth})
 	require.Empty(t, hidden.Get("X-Codex-Primary-Reset-At"))
 	require.Empty(t, hidden.Get("X-Codex-Secondary-Reset-At"))
 	require.Nil(t, disabledSvc.finalizeCodexClientQuotaHeaders(nil, disabledContext, nil))
 
-	enabledSvc, enabledContext, _ := newCodexLocalQuotaResponseTestContext(t, true, "/v1/responses")
+	enabledSvc, enabledContext, _, _, _ := newCodexLocalQuotaResponseTestContext(t, true, "/v1/responses")
 	requireLocalCodexQuotaHeaders(t, enabledSvc.finalizeCodexClientQuotaHeaders(nil, enabledContext, nil))
 	require.Equal(t, "upstream-primary", upstream.Get("X-Codex-Primary-Reset-At"), "policy must not mutate the source header map")
 }
@@ -172,7 +172,7 @@ func TestFinalizeCodexClientQuotaEventPolicy(t *testing.T) {
 	upstream := []byte(`{"type":"codex.rate_limits","rate_limits":{"primary":{"used_percent":90,"window_minutes":10080,"reset_at":1780000001},"secondary":{"used_percent":80,"window_minutes":300,"reset_at":1780003601}}}`)
 	passthroughAccount := &Account{Platform: PlatformOpenAI, Type: AccountTypeOAuth, Extra: map[string]any{"openai_passthrough": true}}
 
-	enabledSvc, enabledContext, _ := newCodexLocalQuotaResponseTestContext(t, true, "/v1/responses")
+	enabledSvc, enabledContext, _, _, _ := newCodexLocalQuotaResponseTestContext(t, true, "/v1/responses")
 	local, emit := enabledSvc.finalizeCodexClientQuotaEvent(upstream, enabledContext, passthroughAccount)
 	require.True(t, emit)
 	require.Equal(t, "codex.rate_limits", gjson.GetBytes(local, "type").String())
@@ -182,7 +182,7 @@ func TestFinalizeCodexClientQuotaEventPolicy(t *testing.T) {
 	require.Equal(t, 25.0, gjson.GetBytes(local, "rate_limits.secondary.used_percent").Float())
 	require.Equal(t, int64(300), gjson.GetBytes(local, "rate_limits.secondary.window_minutes").Int())
 
-	disabledSvc, disabledContext, _ := newCodexLocalQuotaResponseTestContext(t, false, "/v1/responses")
+	disabledSvc, disabledContext, _, _, _ := newCodexLocalQuotaResponseTestContext(t, false, "/v1/responses")
 	passthrough, emit := disabledSvc.finalizeCodexClientQuotaEvent(upstream, disabledContext, passthroughAccount)
 	require.True(t, emit)
 	require.Equal(t, upstream, passthrough)
@@ -202,7 +202,7 @@ func TestFinalizeCodexClientQuotaEventPolicy(t *testing.T) {
 }
 
 func TestCodexLocalGroupQuotaHeadersReachResponsesStreamingClient(t *testing.T) {
-	svc, c, recorder := newCodexLocalQuotaResponseTestContext(t, true, "/v1/responses")
+	svc, c, recorder, _, _ := newCodexLocalQuotaResponseTestContext(t, true, "/v1/responses")
 	upstreamHeaders := codexLocalQuotaUpstreamHeaders()
 	resp := &http.Response{
 		StatusCode: http.StatusOK,
@@ -220,7 +220,7 @@ func TestCodexLocalGroupQuotaHeadersReachResponsesStreamingClient(t *testing.T) 
 func TestCodexLocalGroupQuotaHeadersReachResponsesJSONAndCompactClients(t *testing.T) {
 	for _, path := range []string{"/v1/responses", "/v1/responses/compact"} {
 		t.Run(path, func(t *testing.T) {
-			svc, c, recorder := newCodexLocalQuotaResponseTestContext(t, true, path)
+			svc, c, recorder, _, _ := newCodexLocalQuotaResponseTestContext(t, true, path)
 			upstreamHeaders := codexLocalQuotaUpstreamHeaders()
 			upstreamHeaders.Set("Content-Type", "application/json")
 			resp := &http.Response{
@@ -267,7 +267,7 @@ func TestCodexLocalGroupQuotaHeadersReachConvertedClients(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			svc, c, recorder := newCodexLocalQuotaResponseTestContext(t, true, tc.path)
+			svc, c, recorder, _, _ := newCodexLocalQuotaResponseTestContext(t, true, tc.path)
 			upstreamHeaders := codexLocalQuotaUpstreamHeaders()
 			resp := &http.Response{StatusCode: http.StatusOK, Header: upstreamHeaders, Body: io.NopCloser(strings.NewReader(codexLocalQuotaCompletedSSE()))}
 

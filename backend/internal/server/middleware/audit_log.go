@@ -141,7 +141,6 @@ var auditSensitiveReads = map[string]string{
 	"GET /api/v1/admin/ip-access-control/failure-states":             "security.ip_login_failure.read",
 	"GET /api/v1/admin/prompt-audit/events/:id":                      "admin.prompt_audit.event.read",
 	"GET /api/v1/admin/prompt-audit/pass-retention":                  "admin.prompt_audit.pass_retention.read",
-	"GET /api/v1/admin/risk-control/logs/:id/input":                  "admin.risk_control.log_input.read",
 	"GET /api/v1/admin/openai-oauth-access/accounts":                 "admin.openai_oauth_access.accounts.read",
 	"GET /api/v1/admin/openai-oauth-access/users":                    "admin.openai_oauth_access.users.read",
 }

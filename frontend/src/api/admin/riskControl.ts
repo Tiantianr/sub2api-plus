@@ -21,6 +21,7 @@ export interface ContentModerationConfig {
   api_key_count: number
   api_key_masks: string[]
   api_key_statuses: ContentModerationAPIKeyStatus[]
+  endpoints: ContentModerationEndpoint[]
   timeout_ms: number
   sample_rate: number
   all_groups: boolean
@@ -45,6 +46,54 @@ export interface ContentModerationConfig {
   model_filter: ContentModerationModelFilter
   cyber_policy_exclude_from_ban_count: boolean
   cyber_policy_auto_ban_enabled: boolean
+  session_block_enabled: boolean
+  session_block_ttl_seconds: number
+}
+
+export type ContentModerationEndpointStatus = 'healthy' | 'degraded' | 'error' | 'cooldown' | 'manual_pause' | 'half_open' | 'disabled'
+
+export interface ContentModerationEndpointRuntime {
+  status: ContentModerationEndpointStatus
+  failure_count: number
+  last_error: string
+  last_success_at?: string
+  last_failure_at?: string
+  cooldown_until?: string
+  half_open: boolean
+}
+
+export interface ContentModerationEndpoint {
+  id: string
+  name: string
+  enabled: boolean
+  priority: number
+  base_url: string
+  model: string
+  proxy_id: number | null
+  api_key_configured: boolean
+  api_key_count: number
+  api_key_masks: string[]
+  api_key_statuses: ContentModerationAPIKeyStatus[]
+  timeout_ms: number
+  cooldown_seconds: number
+  failure_threshold: number
+  manual_paused: boolean
+  runtime: ContentModerationEndpointRuntime
+}
+
+export interface UpdateContentModerationEndpoint {
+  id: string
+  name: string
+  enabled: boolean
+  priority: number
+  base_url: string
+  model: string
+  proxy_id?: number | null
+  api_keys?: string[]
+  timeout_ms: number
+  cooldown_seconds: number
+  failure_threshold: number
+  manual_paused: boolean
 }
 
 export type ContentModerationAPIKeyStatusValue = 'unknown' | 'ok' | 'error' | 'frozen'
@@ -66,6 +115,7 @@ export interface ContentModerationAPIKeyStatus {
 }
 
 export interface TestContentModerationAPIKeysPayload {
+  endpoint_id?: string
   api_keys?: string[]
   base_url?: string
   model?: string
@@ -103,6 +153,7 @@ export interface UpdateContentModerationConfig {
   api_keys_mode?: 'append' | 'replace'
   delete_api_key_hashes?: string[]
   clear_api_key?: boolean
+  endpoints?: UpdateContentModerationEndpoint[]
   timeout_ms?: number
   sample_rate?: number
   all_groups?: boolean
@@ -127,6 +178,8 @@ export interface UpdateContentModerationConfig {
   model_filter?: ContentModerationModelFilter
   cyber_policy_exclude_from_ban_count?: boolean
   cyber_policy_auto_ban_enabled?: boolean
+  session_block_enabled?: boolean
+  session_block_ttl_seconds?: number
 }
 
 export interface ContentModerationRuntimeStatus {
@@ -160,7 +213,9 @@ export interface ContentModerationRuntimeStatus {
   pre_block_api_key_total_calls: number
   pre_block_api_key_loads: ContentModerationAPIKeyLoad[]
   api_key_statuses: ContentModerationAPIKeyStatus[]
+  endpoints: ContentModerationEndpoint[]
   flagged_hash_count: number
+  blocked_session_count: number
   last_cleanup_at?: string
   last_cleanup_deleted_hit: number
   last_cleanup_deleted_non_hit: number
@@ -189,6 +244,8 @@ export interface ContentModerationLog {
   api_key_name: string
   group_id: number | null
   group_name: string
+  moderation_endpoint_id: string
+  moderation_endpoint_name: string
   endpoint: string
   provider: string
   model: string
@@ -201,6 +258,8 @@ export interface ContentModerationLog {
   category_scores: Record<string, number>
   threshold_snapshot: Record<string, number>
   input_excerpt: string
+  input_content: string
+  input_content_truncated: boolean
   upstream_latency_ms: number | null
   error: string
   violation_count: number
@@ -231,12 +290,6 @@ export interface ContentModerationLogsResponse {
   pages: number
 }
 
-export interface ContentModerationLogInput {
-  id: number
-  content: string
-  complete: boolean
-}
-
 export interface ContentModerationUnbanUserResponse {
   user_id: number
   status: string
@@ -248,6 +301,50 @@ export interface DeleteFlaggedHashResponse {
 }
 
 export interface ClearFlaggedHashesResponse {
+  deleted: number
+}
+
+export interface ContentModerationSessionBlock {
+  id: number
+  block_key: string
+  session_id: string
+  user_id: number | null
+  user_email: string
+  api_key_id: number | null
+  api_key_name: string
+  request_id: string
+  endpoint: string
+  protocol: string
+  model: string
+  highest_category: string
+  highest_score: number
+  expires_at: string
+  created_at: string
+}
+
+export interface ListContentModerationSessionBlocksParams {
+  page?: number
+  page_size?: number
+  session_id?: string
+  user_id?: number
+  search?: string
+}
+
+export interface ContentModerationSessionBlocksResponse {
+  items: ContentModerationSessionBlock[]
+  total: number
+  page: number
+  page_size: number
+  pages: number
+}
+
+export interface DeleteSessionBlockResponse {
+  block_key: string
+  session_id: string
+  deleted: boolean
+}
+
+export interface ClearSessionBlocksResponse {
   deleted: number
 }
 
@@ -275,17 +372,20 @@ export async function testAPIKeys(
   return data
 }
 
+export async function setEndpointPaused(endpointID: string, paused: boolean): Promise<ContentModerationConfig> {
+  const action = paused ? 'pause' : 'resume'
+  const { data } = await apiClient.post<ContentModerationConfig>(
+    `/admin/risk-control/endpoints/${encodeURIComponent(endpointID)}/${action}`
+  )
+  return data
+}
+
 export async function listLogs(
   params: ListContentModerationLogsParams = {}
 ): Promise<ContentModerationLogsResponse> {
   const { data } = await apiClient.get<ContentModerationLogsResponse>('/admin/risk-control/logs', {
     params,
   })
-  return data
-}
-
-export async function getLogInput(id: number): Promise<ContentModerationLogInput> {
-  const { data } = await apiClient.get<ContentModerationLogInput>(`/admin/risk-control/logs/${id}/input`)
   return data
 }
 
@@ -308,16 +408,40 @@ export async function clearFlaggedHashes(): Promise<ClearFlaggedHashesResponse> 
   return data
 }
 
+export async function listSessionBlocks(
+  params: ListContentModerationSessionBlocksParams = {}
+): Promise<ContentModerationSessionBlocksResponse> {
+  const { data } = await apiClient.get<ContentModerationSessionBlocksResponse>('/admin/risk-control/sessions', {
+    params,
+  })
+  return data
+}
+
+export async function deleteSessionBlock(blockKey: string): Promise<DeleteSessionBlockResponse> {
+  const { data } = await apiClient.delete<DeleteSessionBlockResponse>('/admin/risk-control/sessions', {
+    data: { block_key: blockKey },
+  })
+  return data
+}
+
+export async function clearSessionBlocks(): Promise<ClearSessionBlocksResponse> {
+  const { data } = await apiClient.delete<ClearSessionBlocksResponse>('/admin/risk-control/sessions/all')
+  return data
+}
+
 export const riskControlAPI = {
   getConfig,
   updateConfig,
   getStatus,
   testAPIKeys,
+  setEndpointPaused,
   listLogs,
-  getLogInput,
   unbanUser,
   deleteFlaggedHash,
   clearFlaggedHashes,
+  listSessionBlocks,
+  deleteSessionBlock,
+  clearSessionBlocks,
 }
 
 export default riskControlAPI

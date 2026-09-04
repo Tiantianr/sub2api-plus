@@ -17,9 +17,9 @@ func TestCompletePromptContextRetainsContentExcludedFromGuard(t *testing.T) {
 			{"type":"message","role":"user","content":"<system-reminder>client wrapper</system-reminder> actual question"}
 		]
 	}`)
-	snapshot, diagnostic, err := extractPromptSnapshotWithDiagnostics(Request{
+	snapshot, diagnostic, err := extractDeepPromptSnapshotWithDiagnostics(Request{
 		RequestID: "req-context", Protocol: "openai_responses", Body: body,
-	}, false)
+	}, ReviewModules{})
 	require.NoError(t, err)
 	require.False(t, diagnostic.Failed)
 	require.Equal(t, "actual question", snapshot.ScanText)

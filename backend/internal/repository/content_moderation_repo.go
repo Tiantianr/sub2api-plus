@@ -4,7 +4,6 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -16,12 +15,6 @@ import (
 type contentModerationRepository struct {
 	db *sql.DB
 }
-
-const contentModerationListSelectColumns = `
-    l.id, l.request_id, l.user_id, l.user_email, l.api_key_id, l.api_key_name, l.group_id, l.group_name,
-    l.endpoint, l.provider, l.model, l.mode, l.action, l.flagged, l.highest_category, l.highest_score,
-    l.category_scores, l.threshold_snapshot, l.input_excerpt, l.upstream_latency_ms, l.error,
-    l.violation_count, l.auto_banned, l.email_sent, COALESCE(u.status, ''), l.queue_delay_ms, l.matched_keyword, l.blocking_exempt_at_request, l.created_at`
 
 func NewContentModerationRepository(db *sql.DB) service.ContentModerationRepository {
 	return &contentModerationRepository{db: db}
@@ -58,47 +51,24 @@ func (r *contentModerationRepository) CreateLog(ctx context.Context, log *servic
 	err = r.db.QueryRowContext(ctx, `
 INSERT INTO content_moderation_logs (
     request_id, user_id, user_email, api_key_id, api_key_name, group_id, group_name,
-    endpoint, provider, model, mode, action, flagged, highest_category, highest_score,
-    category_scores, threshold_snapshot, input_excerpt, upstream_latency_ms, error,
-    violation_count, auto_banned, email_sent, queue_delay_ms, matched_keyword, input_ciphertext,
-    blocking_exempt_at_request
+    moderation_endpoint_id, moderation_endpoint_name, endpoint, provider, model, mode, action, flagged, highest_category, highest_score,
+    category_scores, threshold_snapshot, input_excerpt, input_content, input_content_truncated, upstream_latency_ms, error,
+    violation_count, auto_banned, email_sent, queue_delay_ms, matched_keyword, blocking_exempt_at_request
 ) VALUES (
     $1, $2, $3, $4, $5, $6, $7,
-    $8, $9, $10, $11, $12, $13, $14, $15,
-    $16::jsonb, $17::jsonb, $18, $19, $20,
-    $21, $22, $23, $24, $25, $26, $27
+    $8, $9, $10, $11, $12, $13, $14, $15, $16, $17,
+    $18::jsonb, $19::jsonb, $20, $21, $22, $23, $24,
+    $25, $26, $27, $28, $29, $30
 ) RETURNING id, created_at`,
 		log.RequestID, userID, log.UserEmail, apiKeyID, log.APIKeyName, groupID, log.GroupName,
-		log.Endpoint, log.Provider, log.Model, log.Mode, log.Action, log.Flagged, log.HighestCategory, log.HighestScore,
-		string(categoryScores), string(thresholdSnapshot), log.InputExcerpt, latency, log.Error,
-		log.ViolationCount, log.AutoBanned, log.EmailSent, nullableIntPtr(log.QueueDelayMS), log.MatchedKeyword, log.InputCiphertext,
-		log.BlockingExemptAtRequest,
+		log.ModerationEndpointID, log.ModerationEndpointName, log.Endpoint, log.Provider, log.Model, log.Mode, log.Action, log.Flagged, log.HighestCategory, log.HighestScore,
+		string(categoryScores), string(thresholdSnapshot), log.InputExcerpt, log.InputContent, log.InputContentTruncated, latency, log.Error,
+		log.ViolationCount, log.AutoBanned, log.EmailSent, nullableIntPtr(log.QueueDelayMS), log.MatchedKeyword, log.BlockingExemptAtRequest,
 	).Scan(&log.ID, &log.CreatedAt)
 	if err != nil {
 		return fmt.Errorf("insert content moderation log: %w", err)
 	}
 	return nil
-}
-
-func (r *contentModerationRepository) GetLogInput(ctx context.Context, id int64) (*service.ContentModerationLogInput, error) {
-	result := &service.ContentModerationLogInput{}
-	err := r.db.QueryRowContext(ctx, `
-SELECT id, action, matched_keyword, input_excerpt, input_ciphertext
-FROM content_moderation_logs
-WHERE id = $1`, id).Scan(
-		&result.ID,
-		&result.Action,
-		&result.MatchedKeyword,
-		&result.InputExcerpt,
-		&result.InputCiphertext,
-	)
-	if errors.Is(err, sql.ErrNoRows) {
-		return nil, service.ErrContentModerationLogNotFound
-	}
-	if err != nil {
-		return nil, fmt.Errorf("get content moderation log input: %w", err)
-	}
-	return result, nil
 }
 
 func (r *contentModerationRepository) ListLogs(ctx context.Context, filter service.ContentModerationLogFilter) ([]service.ContentModerationLog, *pagination.PaginationResult, error) {
@@ -123,7 +93,11 @@ func (r *contentModerationRepository) ListLogs(ctx context.Context, filter servi
 	queryArgs := append([]any{}, args...)
 	queryArgs = append(queryArgs, params.Limit(), params.Offset())
 	rows, err := r.db.QueryContext(ctx, `
-SELECT`+contentModerationListSelectColumns+`
+SELECT
+    l.id, l.request_id, l.user_id, l.user_email, l.api_key_id, l.api_key_name, l.group_id, l.group_name,
+    l.moderation_endpoint_id, l.moderation_endpoint_name, l.endpoint, l.provider, l.model, l.mode, l.action, l.flagged, l.highest_category, l.highest_score,
+    l.category_scores, l.threshold_snapshot, l.input_excerpt, l.input_content, l.input_content_truncated, l.upstream_latency_ms, l.error,
+    l.violation_count, l.auto_banned, l.email_sent, COALESCE(u.status, ''), l.queue_delay_ms, l.matched_keyword, l.blocking_exempt_at_request, l.created_at
 FROM content_moderation_logs l
 LEFT JOIN users u ON u.id = l.user_id `+whereSQL+`
 ORDER BY l.created_at DESC, l.id DESC
@@ -149,6 +123,8 @@ LIMIT $`+fmt.Sprint(len(queryArgs)-1)+` OFFSET $`+fmt.Sprint(len(queryArgs)),
 			&item.APIKeyName,
 			&groupID,
 			&item.GroupName,
+			&item.ModerationEndpointID,
+			&item.ModerationEndpointName,
 			&item.Endpoint,
 			&item.Provider,
 			&item.Model,
@@ -160,6 +136,8 @@ LIMIT $`+fmt.Sprint(len(queryArgs)-1)+` OFFSET $`+fmt.Sprint(len(queryArgs)),
 			&scoresRaw,
 			&thresholdsRaw,
 			&item.InputExcerpt,
+			&item.InputContent,
+			&item.InputContentTruncated,
 			&latency,
 			&item.Error,
 			&item.ViolationCount,
@@ -222,6 +200,7 @@ FROM content_moderation_logs
 WHERE user_id = $1
   AND flagged = TRUE
   AND action <> 'hash_block'
+  AND action <> 'session_block'
   AND action <> 'shadow'
   AND ($3::bool IS FALSE OR action <> 'cyber_policy')
   AND created_at >= $2
@@ -286,7 +265,7 @@ func buildContentModerationLogWhere(filter service.ContentModerationLogFilter) (
 	case "hit", "flagged":
 		where = append(where, "l.flagged = TRUE")
 	case "blocked", "block":
-		where = append(where, "l.action IN ('block', 'keyword_block', 'hash_block')")
+		where = append(where, "l.action IN ('block', 'keyword_block', 'hash_block', 'session_block')")
 	case "pass", "allow":
 		where = append(where, "l.flagged = FALSE AND l.error = ''")
 	case "error":

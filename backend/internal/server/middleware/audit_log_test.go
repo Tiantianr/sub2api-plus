@@ -173,7 +173,6 @@ func TestPromptAuditMutationAuditRoutesHaveStableActionsAndOmitBodies(t *testing
 		require.Truef(t, omitted, "%s must not persist its credential or confirmation-bearing body", route)
 	}
 	require.Equal(t, "admin.prompt_audit.event.read", auditSensitiveReads["GET /api/v1/admin/prompt-audit/events/:id"])
-	require.Equal(t, "admin.risk_control.log_input.read", auditSensitiveReads["GET /api/v1/admin/risk-control/logs/:id/input"])
 }
 
 func TestPasskeyLoginAuditUsesCanonicalLoginActionAndOmitsCredentialBody(t *testing.T) {

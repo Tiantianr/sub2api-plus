@@ -11,7 +11,6 @@ const {
   updateConfig,
   getStatus,
   listLogs,
-  getLogInput,
   getGroups,
   getProxies,
   showError,
@@ -21,7 +20,6 @@ const {
   updateConfig: vi.fn(),
   getStatus: vi.fn(),
   listLogs: vi.fn(),
-  getLogInput: vi.fn(),
   getGroups: vi.fn(),
   getProxies: vi.fn(),
   showError: vi.fn(),
@@ -35,10 +33,12 @@ vi.mock('@/api/admin', () => ({
       updateConfig,
       getStatus,
       listLogs,
-      getLogInput,
       testAPIKeys: vi.fn(),
       deleteFlaggedHash: vi.fn(),
       clearFlaggedHashes: vi.fn(),
+      listSessionBlocks: vi.fn().mockResolvedValue({ items: [], total: 0, page: 1, page_size: 20, pages: 1 }),
+      deleteSessionBlock: vi.fn(),
+      clearSessionBlocks: vi.fn(),
       unbanUser: vi.fn(),
     },
     groups: {
@@ -87,6 +87,13 @@ const baseConfig = (): ContentModerationConfig => ({
   api_key_count: 0,
   api_key_masks: [],
   api_key_statuses: [],
+  endpoints: [{
+    id: 'default', name: 'OpenAI', enabled: true, priority: 1,
+    base_url: 'https://api.openai.com', model: 'omni-moderation-latest', proxy_id: null,
+    api_key_configured: false, api_key_count: 0, api_key_masks: [], api_key_statuses: [],
+    timeout_ms: 3000, cooldown_seconds: 60, failure_threshold: 1, manual_paused: false,
+    runtime: { status: 'healthy', failure_count: 0, last_error: '', half_open: false },
+  }],
   timeout_ms: 3000,
   sample_rate: 100,
   all_groups: true,
@@ -99,13 +106,14 @@ const baseConfig = (): ContentModerationConfig => ({
   email_on_hit: true,
   auto_ban_enabled: true,
   cyber_policy_auto_ban_enabled: false,
-  cyber_policy_exclude_from_ban_count: false,
   ban_threshold: 10,
   violation_window_hours: 720,
   retry_count: 2,
   hit_retention_days: 180,
   non_hit_retention_days: 3,
   pre_hash_check_enabled: false,
+  session_block_enabled: false,
+  session_block_ttl_seconds: 2592000,
   blocked_keywords: [],
   keyword_blocking_mode: 'keyword_and_api',
   text_api_mode: 'auto',
@@ -150,40 +158,11 @@ const runtimeStatus = () => ({
   pre_block_api_key_total_calls: 0,
   pre_block_api_key_loads: [],
   api_key_statuses: [],
+  endpoints: baseConfig().endpoints,
   flagged_hash_count: 0,
+  blocked_session_count: 0,
   last_cleanup_deleted_hit: 0,
   last_cleanup_deleted_non_hit: 0,
-})
-
-const keywordLog = () => ({
-  id: 42,
-  request_id: 'request-42',
-  user_id: 7,
-  user_email: 'user@example.com',
-  api_key_id: 8,
-  api_key_name: 'test-key',
-  group_id: 9,
-  group_name: 'test-group',
-  endpoint: '/v1/chat/completions',
-  provider: 'openai',
-  model: 'gpt-5.5',
-  mode: 'pre_block',
-  action: 'keyword_block',
-  flagged: true,
-  highest_category: 'keyword',
-  highest_score: 1,
-  matched_keyword: 'blocked-keyword',
-  category_scores: { keyword: 1 },
-  threshold_snapshot: {},
-  input_excerpt: 'bounded input excerpt',
-  upstream_latency_ms: null,
-  error: '',
-  violation_count: 1,
-  auto_banned: false,
-  email_sent: false,
-  user_status: 'active',
-  queue_delay_ms: null,
-  created_at: '2026-09-02T01:00:00Z',
 })
 
 const AppLayoutStub = { template: '<div><slot /></div>' }
@@ -238,7 +217,6 @@ describe('admin RiskControlView', () => {
     updateConfig.mockReset()
     getStatus.mockReset()
     listLogs.mockReset()
-    getLogInput.mockReset()
     getGroups.mockReset()
     showError.mockReset()
     showSuccess.mockReset()
@@ -246,7 +224,6 @@ describe('admin RiskControlView', () => {
     getConfig.mockResolvedValue(baseConfig())
     getStatus.mockResolvedValue(runtimeStatus())
     listLogs.mockResolvedValue({ items: [], total: 0, page: 1, page_size: 20, pages: 1 })
-    getLogInput.mockResolvedValue({ id: 42, content: 'complete audited content', complete: true })
     getGroups.mockResolvedValue([])
     getProxies.mockResolvedValue([])
     updateConfig.mockImplementation(async (payload: UpdateContentModerationConfig) => ({
@@ -471,13 +448,7 @@ describe('admin RiskControlView', () => {
     ]))
   })
 
-  it('loads complete keyword-hit content only after opening the input detail', async () => {
-    listLogs.mockResolvedValue({ items: [keywordLog()], total: 1, page: 1, page_size: 20, pages: 1 })
-    getLogInput.mockResolvedValue({
-      id: 42,
-      content: 'complete audited content beyond the bounded excerpt',
-      complete: true,
-    })
+  it('shows the effective policy matrix and the migrated endpoint pool', async () => {
     const wrapper = mount(RiskControlView, {
       global: {
         stubs: {
@@ -494,111 +465,68 @@ describe('admin RiskControlView', () => {
     })
 
     await flushPromises()
+    await findButtonByText(wrapper, 'admin.riskControl.openSettings').trigger('click')
 
-    expect(getLogInput).not.toHaveBeenCalled()
-    expect(wrapper.text()).toContain('bounded input excerpt')
-    expect(wrapper.text()).not.toContain('complete audited content beyond the bounded excerpt')
+    expect(wrapper.get('[data-test="moderation-endpoint-pool"]').text()).toContain('admin.riskControl.endpointPool.title')
+    expect(wrapper.get('[data-test="moderation-effective-behavior"]').text()).toContain('admin.riskControl.policyHelp.combinations.pre_block.auto')
 
-    await wrapper.get('button[title="bounded input excerpt"]').trigger('click')
-    await flushPromises()
-
-    expect(getLogInput).toHaveBeenCalledWith(42)
-    expect(wrapper.text()).toContain('complete audited content beyond the bounded excerpt')
-    expect(wrapper.text()).not.toContain('admin.riskControl.inputDetailHistorical')
+    await wrapper.get('button[aria-label="admin.riskControl.policyHelp.open"]').trigger('click')
+    expect(wrapper.text()).toContain('admin.riskControl.policyHelp.combinations.observe.blocking')
+    expect(wrapper.text()).toContain('admin.riskControl.policyHelp.combinations.off.any')
   })
 
-  it('marks historical keyword rows as excerpt-only', async () => {
-    listLogs.mockResolvedValue({ items: [keywordLog()], total: 1, page: 1, page_size: 20, pages: 1 })
-    getLogInput.mockResolvedValue({ id: 42, content: 'bounded input excerpt', complete: false })
+  it('shows moderation platform attribution and warning endpoint health', async () => {
+    const config = baseConfig()
+    config.endpoints[0]!.runtime = { status: 'degraded', failure_count: 1, last_error: 'http_500', half_open: false }
+    getConfig.mockResolvedValue(config)
+    getStatus.mockResolvedValue({ ...runtimeStatus(), endpoints: config.endpoints })
+    listLogs.mockResolvedValue({
+      items: [{
+        id: 1, request_id: 'req-1', user_id: 7, user_email: 'user@example.test', api_key_id: 9, api_key_name: 'Key',
+        group_id: 3, group_name: 'Default', moderation_endpoint_id: 'default', moderation_endpoint_name: 'OpenAI Moderation',
+        endpoint: '/v1/responses', provider: 'openai', model: 'gpt-5', mode: 'pre_block', action: 'allow', flagged: false,
+        highest_category: 'harassment', highest_score: 0.1, matched_keyword: '', category_scores: {}, threshold_snapshot: {},
+        input_excerpt: 'hello', input_content: 'hello full scan window', input_content_truncated: false, upstream_latency_ms: 12, error: '', violation_count: 0, auto_banned: false, email_sent: false,
+        user_status: 'active', queue_delay_ms: null, created_at: '2026-08-30T00:00:00Z',
+      }],
+      total: 1, page: 1, page_size: 20, pages: 1,
+    })
     const wrapper = mount(RiskControlView, {
-      global: {
-        stubs: {
-          AppLayout: AppLayoutStub,
-          BaseDialog: BaseDialogStub,
-          Icon: true,
-          Select: true,
-          Toggle: true,
-          Pagination: true,
-          ModelWhitelistSelector: ModelWhitelistSelectorStub,
-          ProxySelector: true,
-        },
-      },
+      global: { stubs: { AppLayout: AppLayoutStub, BaseDialog: BaseDialogStub, Icon: true, Select: true, Toggle: true, Pagination: true, ModelWhitelistSelector: ModelWhitelistSelectorStub, ProxySelector: true } },
     })
 
     await flushPromises()
-    await wrapper.get('button[title="bounded input excerpt"]').trigger('click')
-    await flushPromises()
-
-    expect(wrapper.text()).toContain('admin.riskControl.inputDetailHistorical')
-    expect(wrapper.text()).toContain('bounded input excerpt')
+    expect(wrapper.text()).toContain('OpenAI Moderation')
+    await findButtonByText(wrapper, 'admin.riskControl.openSettings').trigger('click')
+    const pool = wrapper.get('[data-test="moderation-endpoint-pool"]')
+    expect(pool.text()).toContain('admin.riskControl.endpointPool.status.degraded')
+    expect(pool.find('.bg-amber-50').exists()).toBe(true)
   })
 
-  it('ignores a late detail response after switching to another record', async () => {
-    const second = { ...keywordLog(), id: 43, input_excerpt: 'second bounded excerpt' }
-    listLogs.mockResolvedValue({ items: [keywordLog(), second], total: 2, page: 1, page_size: 20, pages: 1 })
-    let resolveFirst!: (value: { id: number; content: string; complete: boolean }) => void
-    const firstResponse = new Promise<{ id: number; content: string; complete: boolean }>((resolve) => {
-      resolveFirst = resolve
-    })
-    getLogInput.mockImplementation((id: number) => {
-      if (id === 42) return firstResponse
-      return Promise.resolve({ id: 43, content: 'second complete content', complete: true })
+  it('shows blocking exemption and row input content in the detail', async () => {
+    listLogs.mockResolvedValue({
+      items: [{
+        id: 45, request_id: 'req-exempt', user_id: 7, user_email: 'user@example.test', api_key_id: 9, api_key_name: 'Key',
+        group_id: 3, group_name: 'Default', moderation_endpoint_id: '', moderation_endpoint_name: '',
+        endpoint: '/v1/responses', provider: 'openai', model: 'gpt-5', mode: 'pre_block', action: 'shadow', flagged: true,
+        highest_category: 'keyword', highest_score: 1, matched_keyword: 'local-block', category_scores: {}, threshold_snapshot: {},
+        input_excerpt: 'bounded input excerpt', input_content: 'complete redacted input content', input_content_truncated: false,
+        upstream_latency_ms: null, error: '', violation_count: 0, auto_banned: false, email_sent: false,
+        user_status: 'active', queue_delay_ms: null, blocking_exempt_at_request: true, created_at: '2026-09-04T00:00:00Z',
+      }],
+      total: 1, page: 1, page_size: 20, pages: 1,
     })
     const wrapper = mount(RiskControlView, {
-      global: {
-        stubs: {
-          AppLayout: AppLayoutStub,
-          BaseDialog: BaseDialogStub,
-          Icon: true,
-          Select: true,
-          Toggle: true,
-          Pagination: true,
-          ModelWhitelistSelector: ModelWhitelistSelectorStub,
-          ProxySelector: true,
-        },
-      },
+      global: { stubs: { AppLayout: AppLayoutStub, BaseDialog: BaseDialogStub, Icon: true, Select: true, Toggle: true, Pagination: true, ModelWhitelistSelector: ModelWhitelistSelectorStub, ProxySelector: true } },
     })
 
     await flushPromises()
-    await wrapper.get('button[title="bounded input excerpt"]').trigger('click')
-    await wrapper.get('button[title="second bounded excerpt"]').trigger('click')
-    await flushPromises()
-    expect(wrapper.text()).toContain('second complete content')
-
-    resolveFirst({ id: 42, content: 'late first complete content', complete: true })
-    await flushPromises()
-
-    expect(wrapper.text()).toContain('second complete content')
-    expect(wrapper.text()).not.toContain('late first complete content')
-  })
-
-  it('renders blocking exempt badge when blocking_exempt_at_request is true in list and modal', async () => {
-    const exemptLog = { ...keywordLog(), id: 45, action: 'shadow', blocking_exempt_at_request: true }
-    listLogs.mockResolvedValue({ items: [exemptLog], total: 1, page: 1, page_size: 20, pages: 1 })
-    getLogInput.mockResolvedValue({ id: 45, content: 'exempt keyword input', complete: true })
-    const wrapper = mount(RiskControlView, {
-      global: {
-        stubs: {
-          AppLayout: AppLayoutStub,
-          BaseDialog: BaseDialogStub,
-          Icon: true,
-          Select: true,
-          Toggle: true,
-          Pagination: true,
-          ModelWhitelistSelector: ModelWhitelistSelectorStub,
-          ProxySelector: true,
-        },
-      },
-    })
-
-    await flushPromises()
-    expect(wrapper.find('[data-test="blocking-exempt-at-request"]').exists()).toBe(true)
     expect(wrapper.get('[data-test="blocking-exempt-at-request"]').text()).toBe('admin.riskControl.blockingExemptAtRequest')
 
     await wrapper.get('button[title="bounded input excerpt"]').trigger('click')
     await flushPromises()
 
     expect(wrapper.find('[data-test="modal-blocking-exempt-at-request"]').exists()).toBe(true)
-    expect(wrapper.text()).toContain('exempt keyword input')
+    expect(wrapper.text()).toContain('complete redacted input content')
   })
 })

@@ -613,14 +613,16 @@ func TestPromptAuditDatabasePersistsFullPromptInChatRecordsOnly(t *testing.T) {
 	snapshot.FullContextBytes = 1234
 	snapshot.FullContextSegmentCount = 2
 	require.NotContains(t, snapshot.RedactedPreview, promptCanary)
-	require.Contains(t, snapshot.FullPrompt, promptCanary)
+	require.NotContains(t, snapshot.FullPrompt, promptCanary)
+	require.Equal(t, strings.Repeat("长", DefaultPromptPreviewMaxRunes), snapshot.FullPrompt)
+	require.True(t, snapshot.FullPromptTruncated)
 	event, err := repo.RecordBlocking(ctx, snapshot.Redacted(), 1, integrationResult(EventCritical), true)
 	require.NoError(t, err)
 	// The event response resolves retained content from the chat record; the
 	// event table and transient job row never contain the canary.
 	adminJSON, err := json.Marshal(event)
 	require.NoError(t, err)
-	require.Contains(t, string(adminJSON), promptCanary)
+	require.NotContains(t, string(adminJSON), promptCanary)
 	require.NotContains(t, event.Snapshot.RedactedPreview, promptCanary)
 	require.Equal(t, promptText, event.Snapshot.FullPrompt)
 	require.Equal(t, "203.0.113.42", event.Snapshot.ClientIP)

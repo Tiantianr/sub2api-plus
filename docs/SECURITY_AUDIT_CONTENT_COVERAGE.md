@@ -50,7 +50,7 @@ classifications.
 
 | Protocol family | Canonical text sources | Current-content rule | Explicit no-text or control cases |
 | --- | --- | --- | --- |
-| OpenAI Chat Completions | `instructions`; `tools` and `functions`; `messages[].content`; `tool_calls[].function.arguments`; `function_call.arguments`; tool/function-role results, including structured content | Last message is current; if the tail contains tool/function results, every consecutive trailing result is current; system/developer context is current audit context | Recognized image/video content blocks |
+| OpenAI Chat Completions | `instructions`; `tools` and `functions`; `messages[].content`; `messages[].reasoning_content`; `tool_calls[].function.arguments`; `function_call.arguments`; tool/function-role results, including structured content | Last message is current; if the tail contains tool/function results, every consecutive trailing result is current; system/developer context is current audit context. Assistant reasoning is classified as reasoning, while user-role reasoning retains direct-user attribution. | Recognized image/video content blocks |
 | Anthropic Messages | `system`; `tools`; message text and thinking text; client/server tool-use input; tool-result content, including structured content | Last message is current; system and tool definitions remain current audit context | Recognized image blocks and encrypted `redacted_thinking` blocks |
 | OpenAI Responses HTTP and WebSocket | Top-level, `response`-nested, or session-update `instructions`, `tools`, native `input`, legacy `messages`/string `prompt`, and reusable `prompt.variables`; message/reasoning/refusal text; function/custom/tool-search outputs; local/hosted shell, apply-patch, computer, MCP, code-interpreter, program/program-output, additional-tools, and accepted search call payloads. Native non-null `input` has ingress-equivalent precedence over legacy aliases. `POST /v1/responses/input_tokens` uses the same document before account selection. | Last input item is current; every consecutive trailing recognized output is current; dynamic definitions are current context; a claimed system/developer role remains context and all other current roles remain client-controlled | Recognized media and shape-validated encrypted compaction fields produce no text. Unknown or partially understood content is incomplete and fails closed under blocking audit. |
 | OpenAI Live | Initial session instructions, tools, input, legacy `input_audio_transcription.prompt`/`keywords`, current `audio.input.transcription.prompt`/`keywords`; `session.update`; `transcription_session.update`; `conversation.item.create`; Live-shaped `response.create` | Every initial HTTP session and accepted Sideband client frame enters the audit hook before its downstream side effect or upstream write | Known control-only events produce no text. Unknown content-bearing frames are incomplete and close a blocking Sideband connection before forwarding. |
@@ -111,6 +111,22 @@ images and local text keyword matches asynchronous, non-enforcing Content
 Moderation observations recorded with the request-time exemption snapshot.
 Text-only flagged hashes retain their independent authority.
 
+Call-less Codex automation and delegation bootstrap items are a documented
+Responses exception to ordinary tool-output attribution. When the shared strict
+wire validator confirms the supported namespace/name, envelope, missing call
+anchor, unique JSON-member, and empty `previous_response_id` requirements, the
+canonical extractor classifies the output as a current client-controlled user
+message because the post-audit protocol adapter sends that exact text upstream
+as `role=user`. Ordinary function/tool outputs, unsafe or ambiguous bootstrap
+shapes, and outputs with a real call/reference anchor remain tool output and are
+excluded by both engines. The handler still audits the immutable inbound bytes
+before applying the actual request transform.
+
+Anthropic and Bedrock `fallbacks` are outbound routing/control fields rather
+than prompt text. Sanitizing them for upstream beta compatibility happens only
+after ingress audit; recognized message, system, and tool-definition siblings
+retain the canonical attribution in the protocol matrix above.
+
 ## Engine Selection
 
 Both engines consume the same canonical document:
@@ -126,9 +142,10 @@ Historical rows are not rewritten: API reads use their persisted
 | Engine/mode | Segment selection |
 | --- | --- |
 | Content Moderation | Scans only current direct-user text and images. Chat and Anthropic require an explicit `user` role; Responses, Live, and Gemini also accept their protocol-defined roleless user forms. Direct Alpha Search queries, embedding strings, and media prompts remain eligible. Instructions, system/developer context, reusable prompt variables, assistant/model messages, reasoning, tool definitions/calls/results, approval responses, and tool-produced images are excluded so platform or external content is not attributed to the user. Ordinary pre-block images and text keyword hits are synchronous and enforcing. Requests carrying the frozen Prompt Audit blocking-exempt marker treat keyword hits and images as non-enforcing shadow observations that cannot create hashes or enforcement side effects. Keyword shadow recording does not bypass independent known text hashes or successful API findings under a configured blocking text policy. |
+| Prompt Audit public extraction contract | A full snapshot includes the official client-controlled transcript: user text, system/developer/instructions, assistant/model text, reasoning, prompt variables, tool definitions/calls/results, search queries, embedding strings, and media prompts. Its narrow snapshot includes the latest user turn plus the nearest preceding assistant/model turn; without user text it falls back to the full transcript. This compatibility contract is also used by shared HTTP/WS semantic coverage tests. |
 | Prompt Audit async / async-deep | Selects user turns plus configured instructions/system/developer context, assistant/model messages, reasoning, reusable prompt variables, tool definitions, tool-call arguments, and tool outputs. An async-only current user turn is mandatory. Async-deep under blocking may omit current, historical, and automatic segments with valid per-segment Allow receipts, including the same request's trusted handoff. |
 | Prompt Audit blocking-exempt | Uses the complete async-deep module selection with all Allow receipts bypassed. The full job is reliably queued before forwarding, then Guard runs asynchronously. It never creates receipts or recovery state and is identified by its request-time exemption snapshot. |
-| Prompt Audit blocking | For non-exempt users, scans direct user text marked `Current` unless an unexpired blocking Allow receipt certifies the same user, policy, source, and receipt-normalized canonical text. Every historical user turn has the same receipt requirement; misses are synchronously reviewed so client-controlled role ordering cannot hide unreviewed text. Configuration independently adds the same source modules. `blocking_latest_turn_only` remains a compatibility field and does not override module selection. Any in-scope aggregate Block writes user-level deep-review state before returning 403. A user carrying that requirement is synchronously reviewed with the active async-deep module selection and all receipts bypassed regardless of API key or client session identity, but only while the request remains in configured group scope. |
+| Prompt Audit blocking | For non-exempt users, scans direct user text marked `Current` and the nearest preceding assistant/model turn unless an unexpired blocking Allow receipt certifies the same user, policy, source, and receipt-normalized canonical text. Every historical user turn has the same receipt requirement; misses are synchronously reviewed so client-controlled role ordering cannot hide unreviewed text. Configuration independently adds the same source modules. `blocking_latest_turn_only` remains a compatibility field and does not override module selection. Any in-scope aggregate Block writes user-level deep-review state before returning 403. A user carrying that requirement is synchronously reviewed with the active async-deep module selection and all receipts bypassed regardless of API key or client session identity, but only while the request remains in configured group scope. |
 
 Sharing a canonical document does not mean that the engines select identical
 segments. Content Moderation preserves the `v0.1.177+custom.003` attribution
@@ -316,6 +333,105 @@ pauses enforcement without clearing the Redis state; making blocking applicable
 again resumes it.
 Requests that already completed the final audit gate cannot be retroactively
 cancelled.
+
+Content Moderation list rows keep a 240-rune redacted `input_excerpt`. The
+admin detail view stores `input_content` as the same current-user scan window
+sent to the external Moderation API: at most 12,000 runes after secret
+redaction and NUL stripping. `input_content_truncated` is true only when the
+text passed to log persistence still exceeded that window. The live Check
+path normalizes to 12,000 runes before persist, so a longer original prompt
+is stored as the clipped scan window with `input_content_truncated=false`.
+Image URLs and raw request bodies are not persisted as detail text.
+
+Inbound `<system-reminder>` markup is not a trust boundary. Content Moderation
+treats it as ordinary direct-user text. Prompt Audit may still strip known
+client-harness wrapper blocks under its documented selection policy; that
+engine-specific cleanup does not suppress the same text from Content
+Moderation.
+
+## Content Moderation Text Authority
+
+`text_api_mode` controls only the external Moderation API's authority over
+text. Missing, empty, legacy, and invalid values normalize to `blocking`.
+Local keyword checks, pre-hash checks, canonical extraction, and image
+moderation remain independent.
+
+| Text API mode | External text behavior | Image behavior |
+| --- | --- | --- |
+| `blocking` | Follows the global Content Moderation mode and preserves the existing synchronous blocking behavior in `pre_block` | Follows the global mode |
+| `observe` | Runs as shadow comparison only; a finding is logged as `shadow` and cannot block, seed a risk hash, notify, increment violations, or ban/disable an identity | Follows the global mode independently |
+| `off` | Does not call the external API for text | Follows the global mode independently |
+| `auto` | Resolves to `observe` only when active, non-degraded, synchronous Prompt Guard includes the exact request group; otherwise resolves to `blocking` | Follows the global mode independently |
+
+The request-scoped Prompt Guard authority signal is derived inside the audit
+coordinator. Async-only, disabled, degraded, untrusted, and out-of-scope Guard
+configurations never grant text authority. Actions are distinct:
+`hash_block`, `keyword_block`, `block`, `session_block`, `shadow`, and
+`cyber_policy`.
+
+## Content Moderation Session Block
+
+When `session_block_enabled` is true, an API-backed Content Moderation
+`pre_block` decision with `action=block` (text or image threshold hit) records
+the explicit client session ID for `session_block_ttl_seconds` (default 30
+days). Later HTTP and WebSocket turns that present the same tenant-isolated
+session ID are rejected as `session_block` before another Moderation API call,
+account selection, billing, or upstream write.
+
+The block is independent of cyber-policy user bans and of the OpenAI cyber
+session table. Keyword hits, hash blocks, shadow findings, Prompt Guard
+blocks, extraction failures, and missing session IDs never seed it.
+Administrators are blocked for the current request only and are not written
+into the session blacklist. Raw audio frames remain unextractable and are
+not a session-block trigger. Redis is a TTL cache in front of the durable
+table. A cache miss or Redis error falls back to PostgreSQL and, on a live
+row, rehydrates the remaining TTL with `SETNX` so later hits do not extend
+expiry. A Redis hit is confirmed against PostgreSQL; an expired or deleted
+row clears the cache and does not block. If Redis still has the key and
+PostgreSQL is unavailable, the cached hit remains authoritative. A cache
+miss plus a PostgreSQL error fails open. Administrators may list, delete a
+specific tenant-isolated block key, or clear the durable session-block index
+from Risk Control. Deletes and clears write PostgreSQL first, then Redis, so
+a later lookup cannot resurrect a removed block. An active session block
+still rejects later turns even when the current request is outside the
+configured group or model filter.
+
+## Content Moderation Endpoint Failover
+
+External Moderation API calls use enabled endpoints in administrator-defined
+priority order and rotate usable keys inside each endpoint. Retryable transport,
+timeout, 5xx, invalid-response, or exhausted-key failures may place that
+endpoint into cooldown and continue the same audit evaluation with the next
+endpoint. Authentication and rate-limit responses first affect only the
+corresponding key.
+
+Cooldown recovery is passive: expiry never creates probe traffic. The next real
+moderation request performs the single half-open attempt; concurrent requests
+skip that endpoint until the attempt finishes. Manual connection tests are
+administrator actions and do not run on a schedule. Context cancellation and
+canonical extraction failures never penalize endpoint health. If every endpoint
+is unavailable, the existing dependency-failure behavior remains authoritative;
+an unavailable dependency is not converted into a policy violation.
+
+Successful API-backed audit records snapshot the stable moderation endpoint ID
+and its display name so operators can distinguish the platform that actually
+produced the decision after failover. Local keyword/hash decisions, dependency
+failures without a moderation decision, and historical rows keep both values
+empty. Endpoint URLs, API keys, raw content, and unsanitized upstream errors are
+not added to audit records.
+
+## Prompt Audit Operations
+
+Prompt Audit events retain at most 65,536 runes of canonical selected content
+in newest-to-oldest order; `full_prompt_truncated` states whether the retained
+value reached that bound. The redacted preview is taken from the head of that
+newest-first text. The scanner input limit remains at most 100,000 runes per
+chunk. Operational
+metadata includes trusted normalized client IP, prompt length, selected
+message count, execution mode, queue delay, effective input limit, matched
+chunk index, and separate last-success and last-error timestamps. Client IP
+filtering is exact-match. These diagnostics do not create a complete-context
+download API or expand the canonical selection contract.
 
 ## Failure Semantics
 

@@ -55,22 +55,22 @@ type promptSegment struct {
 type promptSelection string
 
 const (
-	promptSelectionUserOnly          promptSelection = "all_user_turns"
-	promptSelectionCurrentUser       promptSelection = "current_user_turn"
-	promptSelectionBlockingCandidate promptSelection = "blocking_receipt_candidates"
+	promptSelectionUserOnly           promptSelection = "all_user_turns"
+	promptSelectionBlockingCandidate  promptSelection = "blocking_receipt_candidates"
+	promptSelectionClientTranscript   promptSelection = "client_controlled_transcript"
+	promptSelectionLatestConversation promptSelection = "latest_user_and_previous_output"
 )
 
 func ExtractPromptSnapshot(req Request) (PromptSnapshot, error) {
-	snapshot, _, err := extractPromptSnapshotForSelection(req, promptSelectionUserOnly, ReviewModules{})
+	snapshot, _, err := extractOfficialPromptSnapshotWithDiagnostics(req, false)
 	return snapshot, err
 }
 
-// ExtractBlockingPromptSnapshot retains the latest-user-only compatibility
-// helper. Runtime blocking selection uses configured modules through
-// extractBlockingPromptSnapshotWithDiagnostics.
+// ExtractBlockingPromptSnapshot follows the upstream transcript contract used
+// by compatibility callers. Runtime blocking adds configured modules and
+// per-segment Allow receipts through extractBlockingPromptSnapshotWithDiagnostics.
 func ExtractBlockingPromptSnapshot(req Request, latestTurnOnly bool) (PromptSnapshot, error) {
-	_ = latestTurnOnly
-	snapshot, _, err := extractPromptSnapshotForSelection(req, promptSelectionCurrentUser, ReviewModules{})
+	snapshot, _, err := extractOfficialPromptSnapshotWithDiagnostics(req, latestTurnOnly)
 	return snapshot, err
 }
 
@@ -79,16 +79,37 @@ func extractBlockingPromptSnapshotWithDiagnostics(req Request, modules ReviewMod
 }
 
 func extractPromptSnapshotWithDiagnostics(req Request, latestTurnOnly bool) (PromptSnapshot, promptExtractionDiagnostic, error) {
-	selection := promptSelectionUserOnly
-	modules := ReviewModules{}
-	if latestTurnOnly {
-		selection = promptSelectionCurrentUser
-	}
-	return extractPromptSnapshotForSelection(req, selection, modules)
+	return extractOfficialPromptSnapshotWithDiagnostics(req, latestTurnOnly)
 }
 
 func extractDeepPromptSnapshotWithDiagnostics(req Request, modules ReviewModules) (PromptSnapshot, promptExtractionDiagnostic, error) {
 	return extractPromptSnapshotForSelection(req, promptSelectionUserOnly, modules)
+}
+
+func extractOfficialPromptSnapshotWithDiagnostics(req Request, latestTurnOnly bool) (PromptSnapshot, promptExtractionDiagnostic, error) {
+	document, diagnostic, err := extractPromptDocument(req)
+	if err != nil {
+		return PromptSnapshot{}, diagnostic, err
+	}
+	selection := promptSelectionClientTranscript
+	segments := officialTranscriptReviewSegments(document, req.Protocol)
+	if latestTurnOnly {
+		selection = promptSelectionLatestConversation
+		segments = officialLatestConversationReviewSegments(document, req.Protocol)
+	}
+	snapshot := promptSnapshotFromSegments(req, segments)
+	completeContext, contextHash, contextBytes, segmentCount, contextErr := buildCompletePromptContext(req, document, diagnostic, snapshot, selection, ReviewModules{})
+	if contextErr != nil {
+		return PromptSnapshot{}, diagnostic, contextErr
+	}
+	snapshot.CompleteContext = completeContext
+	snapshot.FullContextHash = contextHash
+	snapshot.FullContextBytes = contextBytes
+	snapshot.FullContextSegmentCount = segmentCount
+	if strings.TrimSpace(snapshot.ScanText) == "" {
+		return PromptSnapshot{}, diagnostic, ErrNoPromptText
+	}
+	return snapshot, diagnostic, nil
 }
 
 func extractPromptSnapshotForSelection(req Request, selection promptSelection, modules ReviewModules) (PromptSnapshot, promptExtractionDiagnostic, error) {
@@ -129,6 +150,9 @@ func extractPromptDocument(req Request) (auditcontent.Document, promptExtraction
 func buildPromptSnapshot(req Request, document auditcontent.Document, selection promptSelection, modules ReviewModules) PromptSnapshot {
 	users := promptSegmentsFromAuditContent(document, req.Protocol, modules.System)
 	segments := userPromptReviewSegments(users, selection)
+	if selection == promptSelectionBlockingCandidate && !modules.Assistant {
+		segments = append(segments, nearestPreviousAssistantReviewSegments(users)...)
+	}
 	segments = append(segments, configuredPromptModuleSegments(document, modules)...)
 	return promptSnapshotFromSegments(req, segments)
 }
@@ -177,7 +201,7 @@ func promptSegmentsFromAuditContent(document auditcontent.Document, protocol str
 		if !isPromptAuditConversationSegment(segment, allowRolelessMessage) {
 			continue
 		}
-		role := segment.Role
+		role := strings.ToLower(strings.TrimSpace(segment.Role))
 		user := role == "user"
 		if role == "" && ((segment.Source == auditcontent.SourceMessage && allowRolelessMessage) ||
 			segment.Source == auditcontent.SourceSearchQuery ||
@@ -271,6 +295,106 @@ func isPromptAuditConversationSegment(segment auditcontent.Segment, allowRoleles
 	}
 }
 
+func officialTranscriptReviewSegments(document auditcontent.Document, protocol string) []PromptReviewSegment {
+	segments := normalizedPromptSegments(clientControlledPromptSegments(document, protocol))
+	result := make([]PromptReviewSegment, 0, len(segments))
+	for index := len(segments) - 1; index >= 0; index-- {
+		result = append(result, promptReviewSegmentFromPromptSegment(segments[index]))
+	}
+	return result
+}
+
+func officialLatestConversationReviewSegments(document auditcontent.Document, protocol string) []PromptReviewSegment {
+	segments := normalizedPromptSegments(clientControlledPromptSegments(document, protocol))
+	latestUserStart := latestUserSegmentStart(segments)
+	if latestUserStart < 0 {
+		return officialTranscriptReviewSegments(document, protocol)
+	}
+	latestUserEnd := latestUserStart
+	parts := make([]string, 0, 1)
+	for latestUserEnd < len(segments) && isUserSegment(segments[latestUserEnd]) {
+		parts = append(parts, segments[latestUserEnd].text)
+		latestUserEnd++
+	}
+	result := []PromptReviewSegment{{
+		Source: "user", Text: strings.Join(parts, "\n\n"), Parts: append([]string(nil), parts...),
+		CombineParts: true, CurrentUser: segments[latestUserStart].current, Count: 1,
+	}}
+	for index := latestUserStart - 1; index >= 0; index-- {
+		if !isAssistantOutputSegment(segments[index]) {
+			continue
+		}
+		start := index
+		for start > 0 && isAssistantOutputSegment(segments[start-1]) {
+			start--
+		}
+		for _, segment := range segments[start : index+1] {
+			result = append(result, promptReviewSegmentFromPromptSegment(segment))
+		}
+		break
+	}
+	return result
+}
+
+func clientControlledPromptSegments(document auditcontent.Document, protocol string) []promptSegment {
+	allowRolelessMessage := promptAuditAllowsRolelessMessage(protocol)
+	segments := make([]promptSegment, 0, len(document.Segments))
+	for _, segment := range document.Segments {
+		if !isPromptAuditClientControlledSegment(segment, allowRolelessMessage) {
+			continue
+		}
+		role := strings.ToLower(strings.TrimSpace(segment.Role))
+		user := role == "user"
+		if role == "" && ((segment.Source == auditcontent.SourceMessage && allowRolelessMessage) ||
+			segment.Source == auditcontent.SourceSearchQuery ||
+			segment.Source == auditcontent.SourceEmbeddingInput ||
+			segment.Source == auditcontent.SourceMediaPrompt) {
+			user = true
+			role = "user"
+		}
+		if role == "" {
+			switch segment.Source {
+			case auditcontent.SourceInstruction, auditcontent.SourcePromptVariable:
+				role = "system"
+			case auditcontent.SourceToolCall, auditcontent.SourceToolDefinition, auditcontent.SourceToolOutput:
+				role = "tool"
+			case auditcontent.SourceReasoning:
+				role = "assistant"
+			}
+		}
+		text := segment.Text
+		if user {
+			text = stripPromptAuditClientWrapperBlocks(text)
+		}
+		segments = append(segments, promptSegment{text: text, user: user, role: role, current: segment.Current})
+	}
+	return segments
+}
+
+func isPromptAuditClientControlledSegment(segment auditcontent.Segment, allowRolelessMessage bool) bool {
+	if !segment.ClientControlled {
+		return false
+	}
+	switch segment.Source {
+	case auditcontent.SourceSearchQuery, auditcontent.SourceEmbeddingInput, auditcontent.SourceMediaPrompt,
+		auditcontent.SourceInstruction, auditcontent.SourcePromptVariable,
+		auditcontent.SourceToolCall, auditcontent.SourceToolDefinition, auditcontent.SourceToolOutput,
+		auditcontent.SourceReasoning:
+		return true
+	case auditcontent.SourceMessage:
+		switch strings.ToLower(strings.TrimSpace(segment.Role)) {
+		case "user", "system", "developer", "assistant", "tool", "model":
+			return true
+		case "":
+			return allowRolelessMessage
+		default:
+			return false
+		}
+	default:
+		return false
+	}
+}
+
 func isPromptAuditUserRole(role string, allowRoleless bool) bool {
 	switch strings.ToLower(strings.TrimSpace(role)) {
 	case "user":
@@ -328,15 +452,6 @@ func userPromptReviewSegments(values []promptSegment, selection promptSelection)
 			break
 		}
 	}
-	if selection == promptSelectionCurrentUser {
-		if turns[priority].CurrentUser {
-			current := turns[priority]
-			current.Count = 1
-			current.CombineParts = true
-			return []PromptReviewSegment{current}
-		}
-		return nil
-	}
 	if selection == promptSelectionUserOnly && len(turns[priority].Parts) > 1 {
 		parts := turns[priority].Parts
 		turns[priority].Parts = append([]string{parts[len(parts)-1]}, parts[:len(parts)-1]...)
@@ -350,6 +465,60 @@ func userPromptReviewSegments(values []promptSegment, selection promptSelection)
 		result[0].CombineParts = true
 	}
 	return result
+}
+
+func nearestPreviousAssistantReviewSegments(values []promptSegment) []PromptReviewSegment {
+	normalized := normalizedPromptSegments(values)
+	latestUserStart := latestUserSegmentStart(normalized)
+	if latestUserStart < 0 {
+		return nil
+	}
+	for index := latestUserStart - 1; index >= 0; index-- {
+		if !isAssistantOutputSegment(normalized[index]) {
+			continue
+		}
+		start := index
+		for start > 0 && isAssistantOutputSegment(normalized[start-1]) {
+			start--
+		}
+		result := make([]PromptReviewSegment, 0, index-start+1)
+		for _, segment := range normalized[start : index+1] {
+			result = append(result, promptReviewSegmentFromPromptSegment(segment))
+		}
+		return result
+	}
+	return nil
+}
+
+func latestUserSegmentStart(values []promptSegment) int {
+	latest := -1
+	for index := len(values) - 1; index >= 0; index-- {
+		if isUserSegment(values[index]) {
+			latest = index
+			break
+		}
+	}
+	for latest > 0 && isUserSegment(values[latest-1]) {
+		latest--
+	}
+	return latest
+}
+
+func promptReviewSegmentFromPromptSegment(segment promptSegment) PromptReviewSegment {
+	source := segment.role
+	if segment.user {
+		source = "user"
+	}
+	if source == "model" {
+		source = "assistant"
+	}
+	if source == "" {
+		source = "other"
+	}
+	return PromptReviewSegment{
+		Source: source, Text: segment.text, Parts: []string{segment.text},
+		CurrentUser: segment.current && segment.user, Count: 1,
+	}
 }
 
 func normalizedPromptSegments(values []promptSegment) []promptSegment {
@@ -378,6 +547,10 @@ func reviewSegmentParts(segment PromptReviewSegment) []string {
 		return nil
 	}
 	return []string{segment.Text}
+}
+
+func isAssistantOutputSegment(segment promptSegment) bool {
+	return segment.role == "assistant" || segment.role == "model"
 }
 
 // stripPromptAuditClientWrapperBlocks removes client harness XML from user

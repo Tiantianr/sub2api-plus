@@ -1,31 +1,46 @@
-Sub2API Plus v0.1.183+custom.927
+Sub2API Plus v0.2.0+custom.901
 
 ## Highlights
 
-- Extend OpenAI account user access management to include OpenAI API key accounts
-  alongside OAuth accounts in the administrative access matrix.
-- Redesign and optimize the user Billing & Subscription checkout page (`/purchase`)
-  with a centered sliding-pill switcher, dedicated recharge balance layout,
-  feature-rich plan cards with stats metrics, and unified primary action buttons.
+- Synchronize the published Plus `v0.2.0+custom.002` release while retaining the
+  personal fork's security-audit, Codex identity, billing, deployment, and
+  release behavior.
+- Add client-disconnect lifecycle tracking, ordered streak enforcement,
+  automatic user disabling, and administrator event review.
+- Add durable Content Moderation session blocks, endpoint failover, and bounded
+  redacted input retention for administrator review.
 
 ## Changed
 
 - Allow administrators to manage user access grants for both OpenAI OAuth and OpenAI API Key accounts.
-- Reorganize checkout tabs to place recharge balance first and subscription plans second with smooth animated indicators.
-- Upgrade subscription plan cards with structured rate, limit, and quota metrics boxes and feature check lists.
-- Standardize checkout confirmation buttons to the system royal-blue color scheme.
+- Preserve the redesigned Billing & Subscription checkout and multi-currency
+  recharge presentation introduced in the previous personal release.
+- Prompt Audit scans the canonical client-controlled transcript; latest-turn
+  blocking prioritizes current input while retaining the personal asynchronous
+  deep-review, exemption, fail-closed, evidence, and session-analysis policies.
+- Content Moderation stores bounded redacted `input_content` and no longer keeps
+  the superseded encrypted `input_ciphertext` evidence chain.
 
 ## Fixed
 
-- Prevent confirmation buttons from inheriting inconsistent payment-channel background colors during checkout.
-- Ensure all subscription plan cards remain interactive and visible when selecting plans.
+- Settle admitted OpenAI HTTP and WebSocket usage after client disconnects
+  without silently dropping lifecycle or billing outcomes.
+- Trigger failover for terminal failures returned through successful HTTP
+  responses and keep PostgreSQL authoritative for session blocks.
+- Avoid rendering empty IP last-seen values as permanent bans.
 
 ## Compatibility and migration
 
-- No database migration, dependency, configuration, port, certificate, proxy,
-  or persistent-volume change is required.
-- Existing user subscriptions, payment orders, and provider configurations remain fully compatible.
-- Roll back application code to `v0.1.183+custom.926` if required.
+- Forward-only database migrations add moderation observability, native
+  compaction metadata, OpenAI Fast controls, disconnect lifecycle state,
+  durable moderation session blocks, and redacted moderation input. A final
+  migration removes the superseded `input_ciphertext` column.
+- Existing published migrations remain byte-for-byte unchanged; imported
+  migrations are renumbered above the personal fork's existing `248` boundary.
+- Existing user subscriptions, payment orders, provider configurations, and
+  Prompt Audit evidence remain compatible.
+- Roll back application code to `v0.1.183+custom.927` if required; database
+  migrations remain forward-only.
 - Personal images and binary archives remain Linux arm64 only.
 
 ## Known issues
@@ -36,7 +51,7 @@ Sub2API Plus v0.1.183+custom.927
 
 ## Upstream baseline
 
-Plus release: v0.1.183+custom.003
-Plus commit: e94f300b586d8ceb91ba526b13313407b99ffbff
-Official release: v0.1.183
-Official commit: e8cb019fabf8b55199436229044cbf9aa7a82564
+Plus release: v0.2.0+custom.002
+Plus commit: cd1d8438cbe19358936605af7e6b20954283bf15
+Official release: v0.2.0
+Official commit: aa236488351eb71e120fc2b6fb32e36b0374c918

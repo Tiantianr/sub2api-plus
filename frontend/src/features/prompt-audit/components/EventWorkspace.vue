@@ -160,6 +160,11 @@
                 {{ t('admin.promptAudit.events.blockingExemptAtRequest') }}
               </span>
             </td>
+            <td class="whitespace-nowrap px-3 py-3 text-xs text-gray-600 dark:text-dark-300">
+              <p>{{ t('admin.promptAudit.events.queueDelay') }} · {{ formatDuration(event.queue_delay_ms) }}</p>
+              <p class="mt-1">{{ t('admin.promptAudit.events.auditLatency') }} · {{ formatDuration(event.latency_ms) }}</p>
+              <p class="mt-1 text-gray-400 dark:text-dark-500">{{ formatMode(event.execution_mode) }}</p>
+            </td>
             <td class="max-w-xs px-3 py-3"><p class="line-clamp-2 break-words text-gray-600 dark:text-dark-300">{{ event.snapshot.redacted_preview || '—' }}</p></td>
             <td class="whitespace-nowrap px-3 py-3 text-right">
               <button type="button" class="btn btn-ghost btn-sm" @click="$emit('view', event.id)">{{ t('common.view') }}</button>
