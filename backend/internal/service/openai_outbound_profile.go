@@ -177,6 +177,9 @@ func resolveOpenAIOutboundIdentityWithVersion(accountUA, systemUA, configuredVer
 
 func resolveOpenAIOutboundIdentityWithVersionAndCompatibility(accountUA, systemUA, configuredVersion string, allowLegacyCompatibility bool) openAIOutboundIdentity {
 	identity := resolveOpenAIOutboundIdentityCandidatesWithCompatibility(accountUA, systemUA, allowLegacyCompatibility)
+	if identity.Originator == "pi" {
+		return identity
+	}
 	version, _ := resolveOpenAICodexClientVersion(configuredVersion, "")
 	if userAgent := openai.SetCodexUserAgentVersion(identity.UserAgent, version); userAgent != "" {
 		identity.UserAgent = userAgent
@@ -189,6 +192,9 @@ func validOpenAIOutboundIdentityWithCompatibility(userAgent string, allowLegacyC
 	profile, pairedUA, ok := openai.PairConfiguredCodexClientIdentity(strings.TrimSpace(userAgent), allowLegacyCompatibility)
 	if !ok {
 		return openAIOutboundIdentity{}, false
+	}
+	if profile.Originator == "pi" {
+		return openAIOutboundIdentity{UserAgent: pairedUA, Originator: "pi", Version: profile.Version}, true
 	}
 	version := openAIOutboundIdentityVersion(pairedUA)
 	if version == "" {
@@ -230,7 +236,11 @@ func applyResolvedOpenAIOutboundIdentity(headers http.Header, identity openAIOut
 	// endpoints always require it; API-key endpoints retain Version only when an
 	// earlier endpoint-specific stage supplied it.
 	if useCodexIdentity || headers.Get("Version") != "" {
-		headers.Set("Version", identity.Version)
+		if identity.Originator == "pi" {
+			headers.Del("Version")
+		} else {
+			headers.Set("Version", identity.Version)
+		}
 	}
 	if !useCodexIdentity {
 		headers.Del("Originator")

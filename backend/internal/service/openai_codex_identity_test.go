@@ -109,3 +109,25 @@ func TestResolveOpenAIOutboundIdentityCandidatesKeepsSourcePriority(t *testing.T
 	require.Equal(t, DefaultOpenAICodexUserAgent, identity.UserAgent)
 	require.Equal(t, openai.CodexDefaultOriginator, identity.Originator)
 }
+
+func TestEnforceCodexIdentityHeadersWithPiAgent(t *testing.T) {
+	headers := make(http.Header)
+	headers.Set("originator", "codex_cli_rs")
+	headers.Set("version", "0.150.0")
+
+	enforceCodexIdentityHeadersWithUA(headers, "pi/0.85.0 (darwin 24.1.0; arm64)")
+
+	require.Equal(t, "pi", headers.Get("originator"))
+	require.Equal(t, "pi/0.85.0 (darwin 24.1.0; arm64)", headers.Get("user-agent"))
+	require.Empty(t, headers.Get("version"))
+}
+
+func TestResolveOpenAIOutboundIdentityCandidatesWithPiAgent(t *testing.T) {
+	accountUA := "pi/0.85.0 (darwin 24.1.0; arm64)"
+	globalUA := "codex-tui/0.151.0 (Mac OS X 15.0; arm64) iTerm"
+
+	identity := resolveOpenAIOutboundIdentityCandidates(accountUA, globalUA)
+	require.Equal(t, openAIOutboundIdentitySourceAccount, identity.Source)
+	require.Equal(t, "pi", identity.Originator)
+	require.Equal(t, accountUA, identity.UserAgent)
+}

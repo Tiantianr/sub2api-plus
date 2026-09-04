@@ -118,14 +118,16 @@ func (s *openaiOAuthService) refreshTokenWithClientID(ctx context.Context, refre
 	var tokenResp openai.TokenResponse
 
 	userAgent, originator, version = resolveOpenAIOAuthIdentity(userAgent, originator, version)
-	resp, err := client.R().
+	req := client.R().
 		SetContext(ctx).
 		SetHeader("User-Agent", userAgent).
 		SetHeader("Originator", originator).
-		SetHeader("Version", version).
 		SetFormDataFromValues(formData).
-		SetSuccessResult(&tokenResp).
-		Post(s.tokenURL)
+		SetSuccessResult(&tokenResp)
+	if version != "" {
+		req.SetHeader("Version", version)
+	}
+	resp, err := req.Post(s.tokenURL)
 
 	if err != nil {
 		if shouldReturnOpenAINoProxyHint(ctx, proxyURL, err) {
@@ -149,6 +151,9 @@ func resolveOpenAIOAuthIdentity(userAgent, requestedOriginator, version string) 
 	profile, pairedUserAgent, ok := openai.PairConfiguredCodexClientIdentity(strings.TrimSpace(userAgent), true)
 	if ok && (profile.Profile != openai.CodexClientProfileLegacyCompatibility || strings.TrimSpace(requestedOriginator) == profile.Originator) {
 		pairedOriginator := profile.Originator
+		if pairedOriginator == "pi" {
+			return pairedUserAgent, "pi", ""
+		}
 		resolvedVersion := service.NormalizeCodexClientVersion(version)
 		if resolvedVersion == "" {
 			resolvedVersion = service.NormalizeCodexClientVersion(openai.CodexUserAgentVersion(pairedUserAgent))

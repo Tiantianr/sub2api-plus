@@ -153,6 +153,13 @@ func resolveCodexOutboundIdentity(candidateUA string) codexOutboundIdentity {
 			originator, pairedUA = openai.CodexDefaultOriginator, codexCLIUserAgent
 		}
 	}
+	if originator == "pi" {
+		return codexOutboundIdentity{
+			userAgent:  pairedUA,
+			originator: "pi",
+			version:    openai.CodexUserAgentVersion(pairedUA),
+		}
+	}
 	// 生效版本只有一个来源：规范身份（面板版本号 → 自动同步值 → 内置常量，见
 	// SettingService.GetOpenAICodexClientVersion）。UA 与 version 头由此同源派生。
 	version := codexClientVersionFromUA(canonical)
@@ -186,7 +193,9 @@ func ensureCodexIdentityHeaders(h http.Header) {
 		h.Set("originator", identity.originator)
 	}
 	if strings.TrimSpace(h.Get("version")) == "" {
-		h.Set("version", identity.version)
+		if identity.originator != "pi" {
+			h.Set("version", identity.version)
+		}
 	}
 	h.Set("OpenAI-Beta", "responses=experimental")
 }
@@ -225,7 +234,11 @@ func enforceCodexIdentityHeadersWithUA(h http.Header, overrideUA string) {
 	identity := resolveCodexOutboundIdentity(overrideUA)
 	h.Set("user-agent", identity.userAgent)
 	h.Set("originator", identity.originator)
-	h.Set("version", identity.version)
+	if identity.originator == "pi" {
+		h.Del("version")
+	} else {
+		h.Set("version", identity.version)
+	}
 }
 
 // pairCodexIdentityHeaders 是关闭强制统一后的兜底收口：保留客户端真实身份，
@@ -235,11 +248,17 @@ func pairCodexIdentityHeaders(h http.Header) {
 	if !ok {
 		identity := resolveCodexOutboundIdentity("")
 		originator, pairedUA = identity.originator, identity.userAgent
-		h.Set("version", identity.version)
+		if originator == "pi" {
+			h.Del("version")
+		} else {
+			h.Set("version", identity.version)
+		}
 	}
 	h.Set("user-agent", pairedUA)
 	h.Set("originator", originator)
-	if v := strings.TrimSpace(h.Get("version")); v != "" && CompareVersions(v, codexUpstreamMinVersion) < 0 {
+	if originator == "pi" {
+		h.Del("version")
+	} else if v := strings.TrimSpace(h.Get("version")); v != "" && CompareVersions(v, codexUpstreamMinVersion) < 0 {
 		h.Set("version", resolveCodexOutboundIdentity("").version)
 	}
 }

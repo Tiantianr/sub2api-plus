@@ -68,3 +68,37 @@ func TestPairConfiguredCodexClientIdentity_PreservesExactConfiguredUA(t *testing
 	require.Equal(t, "codex_exec", match.Originator)
 	require.Equal(t, ua, pairedUA)
 }
+
+func TestClassifyCodexClientProfile_PiAgent(t *testing.T) {
+	uaWithVer := "pi/0.85.0 (darwin 24.1.0; arm64)"
+	match, ok := ClassifyCodexClientProfile(uaWithVer, "pi", false)
+	require.True(t, ok)
+	require.Equal(t, CodexClientProfilePi, match.Profile)
+	require.Equal(t, "pi", match.Originator)
+	require.Equal(t, "0.85.0", match.Version)
+
+	uaOS := "pi (darwin 24.1.0; arm64)"
+	matchOS, ok := ClassifyCodexClientProfile(uaOS, "pi", false)
+	require.True(t, ok)
+	require.Equal(t, CodexClientProfilePi, matchOS.Profile)
+	require.Equal(t, "pi", matchOS.Originator)
+	require.Equal(t, DefaultPiVersion, matchOS.Version)
+
+	matchBare, ok := ClassifyCodexClientProfile("pi", "pi", false)
+	require.True(t, ok)
+	require.Equal(t, CodexClientProfilePi, matchBare.Profile)
+
+	_, official := ClassifyOfficialCodexClientProfile(uaWithVer, "pi")
+	require.True(t, official)
+	_, officialOS := ClassifyOfficialCodexClientProfile(uaOS, "pi")
+	require.True(t, officialOS)
+
+	matchPair, pairedUA, ok := PairConfiguredCodexClientIdentity(uaOS, false)
+	require.True(t, ok)
+	require.Equal(t, "pi", matchPair.Originator)
+	require.Equal(t, uaOS, pairedUA)
+
+	require.True(t, HasCoherentConfiguredClientIdentity(uaOS, "pi"))
+	require.True(t, HasCoherentConfiguredClientIdentity(uaWithVer, "pi"))
+	require.False(t, HasCoherentConfiguredClientIdentity(uaOS, "codex_cli_rs"))
+}
