@@ -135,7 +135,11 @@
 
                 <!-- Submit Button -->
                 <button
-                  :class="['w-full py-3.5 rounded-xl font-bold text-base text-white transition-all duration-200 shadow-lg', paymentButtonClass, !canSubmit || submitting ? 'opacity-50 cursor-not-allowed' : '']"
+                  :class="[
+                    'w-full py-3.5 rounded-xl font-bold text-base text-white transition-all duration-200 shadow-lg',
+                    'bg-blue-600 shadow-blue-600/25 hover:bg-blue-700 hover:shadow-blue-600/35 active:bg-blue-800 dark:bg-blue-600 dark:hover:bg-blue-700',
+                    !canSubmit || submitting ? 'opacity-50 cursor-not-allowed' : ''
+                  ]"
                   :disabled="!canSubmit || submitting"
                   @click="handleSubmitRecharge"
                 >
@@ -234,7 +238,11 @@
 
                 <!-- Submit Button -->
                 <button
-                  :class="['w-full py-3.5 rounded-xl font-bold text-base text-white transition-all duration-200 shadow-lg', paymentButtonClass, !canSubmitSubscription || submitting ? 'opacity-50 cursor-not-allowed' : '']"
+                  :class="[
+                    'w-full py-3.5 rounded-xl font-bold text-base text-white transition-all duration-200 shadow-lg',
+                    'bg-blue-600 shadow-blue-600/25 hover:bg-blue-700 hover:shadow-blue-600/35 active:bg-blue-800 dark:bg-blue-600 dark:hover:bg-blue-700',
+                    !canSubmitSubscription || submitting ? 'opacity-50 cursor-not-allowed' : ''
+                  ]"
                   :disabled="!canSubmitSubscription || submitting"
                   @click="confirmSubscribe"
                 >
@@ -334,7 +342,7 @@ import type { SubscriptionPlan, CheckoutInfoResponse, CreateOrderResult, OrderTy
 import AppLayout from '@/components/layout/AppLayout.vue'
 import AmountInput from '@/components/payment/AmountInput.vue'
 import PaymentMethodSelector from '@/components/payment/PaymentMethodSelector.vue'
-import { METHOD_ORDER, getPaymentPopupFeatures, isBuiltInAlipayMethod, isBuiltInWxpayMethod } from '@/components/payment/providerConfig'
+import { METHOD_ORDER, getPaymentPopupFeatures } from '@/components/payment/providerConfig'
 import {
   PAYMENT_RECOVERY_STORAGE_KEY,
   buildCreateOrderPayload,
@@ -775,17 +783,6 @@ watch(() => [validAmount.value, selectedMethod.value] as const, ([amt, method]) 
   if (amt <= 0 || amountFitsMethod(amt, method)) return
   const available = enabledMethods.value.find((m) => amountFitsMethod(amt, m))
   if (available) selectedMethod.value = available
-})
-
-// Payment button class: follows selected payment method color
-const paymentButtonClass = computed(() => {
-  const m = selectedMethod.value
-  if (!m) return 'btn-primary'
-  if (isBuiltInAlipayMethod(m)) return 'btn-alipay'
-  if (isBuiltInWxpayMethod(m)) return 'btn-wxpay'
-  if (m === 'stripe') return 'btn-stripe'
-  if (m === 'airwallex') return 'btn-airwallex'
-  return 'btn-primary'
 })
 
 // Subscription confirm: platform accent colors (clean card, no gradient)
