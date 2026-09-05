@@ -23,7 +23,9 @@ const (
 type openAIOutboundIdentity struct {
 	UserAgent  string
 	Originator string
-	Version    string
+	// Version is a Codex protocol declaration, empty for Pi even if its
+	// administrator-configured UA contains a package version.
+	Version string
 	// Source deliberately records only the selected configuration tier. It is
 	// safe to persist in Ops diagnostics and never contains the configured UA.
 	Source string
@@ -177,7 +179,7 @@ func resolveOpenAIOutboundIdentityWithVersion(accountUA, systemUA, configuredVer
 
 func resolveOpenAIOutboundIdentityWithVersionAndCompatibility(accountUA, systemUA, configuredVersion string, allowLegacyCompatibility bool) openAIOutboundIdentity {
 	identity := resolveOpenAIOutboundIdentityCandidatesWithCompatibility(accountUA, systemUA, allowLegacyCompatibility)
-	if identity.Originator == "pi" {
+	if identity.Version == "" {
 		return identity
 	}
 	version, _ := resolveOpenAICodexClientVersion(configuredVersion, "")
@@ -193,28 +195,7 @@ func validOpenAIOutboundIdentityWithCompatibility(userAgent string, allowLegacyC
 	if !ok {
 		return openAIOutboundIdentity{}, false
 	}
-	if profile.Originator == "pi" {
-		return openAIOutboundIdentity{UserAgent: pairedUA, Originator: "pi", Version: profile.Version}, true
-	}
-	version := openAIOutboundIdentityVersion(pairedUA)
-	if version == "" {
-		return openAIOutboundIdentity{}, false
-	}
-	return openAIOutboundIdentity{UserAgent: pairedUA, Originator: profile.Originator, Version: version}, true
-}
-
-// openAIOutboundIdentityVersion extracts the client version from a paired
-// Codex User-Agent. Its caller has already verified the client originator.
-func openAIOutboundIdentityVersion(userAgent string) string {
-	_, suffix, ok := strings.Cut(strings.TrimSpace(userAgent), "/")
-	if !ok {
-		return ""
-	}
-	version := strings.Fields(suffix)
-	if len(version) == 0 {
-		return ""
-	}
-	return version[0]
+	return openAIOutboundIdentity{UserAgent: pairedUA, Originator: profile.Originator, Version: profile.Version}, true
 }
 
 // applyOpenAIOutboundIdentity is the final identity stage for an OpenAI
@@ -228,25 +209,7 @@ func (s *OpenAIGatewayService) applyOpenAIOutboundIdentity(ctx context.Context, 
 }
 
 func applyResolvedOpenAIOutboundIdentity(headers http.Header, identity openAIOutboundIdentity, useCodexIdentity bool) {
-	if headers == nil {
-		return
-	}
-	headers.Set("User-Agent", identity.UserAgent)
-	// Keep the Codex protocol version aligned when an endpoint uses it. OAuth
-	// endpoints always require it; API-key endpoints retain Version only when an
-	// earlier endpoint-specific stage supplied it.
-	if useCodexIdentity || headers.Get("Version") != "" {
-		if identity.Originator == "pi" {
-			headers.Del("Version")
-		} else {
-			headers.Set("Version", identity.Version)
-		}
-	}
-	if !useCodexIdentity {
-		headers.Del("Originator")
-		return
-	}
-	headers.Set("Originator", identity.Originator)
+	openai.ApplyOutboundClientIdentity(headers, identity.UserAgent, identity.Originator, identity.Version, useCodexIdentity)
 }
 
 // applyOpenAIHeaderOverrides applies only the non-identity account overrides

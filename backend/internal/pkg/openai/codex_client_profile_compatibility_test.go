@@ -71,32 +71,37 @@ func TestPairConfiguredCodexClientIdentity_PreservesExactConfiguredUA(t *testing
 
 func TestClassifyCodexClientProfile_PiAgent(t *testing.T) {
 	uaWithVer := "pi/0.85.0 (darwin 24.1.0; arm64)"
-	match, ok := ClassifyCodexClientProfile(uaWithVer, "pi", false)
-	require.True(t, ok)
-	require.Equal(t, CodexClientProfilePi, match.Profile)
-	require.Equal(t, "pi", match.Originator)
-	require.Equal(t, "0.85.0", match.Version)
-
 	uaOS := "pi (darwin 24.1.0; arm64)"
-	matchOS, ok := ClassifyCodexClientProfile(uaOS, "pi", false)
-	require.True(t, ok)
-	require.Equal(t, CodexClientProfilePi, matchOS.Profile)
-	require.Equal(t, "pi", matchOS.Originator)
-	require.Equal(t, DefaultPiVersion, matchOS.Version)
 
-	matchBare, ok := ClassifyCodexClientProfile("pi", "pi", false)
-	require.True(t, ok)
-	require.Equal(t, CodexClientProfilePi, matchBare.Profile)
+	// Ingress: Pi is not an official Codex client profile and must not be classified as one.
+	_, ok := ClassifyCodexClientProfile(uaWithVer, "pi", false)
+	require.False(t, ok, "Pi must not be classified as an inbound Codex profile")
+
+	_, okOS := ClassifyCodexClientProfile(uaOS, "pi", false)
+	require.False(t, okOS, "Pi without version must not be classified as an inbound Codex profile")
+
+	_, okBare := ClassifyCodexClientProfile("pi", "pi", false)
+	require.False(t, okBare)
 
 	_, official := ClassifyOfficialCodexClientProfile(uaWithVer, "pi")
-	require.True(t, official)
+	require.False(t, official)
 	_, officialOS := ClassifyOfficialCodexClientProfile(uaOS, "pi")
-	require.True(t, officialOS)
+	require.False(t, officialOS)
 
-	matchPair, pairedUA, ok := PairConfiguredCodexClientIdentity(uaOS, false)
+	// Outbound: Pi is recognized and paired as an outbound profile with empty protocol Version.
+	matchOS, pairedOS, ok := PairConfiguredCodexClientIdentity(uaOS, false)
 	require.True(t, ok)
-	require.Equal(t, "pi", matchPair.Originator)
-	require.Equal(t, uaOS, pairedUA)
+	require.Equal(t, CodexClientProfilePi, matchOS.Profile)
+	require.Equal(t, PiOriginator, matchOS.Originator)
+	require.Empty(t, matchOS.Version, "Pi wire identity does not declare a Codex protocol version")
+	require.Equal(t, uaOS, pairedOS)
+
+	matchVer, pairedVer, ok := PairConfiguredCodexClientIdentity(uaWithVer, false)
+	require.True(t, ok)
+	require.Equal(t, CodexClientProfilePi, matchVer.Profile)
+	require.Equal(t, PiOriginator, matchVer.Originator)
+	require.Empty(t, matchVer.Version, "Configured package version is not a protocol version")
+	require.Equal(t, uaWithVer, pairedVer)
 
 	require.True(t, HasCoherentConfiguredClientIdentity(uaOS, "pi"))
 	require.True(t, HasCoherentConfiguredClientIdentity(uaWithVer, "pi"))

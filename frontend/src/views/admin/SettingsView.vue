@@ -5648,38 +5648,7 @@
                       )
                     }}
                   </label>
-                  <div class="flex items-center gap-1.5">
-                    <button
-                      type="button"
-                      @click="form.openai_codex_user_agent = ''"
-                      class="rounded-md px-2.5 py-1 text-xs font-medium transition-colors"
-                      :class="!form.openai_codex_user_agent?.trim()
-                        ? 'bg-primary-100 text-primary-700 dark:bg-primary-900/40 dark:text-primary-300'
-                        : 'bg-gray-100 text-gray-600 hover:bg-gray-200 dark:bg-dark-700 dark:text-gray-400 dark:hover:bg-dark-600'"
-                    >
-                      {{ t('admin.settings.gatewayForwarding.channelDefault') }}
-                    </button>
-                    <button
-                      type="button"
-                      @click="form.openai_codex_user_agent = 'pi/0.85.0 (darwin 24.1.0; arm64)'"
-                      class="rounded-md px-2.5 py-1 text-xs font-medium transition-colors"
-                      :class="form.openai_codex_user_agent?.trim().startsWith('pi')
-                        ? 'bg-primary-100 text-primary-700 dark:bg-primary-900/40 dark:text-primary-300'
-                        : 'bg-gray-100 text-gray-600 hover:bg-gray-200 dark:bg-dark-700 dark:text-gray-400 dark:hover:bg-dark-600'"
-                    >
-                      {{ t('admin.settings.gatewayForwarding.channelPiAgent') }}
-                    </button>
-                    <button
-                      type="button"
-                      @click="form.openai_codex_user_agent = 'codex-tui/0.144.0 (Mac OS X 14.0; arm64) iTerm'"
-                      class="rounded-md px-2.5 py-1 text-xs font-medium transition-colors"
-                      :class="form.openai_codex_user_agent?.trim().startsWith('codex-tui')
-                        ? 'bg-primary-100 text-primary-700 dark:bg-primary-900/40 dark:text-primary-300'
-                        : 'bg-gray-100 text-gray-600 hover:bg-gray-200 dark:bg-dark-700 dark:text-gray-400 dark:hover:bg-dark-600'"
-                    >
-                      {{ t('admin.settings.gatewayForwarding.channelCodexTui') }}
-                    </button>
-                  </div>
+                  <OpenAIIdentityPresetSelector v-model="form.openai_codex_user_agent" />
                 </div>
                 <input
                   v-model="form.openai_codex_user_agent"
@@ -8901,6 +8870,7 @@ import ImageUpload from "@/components/common/ImageUpload.vue";
 import BackupSettings from "@/views/admin/BackupView.vue";
 import EmailTemplateEditor from "@/views/admin/settings/EmailTemplateEditor.vue";
 import OpenAIFastPolicyUserSelector from "@/views/admin/settings/OpenAIFastPolicyUserSelector.vue";
+import OpenAIIdentityPresetSelector from "@/components/account/OpenAIIdentityPresetSelector.vue";
 import { useClipboard } from "@/composables/useClipboard";
 import {
   useStepUp,

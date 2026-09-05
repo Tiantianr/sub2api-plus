@@ -108,10 +108,11 @@ access control or replace the selected outbound identity.
 
 ## Outbound fingerprint convergence
 
-Every credential-owning OpenAI OAuth account stores an explicit
-`extra.codex_fingerprint_mode`. New accounts default to `device`; missing,
-empty, null, or malformed legacy values are normalized to `device`. API-key,
-setup-token, and credential-shadow accounts do not own this setting.
+Every credential-owning OpenAI OAuth and API-key account stores an explicit
+`extra.codex_fingerprint_mode`. New OAuth accounts default to `device`, while
+new API-key accounts default to `off`. Missing, empty, null, or malformed
+legacy values are normalized to their respective default. Setup-token and
+non-OpenAI accounts do not own this setting.
 
 | Mode | Upstream-visible identity behavior |
 | --- | --- |
@@ -140,11 +141,12 @@ endpoint is unavailable.
 | HTTP-to-WebSocket and direct Responses WebSocket `response.create` turns | Configured mode per turn | Plus WebSocket session/cache identity |
 | Count-tokens, alpha-search, response retrieve/cancel subpaths, and other non-session endpoints | No fingerprint mutation | Endpoint policy |
 
-Personal access token and Agent Identity accounts are OpenAI OAuth credential
-owners and follow this endpoint matrix. API-key and setup-token accounts are
-excluded. Credential shadows read the mode and stable installation source from
-their credential-owning parent; the shadow never creates an independent
-fingerprint identity.
+Personal access token, Agent Identity, and API-key accounts are OpenAI
+credential owners and follow this endpoint matrix across Responses, Chat
+Completions, and Messages bridges. Setup-token accounts are excluded.
+Credential shadows read the mode and stable installation source from their
+credential-owning parent; the shadow never creates an independent fingerprint
+identity.
 
 Fingerprint body/header staging happens before the final cache and outbound
 identity stages. The finalized Plus cache key owns both `session-id` aliases;
@@ -161,6 +163,23 @@ credential-owner `credentials.user_agent`, then a valid global
 are derived coherently from that selected client family. Version synchronization
 may update only its version declaration and cannot replace the selected source,
 OS, architecture, terminal fingerprint, client family, or Originator.
+
+When the outbound identity is configured as Pi Agent simulation
+(`pi (darwin 24.1.0; arm64)` or legacy `pi/0.85.0 (...)`), the gateway pairs
+`User-Agent` and `originator: pi`, but strictly omits the Codex protocol `Version`
+header entirely (the `Version` header field is completely absent from outbound
+requests, rather than being sent with an empty value). Pi is an administrator-configured
+outbound simulation identity, not an ingress Codex client profile, and inbound requests
+using Pi User-Agents do not pass the official Codex client profile filter. Upstream
+requests under the Pi identity omit `client_version` query parameters in model
+manifest queries and omit `Version` across ChatGPT privacy, subscription, and
+PAT validation calls. Furthermore, WebSocket connection pool compatibility
+keys include outbound `User-Agent`, `Originator`, and `Version` to guarantee
+that connection instances are never shared between Pi and Codex identities.
+Prewarm connections with a final handshake that differs from the latest
+successful acquire target are discarded. They trigger another prewarm only
+when that acquire target has changed; a dial-time identity refresh alone must
+not repeatedly retry the same stale target.
 The account-aware resolver is the final identity authority for Messages,
 native Alpha Search, the PAT Responses web-search fallback, and OAuth model
 manifest synchronization. Endpoint header staging, inbound identity headers,

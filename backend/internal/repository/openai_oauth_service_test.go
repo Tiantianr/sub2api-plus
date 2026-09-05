@@ -105,9 +105,11 @@ func (s *OpenAIOAuthServiceSuite) TestExchangeCode_DefaultRedirectURI() {
 }
 
 func (s *OpenAIOAuthServiceSuite) TestExchangeCodeWithIdentityPairsAndFallsBackUserAgent() {
-	requests := make(chan [3]string, 2)
+	requests := make(chan [3]string, 3)
+	versionHeaders := make(chan []string, 3)
 	s.setupServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		requests <- [3]string{r.Header.Get("User-Agent"), r.Header.Get("Originator"), r.Header.Get("Version")}
+		versionHeaders <- r.Header.Values("Version")
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = io.WriteString(w, `{"access_token":"at","refresh_token":"rt","token_type":"bearer","expires_in":3600}`)
 	}))
@@ -116,10 +118,18 @@ func (s *OpenAIOAuthServiceSuite) TestExchangeCodeWithIdentityPairsAndFallsBackU
 	_, err := s.svc.ExchangeCodeWithIdentity(s.ctx, "code", "ver", openai.DefaultRedirectURI, "", "", validUA, "client-controlled", "0.150.0")
 	require.NoError(s.T(), err)
 	require.Equal(s.T(), [3]string{validUA, "codex-tui", "0.150.0"}, <-requests)
+	require.Equal(s.T(), []string{"0.150.0"}, <-versionHeaders)
+
+	const piUA = "pi (darwin 24.1.0; arm64)"
+	_, err = s.svc.ExchangeCodeWithIdentity(s.ctx, "code", "ver", openai.DefaultRedirectURI, "", "", piUA, "pi", "")
+	require.NoError(s.T(), err)
+	require.Equal(s.T(), [3]string{piUA, "pi", ""}, <-requests)
+	require.Empty(s.T(), <-versionHeaders, "Version header must be completely omitted for Pi identity")
 
 	_, err = s.svc.ExchangeCodeWithIdentity(s.ctx, "code", "ver", openai.DefaultRedirectURI, "", "", "Mozilla/5.0", "client-controlled", "9.9.9")
 	require.NoError(s.T(), err)
 	require.Equal(s.T(), [3]string{service.DefaultOpenAICodexUserAgent, openai.CodexDefaultOriginator, service.DefaultOpenAICodexVersion}, <-requests)
+	require.Equal(s.T(), []string{service.DefaultOpenAICodexVersion}, <-versionHeaders)
 }
 
 func TestResolveOpenAIOAuthIdentity_LegacyRequiresExplicitResolvedOriginator(t *testing.T) {

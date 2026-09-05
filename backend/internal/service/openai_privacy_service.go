@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/LuckyKuang/sub2api-plus/internal/pkg/openai"
 	"github.com/imroc/req/v3"
 )
 
@@ -52,12 +53,9 @@ func disableOpenAITraining(ctx context.Context, clientFactory PrivacyClientFacto
 	}
 
 	identity = normalizeOpenAIPrivacyIdentity(identity)
-	resp, err := client.R().
+	req := client.R().
 		SetContext(ctx).
 		SetHeader("Authorization", "Bearer "+accessToken).
-		SetHeader("User-Agent", identity.UserAgent).
-		SetHeader("Originator", identity.Originator).
-		SetHeader("Version", identity.Version).
 		SetHeader("Origin", "https://chatgpt.com").
 		SetHeader("Referer", "https://chatgpt.com/").
 		SetHeader("Accept", "application/json").
@@ -65,8 +63,9 @@ func disableOpenAITraining(ctx context.Context, clientFactory PrivacyClientFacto
 		SetHeader("sec-fetch-site", "same-origin").
 		SetHeader("sec-fetch-dest", "empty").
 		SetQueryParam("feature", "training_allowed").
-		SetQueryParam("value", "false").
-		Patch(openAISettingsURL)
+		SetQueryParam("value", "false")
+	applyOpenAIPrivacyIdentityHeaders(req, identity)
+	resp, err := req.Patch(openAISettingsURL)
 
 	if err != nil {
 		slog.Warn("openai_privacy_request_error", "error", err.Error())
@@ -126,17 +125,15 @@ func fetchChatGPTAccountInfo(ctx context.Context, clientFactory PrivacyClientFac
 
 	identity = normalizeOpenAIPrivacyIdentity(identity)
 	var result map[string]any
-	resp, err := client.R().
+	req := client.R().
 		SetContext(ctx).
 		SetHeader("Authorization", "Bearer "+accessToken).
-		SetHeader("User-Agent", identity.UserAgent).
-		SetHeader("Originator", identity.Originator).
-		SetHeader("Version", identity.Version).
 		SetHeader("Origin", "https://chatgpt.com").
 		SetHeader("Referer", "https://chatgpt.com/").
 		SetHeader("Accept", "application/json").
-		SetSuccessResult(&result).
-		Get(chatGPTAccountsCheckURL)
+		SetSuccessResult(&result)
+	applyOpenAIPrivacyIdentityHeaders(req, identity)
+	resp, err := req.Get(chatGPTAccountsCheckURL)
 
 	if err != nil {
 		slog.Debug("chatgpt_account_check_request_error", "error", err.Error())
@@ -246,18 +243,16 @@ func fetchChatGPTSubscriptionExpiresAt(ctx context.Context, clientFactory Privac
 		WillRenew   bool   `json:"will_renew"`
 		ID          string `json:"id"`
 	}
-	resp, err := client.R().
+	req := client.R().
 		SetContext(ctx).
 		SetHeader("Authorization", "Bearer "+accessToken).
-		SetHeader("User-Agent", identity.UserAgent).
-		SetHeader("Originator", identity.Originator).
-		SetHeader("Version", identity.Version).
 		SetHeader("Origin", "https://chatgpt.com").
 		SetHeader("Referer", "https://chatgpt.com/").
 		SetHeader("Accept", "application/json").
 		SetSuccessResult(&result).
-		SetQueryParam("account_id", accountID).
-		Get(chatGPTSubscriptionsURL)
+		SetQueryParam("account_id", accountID)
+	applyOpenAIPrivacyIdentityHeaders(req, identity)
+	resp, err := req.Get(chatGPTSubscriptionsURL)
 	if err != nil {
 		slog.Debug("chatgpt_subscription_request_error", "error", err.Error())
 		return ""
@@ -284,6 +279,15 @@ func fetchChatGPTSubscriptionExpiresAt(ctx context.Context, clientFactory Privac
 func normalizeOpenAIPrivacyIdentity(identity openAIOutboundIdentity) openAIOutboundIdentity {
 	return resolveOpenAIOutboundIdentityWithVersion(identity.UserAgent, "", identity.Version)
 }
+
+func applyOpenAIPrivacyIdentityHeaders(req *req.Request, identity openAIOutboundIdentity) {
+	req.SetHeader("User-Agent", identity.UserAgent).
+		SetHeader("Originator", identity.Originator)
+	if identity.Originator != openai.PiOriginator && strings.TrimSpace(identity.Version) != "" {
+		req.SetHeader("Version", strings.TrimSpace(identity.Version))
+	}
+}
+
 
 // fillAccountInfo 从单个 account 对象中提取 plan_type 和 subscription_expires_at。
 // fallbackID 是该对象在 accounts 里的 map key，用于 account.account_id 缺失时兜底。

@@ -413,6 +413,133 @@ func TestOpenAIWSConnPool_DialSuccessWakesTopologyWaiterAndCanceledWaiterDoesNot
 	third.Release()
 }
 
+func TestOpenAIWSConnPool_PrewarmIdentityRefreshDoesNotRetryUnchangedTarget(t *testing.T) {
+	for _, tt := range []struct {
+		name       string
+		cooldownMS int
+	}{
+		{name: "disabled cooldown"},
+		{name: "elapsed cooldown", cooldownMS: 300},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := &config.Config{}
+			cfg.Gateway.OpenAIWS.MaxConnsPerAccount = 1
+			cfg.Gateway.OpenAIWS.MinIdlePerAccount = 1
+			cfg.Gateway.OpenAIWS.MaxIdlePerAccount = 1
+			cfg.Gateway.OpenAIWS.PrewarmCooldownMS = tt.cooldownMS
+
+			pool := newOpenAIWSConnPool(cfg)
+			dialer := &openAIWSCountingDialer{}
+			pool.setClientDialerForTest(dialer)
+			account := &Account{ID: 997, Platform: PlatformOpenAI, Type: AccountTypeOAuth}
+			t.Cleanup(func() {
+				pool.ClearAccount(account.ID)
+				pool.Close()
+			})
+			req := openAIWSAcquireRequest{
+				Account: account,
+				WSURL:   "wss://example.com/v1/responses",
+				Headers: http.Header{
+					"User-Agent": {"codex_cli_rs/0.150.0 (Mac OS X 14.0; arm64)"},
+					"Originator": {"codex_cli_rs"},
+					"Version":    {"0.150.0"},
+				},
+				HeadersFactory: func(_ context.Context, headers http.Header) (http.Header, error) {
+					headers.Set("User-Agent", "pi (darwin 24.1.0; arm64)")
+					headers.Set("Originator", "pi")
+					headers.Del("Version")
+					return headers, nil
+				},
+			}
+			ap := pool.getOrCreateAccountPool(account.ID)
+			ap.mu.Lock()
+			ap.lastAcquire = cloneOpenAIWSAcquireRequestPtr(&req)
+			ap.creating = 1
+			ap.prewarmActive = true
+			if tt.cooldownMS > 0 {
+				ap.prewarmUntil = time.Now().Add(-time.Second)
+			}
+			generation := ap.generation
+			ap.mu.Unlock()
+
+			pool.prewarmConns(account.ID, req, 1, generation)
+
+			// Rescheduling reserves capacity synchronously, before its dial goroutine runs.
+			require.Zero(t, pool.SnapshotMetrics().ScaleUpTotal, "identity refresh alone must not schedule another prewarm")
+			require.Equal(t, 1, dialer.DialCount())
+			ap.mu.Lock()
+			defer ap.mu.Unlock()
+			require.Empty(t, ap.conns, "the final Pi handshake must not enter the Codex target pool")
+			require.False(t, ap.prewarmActive)
+			require.Zero(t, ap.creating)
+			require.Zero(t, ap.prewarmFails, "identity drift is not a dial failure")
+			require.NotNil(t, ap.lastAcquire)
+			require.True(t, sameOpenAIWSPrewarmTarget(req, *ap.lastAcquire))
+		})
+	}
+}
+
+func TestOpenAIWSConnPool_PrewarmIdentityTargetChangeRetriesLatestTarget(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.Gateway.OpenAIWS.MaxConnsPerAccount = 1
+	cfg.Gateway.OpenAIWS.MinIdlePerAccount = 1
+	cfg.Gateway.OpenAIWS.MaxIdlePerAccount = 1
+	cfg.Gateway.OpenAIWS.DialTimeoutSeconds = 2
+
+	pool := newOpenAIWSConnPool(cfg)
+	dialer := newOpenAIWSFirstDialBlockingCaptureDialer()
+	pool.setClientDialerForTest(dialer)
+	account := &Account{ID: 998, Platform: PlatformOpenAI, Type: AccountTypeOAuth}
+	releaseFirst := sync.OnceFunc(func() { close(dialer.releaseFirst) })
+	t.Cleanup(func() {
+		pool.ClearAccount(account.ID)
+		releaseFirst()
+		pool.Close()
+	})
+	req := openAIWSAcquireRequest{
+		Account: account,
+		WSURL:   "wss://example.com/v1/responses",
+		Headers: http.Header{
+			"User-Agent": {"codex_cli_rs/0.150.0 (Mac OS X 14.0; arm64)"},
+			"Originator": {"codex_cli_rs"},
+			"Version":    {"0.150.0"},
+		},
+	}
+	ap := pool.getOrCreateAccountPool(account.ID)
+	ap.mu.Lock()
+	ap.lastAcquire = cloneOpenAIWSAcquireRequestPtr(&req)
+	generation := ap.generation
+	ap.mu.Unlock()
+
+	pool.ensureTargetIdleAsync(account.ID)
+	select {
+	case <-dialer.firstStarted:
+	case <-time.After(time.Second):
+		t.Fatal("prewarm dial did not start")
+	}
+
+	latestReq := cloneOpenAIWSAcquireRequest(req)
+	latestReq.Headers.Set("User-Agent", "pi (darwin 24.1.0; arm64)")
+	latestReq.Headers.Set("Originator", "pi")
+	latestReq.Headers.Del("Version")
+	pool.recordLastSuccessfulAcquire(account.ID, generation, latestReq)
+	releaseFirst()
+
+	compatibility := normalizeOpenAIWSHandshakeCompatibility(latestReq.Headers)
+	require.Eventually(t, func() bool {
+		ap.mu.Lock()
+		defer ap.mu.Unlock()
+		if ap.prewarmActive || ap.creating != 0 || len(ap.conns) != 1 {
+			return false
+		}
+		for _, conn := range ap.conns {
+			return conn != nil && conn.matchesHandshakeCompatibility(compatibility)
+		}
+		return false
+	}, 2*time.Second, 10*time.Millisecond)
+	require.Equal(t, 2, dialer.DialCount(), "a newer acquire target must replace the discarded prewarm")
+}
+
 func TestOpenAIWSConnPool_PrewarmHintChangeDoesNotInvalidateHealthyDial(t *testing.T) {
 	cfg := &config.Config{}
 	cfg.Gateway.OpenAIWS.MaxConnsPerAccount = 1
@@ -2258,6 +2385,9 @@ func TestOpenAIWSConnPool_SnapshotTransportMetrics(t *testing.T) {
 
 func TestNormalizeOpenAIWSHandshakeCompatibilityUsesFinalStableCarriers(t *testing.T) {
 	headers := make(http.Header)
+	headers.Set("user-agent", "codex-tui/0.144.0 (Mac OS X 14.0; arm64) iTerm")
+	headers.Set("originator", "codex-tui")
+	headers.Set("version", "0.144.0")
 	headers.Set("session-id", "plus-cache-session")
 	headers.Set("session_id", "plus-cache-session")
 	headers.Set("x-codex-installation-id", "owner-installation")
@@ -2266,6 +2396,9 @@ func TestNormalizeOpenAIWSHandshakeCompatibilityUsesFinalStableCarriers(t *testi
 	headers.Set("x-codex-window-id", "owner-thread:0")
 
 	compatibility := normalizeOpenAIWSHandshakeCompatibility(headers)
+	require.Equal(t, "codex-tui/0.144.0 (Mac OS X 14.0; arm64) iTerm", compatibility.userAgent)
+	require.Equal(t, "codex-tui", compatibility.originator)
+	require.Equal(t, "0.144.0", compatibility.version)
 	require.Equal(t, "plus-cache-session", compatibility.sessionIdentity)
 	require.Equal(t, "owner-installation", compatibility.codexInstallationID)
 	require.Equal(t, "owner-thread", compatibility.threadID)
@@ -2283,4 +2416,28 @@ func TestNormalizeOpenAIWSHandshakeCompatibilityUsesFinalStableCarriers(t *testi
 	changedInstallation := headers.Clone()
 	changedInstallation.Set("x-codex-installation-id", "another-client-installation")
 	require.NotEqual(t, compatibility, normalizeOpenAIWSHandshakeCompatibility(changedInstallation))
+
+	changedUA := headers.Clone()
+	changedUA.Set("user-agent", "codex_vscode/0.150.0 (Ubuntu 24.04; x86_64) vscode")
+	require.NotEqual(t, compatibility, normalizeOpenAIWSHandshakeCompatibility(changedUA))
+
+	changedOriginator := headers.Clone()
+	changedOriginator.Set("originator", "codex_vscode")
+	require.NotEqual(t, compatibility, normalizeOpenAIWSHandshakeCompatibility(changedOriginator))
+
+	changedVersion := headers.Clone()
+	changedVersion.Set("version", "0.150.0")
+	require.NotEqual(t, compatibility, normalizeOpenAIWSHandshakeCompatibility(changedVersion))
+
+	// Switching an account to Pi identity strips Version and updates Originator/UA:
+	// connection pool must not reuse the existing Codex connection.
+	piHeaders := headers.Clone()
+	piHeaders.Set("user-agent", "pi (darwin 24.1.0; arm64)")
+	piHeaders.Set("originator", "pi")
+	piHeaders.Del("version")
+	piCompatibility := normalizeOpenAIWSHandshakeCompatibility(piHeaders)
+	require.NotEqual(t, compatibility, piCompatibility)
+	require.Equal(t, "pi (darwin 24.1.0; arm64)", piCompatibility.userAgent)
+	require.Equal(t, "pi", piCompatibility.originator)
+	require.Empty(t, piCompatibility.version)
 }

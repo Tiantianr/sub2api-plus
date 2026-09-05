@@ -2360,7 +2360,11 @@ func buildCodexModelsManifestURL(endpoint string, appendModelsPath bool, clientV
 			return nil, err
 		}
 	}
-	query.Set("client_version", clientVersion)
+	if v := strings.TrimSpace(clientVersion); v != "" {
+		query.Set("client_version", v)
+	} else {
+		query.Del("client_version")
+	}
 	requestURL.RawQuery = query.Encode()
 	return requestURL, nil
 }

@@ -261,6 +261,12 @@ func (s *OpenAIGatewayService) ForwardAsAnthropic(
 		if err != nil {
 			return nil, fmt.Errorf("remarshal after codex transform: %w", err)
 		}
+	} else if account.IsOpenAI() {
+		updatedBody, _, fingerprintErr := s.prepareCodexFingerprintRaw(ctx, c, account, responsesBody)
+		if fingerprintErr != nil {
+			return nil, fingerprintErr
+		}
+		responsesBody = updatedBody
 	}
 
 	// For API key accounts (including OpenAI-compatible upstream gateways),

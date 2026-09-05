@@ -10,6 +10,7 @@ import (
 
 	infraerrors "github.com/LuckyKuang/sub2api-plus/internal/pkg/errors"
 	"github.com/LuckyKuang/sub2api-plus/internal/pkg/httpclient"
+	"github.com/LuckyKuang/sub2api-plus/internal/pkg/openai"
 )
 
 const openAICodexPATWhoamiURLDefault = "https://auth.openai.com/api/accounts/v1/user-auth-credential/whoami"
@@ -66,9 +67,7 @@ func (s *OpenAIOAuthService) validateCodexPersonalAccessTokenWithAccount(ctx con
 	req.Header.Set("authorization", "Bearer "+accessToken)
 	req.Header.Set("accept", "application/json")
 	identity := s.resolveOpenAIOutboundIdentity(ctx, account)
-	req.Header.Set("originator", identity.Originator)
-	req.Header.Set("user-agent", identity.UserAgent)
-	req.Header.Set("version", identity.Version)
+	openai.ApplyOutboundClientIdentity(req.Header, identity.UserAgent, identity.Originator, identity.Version, true)
 
 	resp, err := client.Do(req)
 	if err != nil {

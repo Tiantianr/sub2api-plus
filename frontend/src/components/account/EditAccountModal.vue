@@ -1624,38 +1624,12 @@
           <label class="input-label mb-0" for="edit-openai-account-user-agent">
             {{ t('admin.accounts.openai.accountIdentityChannel') }}
           </label>
-          <div class="flex items-center gap-1.5">
-            <button
-              type="button"
-              @click="openaiAccountUserAgent = ''"
-              class="rounded-md px-2.5 py-1 text-xs font-medium transition-colors"
-              :class="!openaiAccountUserAgent?.trim()
-                ? 'bg-primary-100 text-primary-700 dark:bg-primary-900/40 dark:text-primary-300'
-                : 'bg-gray-100 text-gray-600 hover:bg-gray-200 dark:bg-dark-700 dark:text-gray-400 dark:hover:bg-dark-600'"
-            >
-              {{ t('admin.accounts.openai.channelDefault') }}
-            </button>
-            <button
-              type="button"
-              @click="openaiAccountUserAgent = 'pi/0.85.0 (darwin 24.1.0; arm64)'"
-              class="rounded-md px-2.5 py-1 text-xs font-medium transition-colors"
-              :class="openaiAccountUserAgent?.trim()?.startsWith('pi')
-                ? 'bg-primary-100 text-primary-700 dark:bg-primary-900/40 dark:text-primary-300'
-                : 'bg-gray-100 text-gray-600 hover:bg-gray-200 dark:bg-dark-700 dark:text-gray-400 dark:hover:bg-dark-600'"
-            >
-              {{ t('admin.accounts.openai.channelPiAgent') }}
-            </button>
-            <button
-              type="button"
-              @click="openaiAccountUserAgent = 'codex-tui/0.144.0 (Mac OS X 14.0; arm64) iTerm'"
-              class="rounded-md px-2.5 py-1 text-xs font-medium transition-colors"
-              :class="openaiAccountUserAgent?.trim()?.startsWith('codex-tui')
-                ? 'bg-primary-100 text-primary-700 dark:bg-primary-900/40 dark:text-primary-300'
-                : 'bg-gray-100 text-gray-600 hover:bg-gray-200 dark:bg-dark-700 dark:text-gray-400 dark:hover:bg-dark-600'"
-            >
-              {{ t('admin.accounts.openai.channelCodexTui') }}
-            </button>
-          </div>
+          <OpenAIIdentityPresetSelector
+            v-model="openaiAccountUserAgent"
+            :default-label="t('admin.accounts.openai.channelDefault')"
+            :pi-label="t('admin.accounts.openai.channelPiAgent')"
+            :codex-tui-label="t('admin.accounts.openai.channelCodexTui')"
+          />
         </div>
         <input
           id="edit-openai-account-user-agent"
@@ -1667,7 +1641,7 @@
           :placeholder="t('admin.accounts.openai.accountUserAgentPlaceholder')"
         />
         <p class="input-hint">
-          {{ openaiAccountUserAgent?.trim()?.startsWith('pi')
+          {{ isPiUserAgent(openaiAccountUserAgent)
             ? t('admin.accounts.openai.channelPiAgentHint')
             : t('admin.accounts.openai.accountUserAgentDesc') }}
         </p>
@@ -2912,6 +2886,8 @@ import GrokBaseUrlPresets from '@/components/account/GrokBaseUrlPresets.vue'
 import CnBaseUrlPresets from '@/components/account/CnBaseUrlPresets.vue'
 import HeaderOverrideEditor from '@/components/account/HeaderOverrideEditor.vue'
 import OllamaCloudUsageSettings from '@/components/account/OllamaCloudUsageSettings.vue'
+import OpenAIIdentityPresetSelector from '@/components/account/OpenAIIdentityPresetSelector.vue'
+import { isPiUserAgent } from '@/constants/openaiIdentity'
 import {
   applyAntigravityProjectID,
   applyHeaderOverride,

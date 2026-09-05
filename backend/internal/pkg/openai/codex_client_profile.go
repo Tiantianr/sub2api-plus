@@ -23,14 +23,14 @@ const (
 	// profile. It represents one of the four historic wire identities that an
 	// administrator explicitly enabled while migrating old clients.
 	CodexClientProfileLegacyCompatibility CodexClientProfile = "codex-legacy-compatible"
-	CodexClientProfilePi                  CodexClientProfile = "pi"
+	// Pi is an administrator-configured outbound profile, not a Codex ingress profile.
+	CodexClientProfilePi CodexClientProfile = "pi"
 )
 
-// DefaultPiVersion is the baseline Pi AI package version for Pi Agent wire identity.
-const DefaultPiVersion = "0.85.0"
+const PiOriginator = "pi"
 
-// DefaultPiUserAgent is the standard wire identity for Pi Agent.
-const DefaultPiUserAgent = "pi/0.85.0 (darwin 24.1.0; arm64)"
+// DefaultPiUserAgent follows pi-ai 0.85.0 utils/pi-user-agent: no package version.
+const DefaultPiUserAgent = "pi (darwin 24.1.0; arm64)"
 
 // CodexClientProfileMatch is the result of a strict built-in profile match.
 // Header values are caller controlled and consequently this is request-feature
@@ -54,7 +54,6 @@ var codexBuiltInProfileByOriginator = map[string]CodexClientProfile{
 	"codex_vscode":          CodexClientProfileIDE,
 	"codex_chatgpt_desktop": CodexClientProfileDesktop,
 	"codex_atlas":           CodexClientProfileDesktop,
-	"pi":                    CodexClientProfilePi,
 }
 
 // codexLegacyCompatibilityOriginators is a temporary, deliberately closed
@@ -96,9 +95,6 @@ func ClassifyCodexClientProfile(userAgent, originator string, allowLegacyCompati
 
 	slash := strings.IndexByte(ua, '/')
 	if slash <= 0 {
-		if originator == "pi" && (ua == "pi" || strings.HasPrefix(ua, "pi (")) {
-			return CodexClientProfileMatch{Profile: CodexClientProfilePi, Originator: "pi", Version: DefaultPiVersion}, true
-		}
 		return CodexClientProfileMatch{}, false
 	}
 	uaOriginator := ua[:slash]
@@ -150,14 +146,12 @@ func ClassifyOfficialCodexClientProfile(userAgent, originator string) (CodexClie
 // identity must already be coherent in its leading token.
 func PairConfiguredCodexClientIdentity(userAgent string, allowLegacyCompatibility bool) (CodexClientProfileMatch, string, bool) {
 	ua := strings.TrimSpace(userAgent)
+	if isConfiguredPiUserAgent(ua) {
+		// A configured package version is not a Codex protocol version.
+		return CodexClientProfileMatch{Profile: CodexClientProfilePi, Originator: PiOriginator}, ua, true
+	}
 	slash := strings.IndexByte(ua, '/')
 	if slash <= 0 {
-		if ua == "pi" || strings.HasPrefix(ua, "pi (") {
-			profile, ok := ClassifyCodexClientProfile(ua, "pi", allowLegacyCompatibility)
-			if ok {
-				return profile, ua, true
-			}
-		}
 		return CodexClientProfileMatch{}, "", false
 	}
 	originator := ua[:slash]
@@ -166,6 +160,29 @@ func PairConfiguredCodexClientIdentity(userAgent string, allowLegacyCompatibilit
 		return CodexClientProfileMatch{}, "", false
 	}
 	return profile, ua, true
+}
+
+func isConfiguredPiUserAgent(ua string) bool {
+	for _, c := range ua {
+		if c < 0x20 || c > 0x7e {
+			return false
+		}
+	}
+	if strings.HasPrefix(ua, PiOriginator+"/") {
+		version := CodexUserAgentVersion(ua)
+		if !isStrictCodexClientProfileVersion(version) {
+			return false
+		}
+		ua = PiOriginator + strings.TrimPrefix(ua, PiOriginator+"/"+version)
+	}
+	if ua == PiOriginator {
+		return true
+	}
+	if !strings.HasPrefix(ua, "pi (") || !strings.HasSuffix(ua, ")") {
+		return false
+	}
+	details := ua[len("pi (") : len(ua)-1]
+	return strings.TrimSpace(details) != "" && !strings.ContainsAny(details, "()")
 }
 
 // IsCodexLegacyCompatibilityOriginator exposes the closed migration set for
@@ -209,10 +226,7 @@ func HasCoherentConfiguredClientIdentity(userAgent, originator string) bool {
 	originator = strings.TrimSpace(originator)
 	slash := strings.IndexByte(ua, '/')
 	if slash <= 0 || originator == "" {
-		if normalizeCodexClientHeader(originator) == "pi" && (ua == "pi" || strings.HasPrefix(ua, "pi (")) {
-			return true
-		}
-		return false
+		return originator == PiOriginator && isConfiguredPiUserAgent(ua)
 	}
 	return normalizeCodexClientHeader(ua[:slash]) == normalizeCodexClientHeader(originator)
 }
