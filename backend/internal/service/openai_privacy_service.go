@@ -288,7 +288,6 @@ func applyOpenAIPrivacyIdentityHeaders(req *req.Request, identity openAIOutbound
 	}
 }
 
-
 // fillAccountInfo 从单个 account 对象中提取 plan_type 和 subscription_expires_at。
 // fallbackID 是该对象在 accounts 里的 map key，用于 account.account_id 缺失时兜底。
 func fillAccountInfo(info *ChatGPTAccountInfo, acct map[string]any, fallbackID string) {

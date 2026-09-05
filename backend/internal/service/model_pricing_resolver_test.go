@@ -915,8 +915,8 @@ func TestModelPricingResolver_GPT6Astra_GroupAndChannelMatching(t *testing.T) {
 	group := &Group{
 		ID: 200,
 		ModelPricing: []ChannelModelPricing{{
-			Models:      []string{"gpt-6-astra"},
-			BillingMode: BillingModeToken,
+			Models:          []string{"gpt-6-astra"},
+			BillingMode:     BillingModeToken,
 			InputPrice:      testPtrFloat64(8e-6),
 			OutputPrice:     testPtrFloat64(40e-6),
 			CacheWritePrice: testPtrFloat64(10e-6),
