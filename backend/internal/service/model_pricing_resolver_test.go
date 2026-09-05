@@ -7,6 +7,7 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/LuckyKuang/sub2api-plus/internal/config"
 	"github.com/stretchr/testify/require"
 )
 
@@ -905,4 +906,78 @@ func TestCalculateCostUnified_UsesContinuousMediaUnits(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.InDelta(t, 0.12, cost.TotalCost, 1e-12)
+}
+
+func TestModelPricingResolver_GPT6Astra_GroupAndChannelMatching(t *testing.T) {
+	bs := NewBillingService(&config.Config{}, nil)
+	r := NewModelPricingResolver(nil, bs)
+
+	group := &Group{
+		ID: 200,
+		ModelPricing: []ChannelModelPricing{{
+			Models:      []string{"gpt-6-astra"},
+			BillingMode: BillingModeToken,
+			InputPrice:      testPtrFloat64(8e-6),
+			OutputPrice:     testPtrFloat64(40e-6),
+			CacheWritePrice: testPtrFloat64(10e-6),
+		}},
+	}
+
+	for _, reqModel := range []string{
+		"gpt-6-astra",
+		"gpt-6",
+		"openai/gpt-6-astra",
+		"openai/gpt-6",
+		"gpt-6-astra-high",
+		"gpt-6-max",
+	} {
+		t.Run("group_"+reqModel, func(t *testing.T) {
+			resolved := r.Resolve(context.Background(), PricingInput{
+				Model: reqModel,
+				Group: group,
+			})
+			require.NotNil(t, resolved)
+			require.Equal(t, PricingSourceGroup, resolved.Source)
+			pricing := r.GetIntervalPricing(resolved, 1000)
+			require.NotNil(t, pricing)
+			require.InDelta(t, 8e-6, pricing.InputPricePerToken, 1e-12)
+			require.InDelta(t, 40e-6, pricing.OutputPricePerToken, 1e-12)
+			// Fast tier ratio (2x) is preserved by policy
+			require.InDelta(t, 16e-6, pricing.InputPricePerTokenPriority, 1e-12)
+			require.InDelta(t, 80e-6, pricing.OutputPricePerTokenPriority, 1e-12)
+			// Cache creation defaults to 1.25x input price
+			require.InDelta(t, 10e-6, pricing.CacheCreationPricePerToken, 1e-12)
+		})
+	}
+}
+
+func TestModelPricingResolver_GPT6Astra_FallbackResolution(t *testing.T) {
+	bs := NewBillingService(&config.Config{}, nil)
+	r := NewModelPricingResolver(nil, bs)
+
+	for _, reqModel := range []string{
+		"gpt-6-astra",
+		"gpt-6",
+		"openai/gpt-6-astra",
+		"openai/gpt-6",
+		"gpt-6-astra-high",
+		"gpt-6-max",
+	} {
+		t.Run("fallback_"+reqModel, func(t *testing.T) {
+			resolved := r.Resolve(context.Background(), PricingInput{
+				Model: reqModel,
+			})
+			require.NotNil(t, resolved)
+			require.Equal(t, PricingSourceLiteLLM, resolved.Source)
+			pricing := r.GetIntervalPricing(resolved, 1000)
+			require.NotNil(t, pricing)
+			require.InDelta(t, 10e-6, pricing.InputPricePerToken, 1e-12)
+			require.InDelta(t, 50e-6, pricing.OutputPricePerToken, 1e-12)
+			require.InDelta(t, 20e-6, pricing.InputPricePerTokenPriority, 1e-12)
+			require.InDelta(t, 100e-6, pricing.OutputPricePerTokenPriority, 1e-12)
+			require.InDelta(t, 12.5e-6, pricing.CacheCreationPricePerToken, 1e-12)
+			require.InDelta(t, 1e-6, pricing.CacheReadPricePerToken, 1e-12)
+			require.Equal(t, 272_000, pricing.LongContextInputThreshold)
+		})
+	}
 }

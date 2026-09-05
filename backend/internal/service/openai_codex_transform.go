@@ -11,6 +11,7 @@ import (
 )
 
 var codexModelMap = map[string]string{
+	"gpt-6-astra":          "gpt-6-astra",
 	"gpt-5.6-sol":          "gpt-5.6-sol",
 	"gpt-5.6-terra":        "gpt-5.6-terra",
 	"gpt-5.6-luna":         "gpt-5.6-luna",
@@ -59,6 +60,8 @@ var codexVersionModelPrefixes = []struct {
 	prefix string
 	target string
 }{
+	{prefix: "gpt-6-astra", target: "gpt-6-astra"},
+	{prefix: "gpt-6", target: "gpt-6-astra"},
 	{prefix: "gpt-5.6-sol", target: "gpt-5.6-sol"},
 	{prefix: "gpt-5.6-terra", target: "gpt-5.6-terra"},
 	{prefix: "gpt-5.6-luna", target: "gpt-5.6-luna"},
@@ -634,7 +637,7 @@ func normalizeKnownCodexModel(model string) (string, bool) {
 			return item.target, true
 		}
 		suffix, ok := strings.CutPrefix(key, item.prefix+"-")
-		if ok && isKnownCodexModelSuffix(suffix) {
+		if ok && (suffix == "max" || isKnownCodexModelSuffix(suffix)) {
 			return item.target, true
 		}
 	}
