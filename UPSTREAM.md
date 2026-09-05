@@ -72,7 +72,8 @@ procedures are documented in [`docs/RELEASING.md`](docs/RELEASING.md).
 | `v0.1.183+custom.926` | `v0.1.183` | `e8cb019fabf8b55199436229044cbf9aa7a82564` | published |
 | `v0.1.183+custom.927` | `v0.1.183` | `e8cb019fabf8b55199436229044cbf9aa7a82564` | published |
 | `v0.2.0+custom.901` | `v0.2.0` | `aa236488351eb71e120fc2b6fb32e36b0374c918` | published |
-| `v0.2.0+custom.902` | `v0.2.0` | `aa236488351eb71e120fc2b6fb32e36b0374c918` | planned |
+| `v0.2.0+custom.902` | `v0.2.0` | `aa236488351eb71e120fc2b6fb32e36b0374c918` | published |
+| `v0.2.0+custom.903` | `v0.2.0` | `aa236488351eb71e120fc2b6fb32e36b0374c918` | planned |
 
 `v0.1.166+custom.007` is marked invalid because its tag contains embedded and
 documented version `0.1.166+custom.006`. Remote Release and OCI artifact status
@@ -81,9 +82,9 @@ still require a maintainer audit. Do not reuse or retag `.007`.
 ## Current Version
 
 ```text
-Git/GitHub: v0.2.0+custom.902
-Application: 0.2.0+custom.902
-GHCR: ghcr.io/tiantianr/sub2api-plus:v0.2.0-custom.902
+Git/GitHub: v0.2.0+custom.903
+Application: 0.2.0+custom.903
+GHCR: ghcr.io/tiantianr/sub2api-plus:v0.2.0-custom.903
 ```
 
 ## Naming

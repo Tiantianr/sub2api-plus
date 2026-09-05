@@ -304,6 +304,12 @@ func (s *OpenAIGatewayService) ForwardAsChatCompletions(
 		if err != nil {
 			return nil, fmt.Errorf("remarshal after codex transform: %w", err)
 		}
+	} else if account.IsOpenAI() {
+		updatedBody, _, fingerprintErr := s.prepareCodexFingerprintRaw(ctx, c, account, responsesBody)
+		if fingerprintErr != nil {
+			return nil, fingerprintErr
+		}
+		responsesBody = updatedBody
 	}
 	// Codex transforms may normalize the model after the initial mapping pass;
 	// record the final slug immediately before policy/auth/upstream dispatch.

@@ -299,6 +299,123 @@ func TestOpenAIWSConnPoolHeadersFactoryRunsAtDialAndStalePrewarmIsDiscarded(t *t
 	ap.mu.Unlock()
 }
 
+func TestOpenAIWSConnPoolDialConnUsesHeadersFactoryForCompatibilityAndStalePrewarmDiscarded(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.Gateway.OpenAIWS.MaxConnsPerAccount = 2
+	pool := newOpenAIWSConnPool(cfg)
+	defer pool.Close()
+	pool.setClientDialerForTest(&openAIWSFakeDialer{})
+
+	accountID := int64(24)
+	piUA := "pi (darwin 24.1.0; arm64)"
+	codexUA := "codex_cli_rs/0.150.0 (Mac OS X 14.0; arm64)"
+
+	// 1. Acquire with Codex in req.Headers, but HeadersFactory dynamically updates identity to Pi (e.g. global setting changed)
+	req := openAIWSAcquireRequest{
+		Account: &Account{ID: accountID, Platform: PlatformOpenAI, Type: AccountTypeOAuth},
+		WSURL:   "wss://example.com/v1/responses",
+		Headers: http.Header{
+			"User-Agent": []string{codexUA},
+			"Originator": []string{"codex_cli_rs"},
+			"Version":    []string{"0.150.0"},
+		},
+		HeadersFactory: func(_ context.Context, headers http.Header) (http.Header, error) {
+			refreshed := cloneHeader(headers)
+			if refreshed == nil {
+				refreshed = make(http.Header)
+			}
+			refreshed.Set("User-Agent", piUA)
+			refreshed.Set("Originator", "pi")
+			refreshed.Del("Version")
+			refreshed.Set("Authorization", "Bearer dynamic-token")
+			return refreshed, nil
+		},
+	}
+
+	lease, err := pool.Acquire(context.Background(), req)
+	require.NoError(t, err)
+	require.NotNil(t, lease)
+
+	ap := pool.getOrCreateAccountPool(accountID)
+	ap.mu.Lock()
+	conn := ap.conns[lease.conn.id]
+	var compatUA, compatOrig, compatVer, lastAcquireUA string
+	if conn != nil {
+		compatUA = conn.handshakeCompatibility.userAgent
+		compatOrig = conn.handshakeCompatibility.originator
+		compatVer = conn.handshakeCompatibility.version
+	}
+	if ap.lastAcquire != nil {
+		lastAcquireUA = ap.lastAcquire.Headers.Get("User-Agent")
+	}
+	ap.mu.Unlock()
+
+	require.NotNil(t, conn)
+	// Verify that the pooled connection's compatibility key reflects the dialed headers (Pi), not req.Headers (Codex)
+	require.Equal(t, piUA, compatUA)
+	require.Equal(t, "pi", compatOrig)
+	require.Empty(t, compatVer)
+	// Verify that ap.lastAcquire was updated with dialed headers
+	require.Equal(t, piUA, lastAcquireUA)
+
+	lease.Release()
+
+	// 2. Subsequent acquire with Pi headers should REUSE the pooled connection
+	piReq := openAIWSAcquireRequest{
+		Account: &Account{ID: accountID, Platform: PlatformOpenAI, Type: AccountTypeOAuth},
+		WSURL:   "wss://example.com/v1/responses",
+		Headers: http.Header{
+			"User-Agent": []string{piUA},
+			"Originator": []string{"pi"},
+		},
+	}
+	lease2, err := pool.Acquire(context.Background(), piReq)
+	require.NoError(t, err)
+	require.Equal(t, lease.conn.id, lease2.conn.id, "connection with matching Pi identity must be reused")
+	lease2.Release()
+
+	// 3. Subsequent acquire with Codex headers must NOT reuse the Pi connection
+	codexReq := openAIWSAcquireRequest{
+		Account: &Account{ID: accountID, Platform: PlatformOpenAI, Type: AccountTypeOAuth},
+		WSURL:   "wss://example.com/v1/responses",
+		Headers: http.Header{
+			"User-Agent": []string{codexUA},
+			"Originator": []string{"codex_cli_rs"},
+			"Version":    []string{"0.150.0"},
+		},
+		ForceNewConn: false,
+	}
+	lease3, err := pool.Acquire(context.Background(), codexReq)
+	require.NoError(t, err)
+	require.NotEqual(t, lease.conn.id, lease3.conn.id, "connection with different identity must NOT be reused")
+	lease3.Release()
+
+	// 4. Stale prewarm detection: if ap.lastAcquire has Pi, but a prewarm dials with Codex headers,
+	// sameOpenAIWSPrewarmTarget must discard the stale dialed connection.
+	ap.mu.Lock()
+	ap.lastAcquire = &piReq
+	gen := ap.generation
+	connsBefore := len(ap.conns)
+	ap.mu.Unlock()
+
+	staleDialReq := openAIWSAcquireRequest{
+		Account: &Account{ID: accountID, Platform: PlatformOpenAI, Type: AccountTypeOAuth},
+		WSURL:   "wss://example.com/v1/responses",
+		Headers: codexReq.Headers,
+		HeadersFactory: func(_ context.Context, headers http.Header) (http.Header, error) {
+			// Factory keeps Codex headers, which differs from ap.lastAcquire (Pi)
+			return cloneHeader(headers), nil
+		},
+	}
+	pool.prewarmConns(accountID, staleDialReq, 1, gen)
+
+	ap.mu.Lock()
+	connsAfter := len(ap.conns)
+	ap.mu.Unlock()
+
+	require.Equal(t, connsBefore, connsAfter, "stale prewarm connection must not be admitted to the pool")
+}
+
 func TestOpenAIAgentIdentityTaskInvalidRetriesExactlyOnce(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	key, privateKey := newTestAgentIdentityKey(t)

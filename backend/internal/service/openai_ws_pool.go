@@ -80,6 +80,9 @@ type openAIWSAcquireRequest struct {
 }
 
 type openAIWSHandshakeCompatibilityKey struct {
+	userAgent           string
+	originator          string
+	version             string
 	betaFeatures        string
 	sessionIdentity     string
 	codexInstallationID string
@@ -1105,7 +1108,7 @@ retryAcquire:
 		ap.mu.Unlock()
 		closeOpenAIWSConns(evicted)
 
-		conn, dialErr := p.dialConn(ctx, req)
+		conn, dialedHeaders, dialErr := p.dialConn(ctx, req)
 
 		ap = p.getOrCreateAccountPool(accountID)
 		ap.mu.Lock()
@@ -1147,7 +1150,11 @@ retryAcquire:
 		ap.mu.Unlock()
 		p.metrics.acquireCreateTotal.Add(1)
 		lease := &openAIWSConnLease{pool: p, accountID: accountID, conn: conn, connPick: connPick}
-		p.recordLastSuccessfulAcquire(accountID, acquireGeneration, req)
+		successfulReq := req
+		if len(dialedHeaders) > 0 {
+			successfulReq.Headers = cloneHeader(dialedHeaders)
+		}
+		p.recordLastSuccessfulAcquire(accountID, acquireGeneration, successfulReq)
 		p.ensureTargetIdleAsync(accountID)
 		return lease, nil
 	}
@@ -1618,23 +1625,25 @@ func (p *openAIWSConnPool) prewarmConns(accountID int64, req openAIWSAcquireRequ
 	}
 	staleTarget := false
 	defer func() {
+		retryTarget := false
 		if ap, ok := p.getAccountPool(accountID); ok && ap != nil {
 			ap.mu.Lock()
 			ap.prewarmActive = false
+			retryTarget = staleTarget && ap.lastAcquire != nil &&
+				!sameOpenAIWSPrewarmTarget(req, *ap.lastAcquire)
 			ap.signalChangedLocked()
 			ap.mu.Unlock()
 		}
-		if staleTarget {
-			// A newer acquire arrived while the old dial was in flight. Re-run
-			// target selection only after clearing prewarmActive so the latest
-			// beta/hint target can fill the idle budget.
+		if retryTarget {
+			// Only a newer acquire target can make another prewarm converge.
+			// A dial-time identity refresh alone leaves the cached target stale.
 			p.ensureTargetIdleAsync(accountID)
 		}
 	}()
 
 	for i := 0; i < total; i++ {
 		ctx, cancel := context.WithTimeout(context.Background(), p.dialTimeout()+openAIWSConnPrewarmExtraDelay)
-		conn, err := p.dialConn(ctx, req)
+		conn, dialedHeaders, err := p.dialConn(ctx, req)
 		cancel()
 
 		ap, ok := p.getAccountPool(accountID)
@@ -1660,7 +1669,11 @@ func (p *openAIWSConnPool) prewarmConns(accountID int64, req openAIWSAcquireRequ
 			conn.close()
 			continue
 		}
-		if !sameOpenAIWSPrewarmTarget(req, *ap.lastAcquire) {
+		prewarmCheckReq := req
+		if len(dialedHeaders) > 0 {
+			prewarmCheckReq.Headers = dialedHeaders
+		}
+		if !sameOpenAIWSPrewarmTarget(prewarmCheckReq, *ap.lastAcquire) {
 			staleTarget = true
 			ap.signalChangedLocked()
 			ap.mu.Unlock()
@@ -1785,16 +1798,16 @@ func (p *openAIWSConnPool) UnpinConn(accountID int64, connID string) {
 	ap.signalChangedLocked()
 }
 
-func (p *openAIWSConnPool) dialConn(ctx context.Context, req openAIWSAcquireRequest) (*openAIWSConn, error) {
+func (p *openAIWSConnPool) dialConn(ctx context.Context, req openAIWSAcquireRequest) (*openAIWSConn, http.Header, error) {
 	if p == nil || p.clientDialer == nil {
-		return nil, errors.New("openai ws client dialer is nil")
+		return nil, nil, errors.New("openai ws client dialer is nil")
 	}
 	headers := cloneHeader(req.Headers)
 	var err error
 	if req.HeadersFactory != nil {
 		headers, err = req.HeadersFactory(ctx, headers)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 	}
 	conn, status, handshakeHeaders, err := p.clientDialer.Dial(ctx, req.WSURL, headers, req.ProxyURL)
@@ -1804,7 +1817,7 @@ func (p *openAIWSConnPool) dialConn(ctx context.Context, req openAIWSAcquireRequ
 		if errors.As(err, &handshakeErr) && handshakeErr != nil {
 			responseBody = append([]byte(nil), handshakeErr.Body...)
 		}
-		return nil, &openAIWSDialError{
+		return nil, nil, &openAIWSDialError{
 			StatusCode:      status,
 			ResponseHeaders: cloneHeader(handshakeHeaders),
 			ResponseBody:    responseBody,
@@ -1812,7 +1825,7 @@ func (p *openAIWSConnPool) dialConn(ctx context.Context, req openAIWSAcquireRequ
 		}
 	}
 	if conn == nil {
-		return nil, &openAIWSDialError{
+		return nil, nil, &openAIWSDialError{
 			StatusCode:      status,
 			ResponseHeaders: cloneHeader(handshakeHeaders),
 			Err:             errors.New("openai ws dialer returned nil connection"),
@@ -1820,9 +1833,9 @@ func (p *openAIWSConnPool) dialConn(ctx context.Context, req openAIWSAcquireRequ
 	}
 	id := p.nextConnID(req.Account.ID)
 	pooledConn := newOpenAIWSConn(id, req.Account.ID, conn, handshakeHeaders)
-	pooledConn.handshakeCompatibility = normalizeOpenAIWSHandshakeCompatibility(req.Headers)
-	pooledConn.routingAffinity = normalizeOpenAIWSRoutingAffinity(req.Headers)
-	return pooledConn, nil
+	pooledConn.handshakeCompatibility = normalizeOpenAIWSHandshakeCompatibility(headers)
+	pooledConn.routingAffinity = normalizeOpenAIWSRoutingAffinity(headers)
+	return pooledConn, headers, nil
 }
 
 func (p *openAIWSConnPool) nextConnID(accountID int64) string {
@@ -2033,6 +2046,9 @@ func normalizeOpenAIWSBetaFeatures(headers http.Header) string {
 
 func normalizeOpenAIWSHandshakeCompatibility(headers http.Header) openAIWSHandshakeCompatibilityKey {
 	key := openAIWSHandshakeCompatibilityKey{
+		userAgent:       firstOpenAIWSHeaderValue(headers, "User-Agent"),
+		originator:      firstOpenAIWSHeaderValue(headers, "Originator"),
+		version:         firstOpenAIWSHeaderValue(headers, "Version"),
 		betaFeatures:    normalizeOpenAIWSBetaFeatures(headers),
 		sessionIdentity: normalizeOpenAIWSSessionIdentity(headers),
 	}

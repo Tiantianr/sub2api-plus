@@ -1433,3 +1433,46 @@ func TestPrepareCodexFingerprintRaw_APIKeyAccountOff(t *testing.T) {
 	require.Equal(t, body, got)
 	require.Nil(t, loadCodexFingerprintIDs(c, account))
 }
+
+func TestPrepareCodexFingerprintRaw_ChatCompletionsAndMessagesBridges_APIKeyAccount(t *testing.T) {
+	svc := &OpenAIGatewayService{}
+	account := &Account{
+		ID:       5568,
+		Platform: PlatformOpenAI,
+		Type:     AccountTypeAPIKey,
+		Extra: map[string]any{
+			CodexFingerprintModeExtraKey: "session",
+		},
+	}
+
+	for _, endpoint := range []string{"/v1/chat/completions", "/v1/messages"} {
+		t.Run(endpoint, func(t *testing.T) {
+			gin.SetMode(gin.TestMode)
+			c, _ := gin.CreateTestContext(httptest.NewRecorder())
+			c.Request = httptest.NewRequest(http.MethodPost, endpoint, nil)
+			c.Request.Header.Set("session-id", "client-sticky-session")
+			body := []byte(`{"model":"gpt-5.4","input":[{"type":"message","content":"hi"}]}`)
+
+			got, changed, err := svc.prepareCodexFingerprintRaw(context.Background(), c, account, body)
+			require.NoError(t, err)
+			require.True(t, changed)
+
+			ids := loadCodexFingerprintIDs(c, account)
+			require.NotNil(t, ids, "fingerprint IDs must be staged for bridge endpoint %s", endpoint)
+			require.Equal(t, codexFingerprintSession, ids.mode)
+			require.NotEmpty(t, ids.installationID)
+			require.NotEmpty(t, ids.sessionID)
+
+			var decoded map[string]any
+			require.NoError(t, json.Unmarshal(got, &decoded))
+			metadata, ok := decoded["client_metadata"].(map[string]any)
+			require.True(t, ok)
+			require.Equal(t, ids.installationID, metadata["x-codex-installation-id"])
+			require.Equal(t, ids.sessionID, metadata["session_id"])
+
+			outboundHeaders := make(http.Header)
+			require.NoError(t, svc.applyStagedCodexFingerprintHeadersForAccount(context.Background(), c, account, outboundHeaders))
+			require.Equal(t, ids.installationID, outboundHeaders.Get("x-codex-installation-id"))
+		})
+	}
+}

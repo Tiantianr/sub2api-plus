@@ -103,8 +103,7 @@ func ApplyCodexCanonicalAuthIdentity(h http.Header) {
 		return
 	}
 	userAgent, originator := CodexCanonicalAuthIdentity()
-	h.Set("user-agent", userAgent)
-	h.Set("originator", originator)
+	openai.ApplyOutboundClientIdentity(h, userAgent, originator, "", true)
 }
 
 // CodexCanonicalClientVersion 返回当前生效的 Codex 客户端版本号。
@@ -143,30 +142,8 @@ type codexOutboundIdentity struct {
 // 需要固定版本请填「Codex 客户端版本号」并关闭自动同步。
 func resolveCodexOutboundIdentity(candidateUA string) codexOutboundIdentity {
 	canonical := codexCanonicalUserAgent()
-	ua := strings.TrimSpace(candidateUA)
-	if ua == "" {
-		ua = canonical
-	}
-	originator, pairedUA, ok := openai.PairCodexClientIdentity(ua)
-	if !ok {
-		if originator, pairedUA, ok = openai.PairCodexClientIdentity(canonical); !ok {
-			originator, pairedUA = openai.CodexDefaultOriginator, codexCLIUserAgent
-		}
-	}
-	if originator == "pi" {
-		return codexOutboundIdentity{
-			userAgent:  pairedUA,
-			originator: "pi",
-			version:    openai.CodexUserAgentVersion(pairedUA),
-		}
-	}
-	// 生效版本只有一个来源：规范身份（面板版本号 → 自动同步值 → 内置常量，见
-	// SettingService.GetOpenAICodexClientVersion）。UA 与 version 头由此同源派生。
-	version := codexClientVersionFromUA(canonical)
-	if rebuilt := openai.SetCodexUserAgentVersion(pairedUA, version); rebuilt != "" {
-		pairedUA = rebuilt
-	}
-	return codexOutboundIdentity{userAgent: pairedUA, originator: originator, version: version}
+	identity := resolveOpenAIOutboundIdentityWithVersion(candidateUA, canonical, codexClientVersionFromUA(canonical))
+	return codexOutboundIdentity{userAgent: identity.UserAgent, originator: identity.Originator, version: identity.Version}
 }
 
 // codexClientVersionFromUA 取 UA 的版本段作为生效版本；
@@ -192,10 +169,8 @@ func ensureCodexIdentityHeaders(h http.Header) {
 	if strings.TrimSpace(h.Get("originator")) == "" {
 		h.Set("originator", identity.originator)
 	}
-	if strings.TrimSpace(h.Get("version")) == "" {
-		if identity.originator != "pi" {
-			h.Set("version", identity.version)
-		}
+	if strings.TrimSpace(h.Get("version")) == "" && identity.version != "" {
+		h.Set("version", identity.version)
 	}
 	h.Set("OpenAI-Beta", "responses=experimental")
 }
@@ -232,35 +207,22 @@ func enforceCodexIdentityHeadersWithUA(h http.Header, overrideUA string) {
 		return
 	}
 	identity := resolveCodexOutboundIdentity(overrideUA)
-	h.Set("user-agent", identity.userAgent)
-	h.Set("originator", identity.originator)
-	if identity.originator == "pi" {
-		h.Del("version")
-	} else {
-		h.Set("version", identity.version)
-	}
+	openai.ApplyOutboundClientIdentity(h, identity.userAgent, identity.originator, identity.version, true)
 }
 
 // pairCodexIdentityHeaders 是关闭强制统一后的兜底收口：保留客户端真实身份，
 // 仅保证 originator 与最终 User-Agent 首段配套、version 不低于上游门槛（issue #3901）。
 func pairCodexIdentityHeaders(h http.Header) {
 	originator, pairedUA, ok := openai.PairCodexClientIdentity(h.Get("user-agent"))
+	version := strings.TrimSpace(h.Get("version"))
 	if !ok {
 		identity := resolveCodexOutboundIdentity("")
 		originator, pairedUA = identity.originator, identity.userAgent
-		if originator == "pi" {
-			h.Del("version")
-		} else {
-			h.Set("version", identity.version)
-		}
+		version = identity.version
+	} else if version != "" && CompareVersions(version, codexUpstreamMinVersion) < 0 {
+		version = codexClientVersionFromUA(codexCanonicalUserAgent())
 	}
-	h.Set("user-agent", pairedUA)
-	h.Set("originator", originator)
-	if originator == "pi" {
-		h.Del("version")
-	} else if v := strings.TrimSpace(h.Get("version")); v != "" && CompareVersions(v, codexUpstreamMinVersion) < 0 {
-		h.Set("version", resolveCodexOutboundIdentity("").version)
-	}
+	openai.ApplyOutboundClientIdentity(h, pairedUA, originator, version, true)
 }
 
 // normalizeStableCodexClientVersion accepts only release versions suitable for
