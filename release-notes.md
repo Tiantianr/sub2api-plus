@@ -1,29 +1,32 @@
-Sub2API Plus v0.2.0+custom.902
+Sub2API Plus v0.2.0+custom.903
 
 ## Highlights
 
-- Align complete official OpenAI GPT-6 Astra support from upstream PR #6572 (`gpt-6-astra` and `gpt-6` alias).
-- Fix GPT-6 Astra pricing resolution, fallback rates, reasoning max effort normalization, and context limits.
-- Fix Group Model Pricing fallback matching so custom group pricing matches normalized request models (e.g. `gpt-6`, `openai/gpt-6-astra`).
-- Update frontend model presets and whitelist to include `gpt-6` and `gpt-6-astra`.
+- Add official outbound Pi client identity emulation across ChatGPT privacy, PAT verification, model manifest query, and gateway forwarding paths without leaking Codex version headers.
+- Isolate WebSocket connection pool by client identity (User-Agent, originator, version), dial with processed headers, and discard stale prewarmed connections.
+- Enable API Key account Codex fingerprint convergence on Chat Completions and Messages gateway bridge endpoints.
+- Unify frontend OpenAI client identity presets (`OpenAIIdentityPresetSelector`) with authentic Pi User-Agent format and token boundary matching.
 
 ## Changed
 
-- Model pricing resolver introduces symmetric normalization fallback in group model pricing, ensuring custom group pricing correctly matches request variants like `gpt-6`, `openai/gpt-6-astra`, and reasoning effort suffixes (`-high`, `-max`).
-- OpenAI reasoning effort normalization preserves `max` for GPT-6 Astra, Codex 5.6 Max, and supported reasoning architectures.
-- Added official GPT-6 Astra fallback rates ($10/M input, $50/M output, $12.5/M cache write, $1/M cache read, 2x Fast tier, 0.5x Flex tier, 272K long context threshold).
-- Updated frontend model whitelist and preset mappings with GPT-6 and GPT-6 Astra entries.
+- Outbound client identity (`ApplyOutboundClientIdentity`) enforces stripping `Version` header for Pi or empty versions across all ChatGPT endpoints, PAT validation, and OAuth code exchange.
+- Upstream model manifest query URL omits `client_version` query parameter when version is empty.
+- Inbound request classifier decouples Pi from built-in Codex client profiles to avoid inappropriate credential requirements.
+- WebSocket connection pool ties handshake compatibility and routing affinity to actual dialed headers, updating acquire history and discarding stale prewarm connections.
+- Refactored frontend identity preset selection across Settings, Create Account, and Edit Account modals using the shared component and strict token boundaries.
 
 ## Fixed
 
-- Resolve pricing resolution mismatch where custom group pricing for `gpt-6-astra` failed to match requests targeting `gpt-6` or prefixed names.
-- Correct context limits and capability flags for GPT-6 Astra (1,050,000 tokens context window, vision support enabled, lite responses disabled).
+- Prevent cross-identity WebSocket connection reuse between Codex and Pi clients.
+- Stop sending empty `Version: ` header during OAuth authorization code exchange for Pi identity.
+- Fix missing fingerprint convergence for API Key accounts on Chat Completions and Messages bridge routes.
+- Prevent overly permissive prefix matching (`startsWith('pi')`, `startsWith('codex-tui')`) in frontend identity recognition.
 
 ## Compatibility and migration
 
 - Fully backward-compatible; no database schema migrations required.
-- Existing custom pricing rules and group configurations remain compatible.
-- Roll back application code to `v0.2.0+custom.901` if required.
+- Inbound Codex endpoints reject unauthorized non-official profiles when strict profile whitelisting is enabled.
+- Roll back application code to `v0.2.0+custom.902` if required.
 - Personal images and binary archives remain Linux arm64 only.
 
 ## Known issues

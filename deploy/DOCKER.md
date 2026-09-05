@@ -91,7 +91,7 @@ are not published by this distribution.
 ## Tags
 
 - `latest` - Latest stable release
-- `vX.Y.Z-custom.NNN` - Immutable fork release, for example `v0.2.0-custom.902`
+- `vX.Y.Z-custom.NNN` - Immutable fork release, for example `v0.2.0-custom.903`
 - `x.y` - Latest patch of minor version
 - `x` - Latest minor of major version
 
@@ -100,8 +100,8 @@ preserves the leading `v` and replaces only `+` with `-` to produce the
 OCI-compatible image tag. For example:
 
 ```text
-Git/GitHub: v0.2.0+custom.902
-GHCR:       ghcr.io/tiantianr/sub2api-plus:v0.2.0-custom.902
+Git/GitHub: v0.2.0+custom.903
+GHCR:       ghcr.io/tiantianr/sub2api-plus:v0.2.0-custom.903
 ```
 
 After verification, record the published digest and pin
