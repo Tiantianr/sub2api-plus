@@ -3141,6 +3141,21 @@
         </div>
       </div>
 
+      <div v-if="form.platform === 'openai' && form.type === 'oauth'" class="border-t border-gray-200 pt-4 dark:border-dark-600">
+        <div class="flex items-center justify-between gap-4">
+          <div class="min-w-0">
+            <label class="input-label mb-0" for="create-openai-external-history">{{ t('admin.accounts.openai.rejectExternalHistory') }}</label>
+            <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">{{ t('admin.accounts.openai.rejectExternalHistoryDesc') }}</p>
+          </div>
+          <Toggle
+            id="create-openai-external-history"
+            v-model="openAIRejectExternalHistory"
+            data-testid="openai-external-history-toggle"
+            :aria-label="t('admin.accounts.openai.rejectExternalHistory')"
+          />
+        </div>
+      </div>
+
       <!-- OpenAI API 长上下文计费开关 -->
       <div
         v-if="form.platform === 'openai' && !hideAccountLongContextBilling && (accountCategory === 'oauth-based' || accountCategory === 'apikey')"
@@ -3801,6 +3816,7 @@ import BaseDialog from '@/components/common/BaseDialog.vue'
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
 import Select from '@/components/common/Select.vue'
 import HelpTooltip from '@/components/common/HelpTooltip.vue'
+import Toggle from '@/components/common/Toggle.vue'
 import PlatformIcon from '@/components/common/PlatformIcon.vue'
 import Icon from '@/components/icons/Icon.vue'
 import ProxySelector from '@/components/common/ProxySelector.vue'
@@ -4232,6 +4248,9 @@ const openaiOAuthSessionSharingEnabled = ref(false)
 // OpenAI Codex namespace 工具摊平兼容开关（仅 OAuth），缺省关闭即原样保留
 const openaiFlattenNamespacesEnabled = ref(false)
 const openAILongContextBillingEnabled = ref(false)
+const openAIRejectExternalHistory = ref(true)
+const openAIRejectExternalHistoryTouched = ref(false)
+watch(openAIRejectExternalHistory, () => { openAIRejectExternalHistoryTouched.value = true }, { flush: 'sync' })
 const openAILongContextBillingTouched = ref(false)
 const openAICompactMode = ref<OpenAICompactMode>('auto')
 const openAIResponsesMode = ref<OpenAIResponsesMode>('auto')
@@ -5145,6 +5164,8 @@ const resetForm = () => {
   openaiOAuthSessionSharingEnabled.value = false
   openaiFlattenNamespacesEnabled.value = false
   openAILongContextBillingEnabled.value = false
+	openAIRejectExternalHistory.value = true
+	openAIRejectExternalHistoryTouched.value = false
   openAILongContextBillingTouched.value = false
   openAICompactMode.value = 'auto'
   openAIResponsesMode.value = 'auto'
@@ -5244,6 +5265,11 @@ const buildOpenAIExtra = (base?: Record<string, unknown>): Record<string, unknow
     delete extra.openai_responses_flatten_namespaces
   }
   extra.openai_long_context_billing_enabled = openAILongContextBillingEnabled.value
+  if (form.type === 'oauth') {
+    extra.openai_oauth_reject_external_history = openAIRejectExternalHistory.value
+  } else {
+    delete extra.openai_oauth_reject_external_history
+  }
 
   if (accountCategory.value === 'oauth-based' && codexCLIOnlyEnabled.value) {
     extra.codex_cli_only = true
@@ -5286,6 +5312,9 @@ const buildOpenAICodexImportExtra = (): Record<string, unknown> | undefined => {
   }
   if (!openAILongContextBillingTouched.value) {
     delete extra.openai_long_context_billing_enabled
+  }
+  if (!openAIRejectExternalHistoryTouched.value) {
+    delete extra.openai_oauth_reject_external_history
   }
   return Object.keys(extra).length > 0 ? extra : undefined
 }

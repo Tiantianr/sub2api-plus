@@ -310,6 +310,19 @@ func (s *OpenAIGatewayService) validateOpenAISharedPreviousResponseAccountSelect
 	if account == nil || !account.IsOpenAIOAuthSessionSharingEnabled() {
 		return nil
 	}
+	if repo := s.conversationBindingRepository(); repo != nil && openAIRequestUserID(ctx) > 0 {
+		binding, err := s.lookupOpenAIHistoryBinding(ctx, openAIRequestUserID(ctx), derefGroupID(groupID), "response", responseID)
+		if err != nil {
+			return err
+		}
+		if binding != nil {
+			if !binding.Valid || binding.CredentialOwnerAccountID != account.OpenAIOAuthSessionScopeAccountID() ||
+				!openAIAccountAllowsEffectiveGroup(account, groupID, false) {
+				return ErrOpenAIOAuthSessionAccessDenied
+			}
+			return nil
+		}
+	}
 	store := s.getOpenAIWSStateStore()
 	if store != nil {
 		localAccountID, err := store.GetResponseAccount(ctx, derefGroupID(groupID), responseID)

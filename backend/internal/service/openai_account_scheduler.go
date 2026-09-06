@@ -515,7 +515,7 @@ func (s *defaultOpenAIAccountScheduler) selectBySessionHash(
 	req OpenAIAccountScheduleRequest,
 ) (*AccountSelectionResult, bool, error) {
 	sessionHash := strings.TrimSpace(req.SessionHash)
-	if sessionHash == "" || s == nil || s.service == nil || s.service.cache == nil {
+	if s == nil || s.service == nil || ((sessionHash == "" || s.service.cache == nil) && req.StickyAccountID <= 0) {
 		return nil, false, nil
 	}
 
@@ -1875,6 +1875,9 @@ func (s *defaultOpenAIAccountScheduler) isAccountRequestCompatibleReason(ctx con
 	if vetoed, reason := openAIProfitControlVetoReason(ctx, account); vetoed {
 		return false, reason
 	}
+	if reason := openAIHistoryCandidateFailureReason(ctx, account); reason != "" {
+		return false, reason
+	}
 	return true, ""
 }
 
@@ -2220,7 +2223,12 @@ func (s *OpenAIGatewayService) selectAccountWithScheduler(
 	platform string,
 	previousResponseCanMove bool,
 	useUpstreamTokenCost bool,
-) (*AccountSelectionResult, OpenAIAccountScheduleDecision, error) {
+) (selection *AccountSelectionResult, decision OpenAIAccountScheduleDecision, err error) {
+	defer func() {
+		if err != nil || selection == nil || selection.Account == nil {
+			err = openAIHistorySelectionError(ctx, err)
+		}
+	}()
 	effectiveExcludedIDs := cloneExcludedAccountIDs(excludedIDs)
 	var sharedResponseAccessErr error
 	for {
@@ -2231,17 +2239,35 @@ func (s *OpenAIGatewayService) selectAccountWithScheduler(
 			}
 			return selection, decision, err
 		}
-		if selection == nil || selection.Account == nil || strings.TrimSpace(previousResponseID) == "" ||
-			!selection.Account.IsOpenAIOAuthSessionSharingEnabled() ||
-			(previousResponseCanMove && !decision.StickyPreviousHit) {
+		if selection == nil || selection.Account == nil {
 			return selection, decision, nil
 		}
-		if err := s.validateOpenAISharedPreviousResponseAccountSelection(ctx, groupID, previousResponseID, selection.Account); err == nil {
-			return selection, decision, nil
-		} else {
-			if selection.Acquired && selection.ReleaseFunc != nil {
+		if strings.TrimSpace(previousResponseID) != "" && selection.Account.IsOpenAIOAuthSessionSharingEnabled() &&
+			(!previousResponseCanMove || decision.StickyPreviousHit) {
+			if err := s.validateOpenAISharedPreviousResponseAccountSelection(ctx, groupID, previousResponseID, selection.Account); err != nil {
+				if selection.Acquired && selection.ReleaseFunc != nil {
+					selection.ReleaseFunc()
+				}
+				if effectiveExcludedIDs == nil {
+					effectiveExcludedIDs = make(map[int64]struct{})
+				}
+				if _, alreadyExcluded := effectiveExcludedIDs[selection.Account.ID]; alreadyExcluded {
+					return nil, decision, err
+				}
+				effectiveExcludedIDs[selection.Account.ID] = struct{}{}
+				sharedResponseAccessErr = err
+				continue
+			}
+		}
+		if err := s.CommitOpenAIHistoryRoute(ctx, selection.Account); err != nil {
+			if selection.ReleaseFunc != nil {
 				selection.ReleaseFunc()
 			}
+			if !errors.Is(err, ErrOpenAIExternalHistory) {
+				return nil, decision, err
+			}
+			// A policy may change while a cached candidate is hydrated. Keep
+			// filtering candidates instead of reporting a pool-wide denial here.
 			if effectiveExcludedIDs == nil {
 				effectiveExcludedIDs = make(map[int64]struct{})
 			}
@@ -2249,8 +2275,9 @@ func (s *OpenAIGatewayService) selectAccountWithScheduler(
 				return nil, decision, err
 			}
 			effectiveExcludedIDs[selection.Account.ID] = struct{}{}
-			sharedResponseAccessErr = err
+			continue
 		}
+		return selection, decision, nil
 	}
 }
 
@@ -2477,13 +2504,16 @@ func (s *OpenAIGatewayService) selectAccountWithSchedulerOnce(
 		return nil, decision, fmt.Errorf("%w supporting model: %s (channel pricing restriction)", ErrNoAvailableAccounts, requestedModel)
 	}
 
-	var stickyAccountID int64
+	stickyAccountID := openAIHistoryStickyAccountID(ctx, sessionHash)
 	if sessionHash != "" && s.cache != nil {
 		if accountID, err := s.getStickySessionAccountID(ctx, groupID, sessionHash); err == nil && accountID > 0 {
 			stickyAccountID = accountID
 		}
 	}
 	stickyWeighted := s.isOpenAIAdvancedSchedulerStickyWeightedEnabled(ctx)
+	if openAIHistoryStickyAccountID(ctx, sessionHash) > 0 {
+		stickyWeighted = false
+	}
 	subscriptionPriority := s.isOpenAIAdvancedSchedulerSubscriptionPriorityEnabled(ctx)
 	selection, decision, err := scheduler.Select(ctx, OpenAIAccountScheduleRequest{
 		GroupID:                 groupID,

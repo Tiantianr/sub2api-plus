@@ -59,6 +59,7 @@ jobs:
 
   backend_test_shards:
     name: backend-test-${{ matrix.shard }}
+    if: github.event_name == 'pull_request' || github.event_name == 'workflow_call' || (github.event_name == 'push' && github.ref != 'refs/heads/main')
     runs-on: ubuntu-latest
     timeout-minutes: 5
     # Keep the tags separate: tlsfingerprint intentionally reuses test names.
@@ -158,11 +159,16 @@ jobs:
           PREFLIGHT_RESULT: ${{ needs.backend_test_preflight.result }}
           SHARDS_RESULT: ${{ needs.backend_test_shards.result }}
         run: |
+          if [ "${{ github.event_name }}" = "push" ] && [ "${{ github.ref }}" = "refs/heads/main" ]; then
+            echo "Backend test shards skipped on main push because PR already verified all test shards."
+            exit 0
+          fi
           test "$PREFLIGHT_RESULT" = success
           test "$SHARDS_RESULT" = success
 
   frontend:
     runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request' || github.event_name == 'workflow_call' || (github.event_name == 'push' && github.ref != 'refs/heads/main')
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -186,12 +192,14 @@ jobs:
 
   golangci-lint:
     runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request' || github.event_name == 'workflow_call' || (github.event_name == 'push' && github.ref != 'refs/heads/main')
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
           ref: ${{ inputs.ref || github.ref }}
-      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: backend/go.mod
           check-latest: false

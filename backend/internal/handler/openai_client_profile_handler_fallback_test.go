@@ -64,7 +64,7 @@ func newOpenAIClientProfileFallbackHandler(
 
 	accountRepo := &openAIWSFailoverHandlerAccountRepoStub{accounts: accounts}
 	gateway := service.NewOpenAIGatewayService(
-		accountRepo,
+		withOpenAIHistoryTestRepository(accountRepo),
 		nil,
 		nil,
 		nil,

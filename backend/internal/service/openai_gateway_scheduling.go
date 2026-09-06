@@ -335,7 +335,12 @@ func (s *OpenAIGatewayService) SelectAccountForTokenCount(
 	requestedModel string,
 	requiredCapability OpenAIEndpointCapability,
 	platform string,
-) (*Account, error) {
+) (account *Account, err error) {
+	defer func() {
+		if err != nil || account == nil {
+			err = openAIHistorySelectionError(ctx, err)
+		}
+	}()
 	ctx = WithOpenAIProfitControlSuppressed(ctx)
 	ctx = s.withOpenAIQuotaAutoPauseContext(ctx)
 	return s.selectAccountForModelWithExclusions(
@@ -479,7 +484,7 @@ func openAICompatibleAccountEligibilityFailureReason(ctx context.Context, accoun
 	if vetoed, reason := openAIProfitControlVetoReason(ctx, account); vetoed {
 		return reason
 	}
-	return ""
+	return openAIHistoryCandidateFailureReason(ctx, account)
 }
 
 // isOpenAICompatibleAccountEligibleForRequestBeforeProfit applies every
@@ -1038,7 +1043,10 @@ func (s *OpenAIGatewayService) selectAccountForModelWithExclusions(ctx context.C
 // tryStickySessionHit attempts to get account from sticky session.
 // Returns account if hit and usable; clears session and returns nil if account is unavailable.
 func (s *OpenAIGatewayService) tryStickySessionHit(ctx context.Context, groupID *int64, platform string, sessionHash, requestedModel string, excludedIDs map[int64]struct{}, requireCompact bool, stickyAccountID int64, requiredCapability OpenAIEndpointCapability) *Account {
-	if sessionHash == "" {
+	if historyAccountID := openAIHistoryStickyAccountID(ctx, sessionHash); historyAccountID > 0 {
+		stickyAccountID = historyAccountID
+	}
+	if sessionHash == "" && stickyAccountID <= 0 {
 		return nil
 	}
 	platform = NormalizeOpenAICompatiblePlatform(platform)
@@ -1159,6 +1167,10 @@ func (s *OpenAIGatewayService) selectBestAccount(ctx context.Context, groupID *i
 			}
 		}
 
+		if reason := openAIHistoryCandidateFailureReason(ctx, fresh); reason != "" {
+			filterStats.exclude(reason)
+			continue
+		}
 		eligible = append(eligible, fresh)
 		compactTiers[fresh.ID] = compactTier
 	}
@@ -1238,7 +1250,7 @@ func (s *OpenAIGatewayService) selectAccountWithLoadAwareness(ctx context.Contex
 	cfg := s.schedulingConfig()
 	preferLowUpstreamRate := useUpstreamTokenCost && s.isOpenAILowUpstreamRatePriorityEnabled(ctx)
 	needsUpstreamCheck := s.needsUpstreamChannelRestrictionCheck(ctx, groupID)
-	var stickyAccountID int64
+	stickyAccountID := openAIHistoryStickyAccountID(ctx, sessionHash)
 	if sessionHash != "" && s.cache != nil {
 		if accountID, err := s.getStickySessionAccountID(ctx, groupID, sessionHash); err == nil {
 			stickyAccountID = accountID
@@ -1634,6 +1646,9 @@ func (s *OpenAIGatewayService) resolveFreshSchedulableOpenAIAccount(ctx context.
 	if vetoed, _ := openAIProfitControlVetoReason(ctx, fresh); vetoed {
 		return nil
 	}
+	if openAIHistoryCandidateFailureReason(ctx, fresh) != "" {
+		return nil
+	}
 	return fresh
 }
 
@@ -1690,6 +1705,9 @@ func (s *OpenAIGatewayService) recheckSelectedOpenAIAccountFromDB(ctx context.Co
 		return nil
 	}
 	if vetoed, _ := openAIProfitControlVetoReason(ctx, latest); vetoed {
+		return nil
+	}
+	if openAIHistoryCandidateFailureReason(ctx, latest) != "" {
 		return nil
 	}
 	return latest

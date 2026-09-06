@@ -633,6 +633,34 @@ describe('EditAccountModal', () => {
     expect(updateAccountMock.mock.calls[0]?.[1]?.extra?.openai_long_context_billing_enabled).toBe(false)
   })
 
+  it('defaults legacy OAuth history rejection on and submits explicit opt-out', async () => {
+    const account = { ...buildAccount(), type: 'oauth' }
+    updateAccountMock.mockReset().mockResolvedValue(account)
+    checkMixedChannelRiskMock.mockReset().mockResolvedValue({ has_risk: false })
+    const wrapper = mountModal(account)
+    const toggle = wrapper.get('[data-testid="openai-external-history-toggle"]')
+    expect(toggle.attributes('aria-checked')).toBe('true')
+    await toggle.trigger('click')
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+    expect(updateAccountMock.mock.calls[0]?.[1]?.extra?.openai_oauth_reject_external_history).toBe(false)
+  })
+
+  it('rehydrates explicit history opt-out when reopening', async () => {
+    const account = { ...buildAccount(), type: 'oauth', extra: { openai_oauth_reject_external_history: false } }
+    const wrapper = mountModal(account)
+    expect(wrapper.get('[data-testid="openai-external-history-toggle"]').attributes('aria-checked')).toBe('false')
+    await wrapper.get('[data-testid="openai-external-history-toggle"]').trigger('click')
+    await wrapper.setProps({ show: false })
+    await wrapper.setProps({ show: true })
+    expect(wrapper.get('[data-testid="openai-external-history-toggle"]').attributes('aria-checked')).toBe('false')
+  })
+
+  it('shows inherited history policy without a shadow-account override', () => {
+    const wrapper = mountModal(buildOpenAISparkShadowAccount())
+    expect(wrapper.find('[data-testid="openai-external-history-toggle"]').exists()).toBe(false)
+    expect(wrapper.text()).toContain('admin.accounts.openai.rejectExternalHistoryInherited')
+  })
+
   it('loads and clears the OAuth-only Codex namespace flatten toggle', async () => {
     const account = buildAccount()
     account.type = 'oauth'

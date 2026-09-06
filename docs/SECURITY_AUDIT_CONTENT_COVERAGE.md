@@ -48,6 +48,24 @@ classifications.
 
 ## Protocol Matrix
 
+The canonical document also exposes `HistoryBearing` for OpenAI OAuth history
+admission. This is structural conversation metadata, not an alternate content
+extractor or an authorization proof. Historical message attribution, assistant
+and tool content, and opaque continuation/compaction items remain visible to
+this classification even when they yield no text. Instructions and declarations
+alone do not make a new conversation historical. History classification never
+removes canonical segments, images or incomplete reasons from either engine.
+The validated Codex bootstrap exception uses the existing strict wire validator
+after the immutable ingress audit; it does not rewrite the audited body.
+
+OAuth history candidate filtering and durable binding writes run only after
+the ingress audit. HTTP Responses/Compact, Messages and Chat compatibility,
+Responses input token counting, Anthropic token-count bridging, and every WS
+content turn must preserve that order. An account-level opt-out changes only
+history admission and cannot bypass either audit engine or user/group response
+authorization. A storage failure cannot authorize history or be disguised as
+an ordinary cache miss.
+
 | Protocol family | Canonical text sources | Current-content rule | Explicit no-text or control cases |
 | --- | --- | --- | --- |
 | OpenAI Chat Completions | `instructions`; `tools` and `functions`; `messages[].content`; `messages[].reasoning_content`; `tool_calls[].function.arguments`; `function_call.arguments`; tool/function-role results, including structured content | Last message is current; if the tail contains tool/function results, every consecutive trailing result is current; system/developer context is current audit context. Assistant reasoning is classified as reasoning, while user-role reasoning retains direct-user attribution. | Recognized image/video content blocks |

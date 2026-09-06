@@ -460,6 +460,10 @@ func (s *adminServiceImpl) CreateAccount(ctx context.Context, input *CreateAccou
 	if err != nil {
 		return nil, err
 	}
+	accountExtra, err = normalizeOpenAIHistoryExtra(input.Platform, input.Type, accountExtra, nil)
+	if err != nil {
+		return nil, err
+	}
 	accountExtra, err = normalizeGrokMediaEligibilityExtra(input.Platform, accountExtra)
 	if err != nil {
 		return nil, err
@@ -596,6 +600,10 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 		if input.Type != "" {
 			effectiveType = input.Type
 		}
+		normalizedExtra, err = normalizeOpenAIHistoryExtra(account.Platform, effectiveType, normalizedExtra, account)
+		if err != nil {
+			return nil, err
+		}
 		normalizedExtra, err = normalizeOpenAIAutoResetCreditExtra(account.Platform, effectiveType, account.IsShadow(), normalizedExtra)
 		if err != nil {
 			return nil, err
@@ -618,6 +626,9 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 		if !credentialParent.IsOpenAIOAuth() || credentialParent.IsCredentialShadow() {
 			return nil, infraerrors.New(http.StatusBadRequest, "SPARK_SHADOW_INVALID_PARENT",
 				"spark shadow credential-owning parent must be a real OpenAI OAuth account")
+		}
+		if normalizedExtra != nil {
+			normalizedExtra[OpenAIOAuthRejectExternalHistoryKey] = credentialParent.IsOpenAIOAuthRejectExternalHistoryEnabled()
 		}
 		// 影子绝不持有凭据(凭据只在母账号)——外审 F5。
 		if !isAllowedSparkShadowCredentialsUpdate(input.Credentials) {
@@ -896,6 +907,18 @@ func (s *adminServiceImpl) normalizeOpenAIAccountUserAgent(ctx context.Context, 
 // UpdateAccountExtra 仅对 Extra JSONB 做 key 级合并，避免覆盖其它运行态键
 // （如 model_rate_limits / passive_usage_* 等）。
 func (s *adminServiceImpl) UpdateAccountExtra(ctx context.Context, id int64, updates map[string]any) error {
+	if _, exists := updates[OpenAIOAuthRejectExternalHistoryKey]; exists {
+		if err := validateOpenAIHistoryExtra(updates); err != nil {
+			return err
+		}
+		account, err := s.accountRepo.GetByID(ctx, id)
+		if err != nil {
+			return err
+		}
+		if !account.IsOpenAIOAuth() || account.IsCredentialShadow() {
+			return infraerrors.BadRequest("OPENAI_EXTERNAL_HISTORY_PARENT_REQUIRED", "external history admission must be configured on the credential-owning OpenAI OAuth account")
+		}
+	}
 	if _, policyUpdateRequested := updates[OpenAIOAuthSessionPolicyExtraKey]; policyUpdateRequested {
 		return errors.New("openai_oauth_session_policy must be updated through the account editor")
 	}
@@ -978,7 +1001,7 @@ func (s *adminServiceImpl) BulkUpdateAccounts(ctx context.Context, input *BulkUp
 	// An enabled OAuth session policy makes a bulk group change security-sensitive.
 	needOAuthSessionPolicyValidation := input.GroupIDs != nil
 	var cachedTargets []*Account
-	if len(input.Credentials) > 0 || input.ProxyID != nil || needMixedChannelCheck || hasLongContextBillingUpdate || input.RateMultiplier != nil || needOAuthSessionPolicyValidation {
+	if len(input.Credentials) > 0 || input.ProxyID != nil || needMixedChannelCheck || openAISettings.any() || input.RateMultiplier != nil || needOAuthSessionPolicyValidation {
 		loaded, err := s.accountRepo.GetByIDs(ctx, input.AccountIDs)
 		if err != nil {
 			return nil, err
@@ -1373,7 +1396,8 @@ func (s *adminServiceImpl) CreateShadow(ctx context.Context, parentID int64, opt
 		priority = parent.Priority
 	}
 	shadowExtra := map[string]any{
-		openAILongContextBillingEnabledKey: parent.IsOpenAILongContextBillingEnabled(),
+		openAILongContextBillingEnabledKey:  parent.IsOpenAILongContextBillingEnabled(),
+		OpenAIOAuthRejectExternalHistoryKey: parent.IsOpenAIOAuthRejectExternalHistoryEnabled(),
 	}
 	if rawPolicy, configured := parent.Extra[OpenAIOAuthSessionPolicyExtraKey]; configured {
 		// The shadow uses the same OAuth credential and must retain the same

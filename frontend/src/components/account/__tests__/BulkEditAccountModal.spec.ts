@@ -596,6 +596,35 @@ describe('BulkEditAccountModal', () => {
       .toBe(true)
   })
 
+  it('does not change OAuth history policy unless explicitly enabled', async () => {
+    const wrapper = mountModal({ selectedPlatforms: ['openai'], selectedTypes: ['oauth'] })
+    expect(wrapper.get('[data-testid="bulk-openai-external-history-toggle"]').attributes('disabled')).toBeDefined()
+    await wrapper.get('#bulk-edit-status-enabled').setValue(true)
+    await wrapper.get('#bulk-edit-account-form').trigger('submit.prevent')
+    await flushPromises()
+    expect(adminAPI.accounts.bulkUpdate).toHaveBeenCalledWith([1, 2], { status: 'active' })
+  })
+
+  it('submits and resets an explicitly selected OAuth history policy', async () => {
+    const wrapper = mountModal({ selectedPlatforms: ['openai'], selectedTypes: ['oauth'] })
+    await wrapper.get('#bulk-openai-external-history-enabled').setValue(true)
+    await wrapper.get('[data-testid="bulk-openai-external-history-toggle"]').trigger('click')
+    await wrapper.get('#bulk-edit-account-form').trigger('submit.prevent')
+    await flushPromises()
+    expect(adminAPI.accounts.bulkUpdate).toHaveBeenCalledWith([1, 2], {
+      extra: { openai_oauth_reject_external_history: false }
+    })
+    await wrapper.setProps({ show: false })
+    await nextTick()
+    expect((wrapper.get('#bulk-openai-external-history-enabled').element as HTMLInputElement).checked).toBe(false)
+    expect(wrapper.get('[data-testid="bulk-openai-external-history-toggle"]').attributes('aria-checked')).toBe('true')
+  })
+
+  it('hides the history policy for mixed OAuth and API-key targets', () => {
+    const wrapper = mountModal({ selectedPlatforms: ['openai'], selectedTypes: ['oauth', 'apikey'] })
+    expect(wrapper.find('#bulk-openai-external-history-enabled').exists()).toBe(false)
+  })
+
   it('关闭弹窗后重置新增设置的启用状态和值', async () => {
     const wrapper = mountModal({
       selectedPlatforms: ['openai'],

@@ -281,9 +281,15 @@ def run_local_checks(
     branch: str,
     *,
     base_ref: str | None = None,
+    fast: bool = False,
 ) -> None:
     python = sys.executable
     backend = ROOT / "backend"
+    backend_test_step = (
+        ("Backend test compilation", ["go", "test", "-tags=unit", "-run=^$", "./..."], backend)
+        if fast
+        else ("Backend unit tests", ["go", "test", "-tags=unit", "./..."], backend)
+    )
     steps: list[tuple[str, Sequence[str], Path]] = [
         ("Go module tidiness", ["go", "mod", "tidy", "-diff"], backend),
         (
@@ -301,7 +307,7 @@ def run_local_checks(
             [python, "skills/release-cli/tests/test_release_cli.py"],
             ROOT,
         ),
-        ("Backend unit tests", ["go", "test", "-tags=unit", "./..."], backend),
+        backend_test_step,
         (
             "Frontend frozen install",
             ["pnpm", "--dir", "frontend", "install", "--frozen-lockfile"],
@@ -317,18 +323,25 @@ def run_local_checks(
             ["pnpm", "--dir", "frontend", "run", "typecheck"],
             ROOT,
         ),
-        (
-            "Frontend tests",
-            [
-                "pnpm",
-                "--dir",
-                "frontend",
-                "run",
-                "test:run",
-                "--maxWorkers=4",
-            ],
-            ROOT,
-        ),
+    ]
+
+    if not fast:
+        steps.append(
+            (
+                "Frontend tests",
+                [
+                    "pnpm",
+                    "--dir",
+                    "frontend",
+                    "run",
+                    "test:run",
+                    "--maxWorkers=4",
+                ],
+                ROOT,
+            )
+        )
+
+    steps.extend([
         (
             "Release policy tests",
             [python, "tools/test_release_policy.py"],
@@ -357,7 +370,7 @@ def run_local_checks(
             ["bash", "deploy/test-caddyfile-cache.sh"],
             ROOT,
         ),
-    ]
+    ])
 
     migration_base = base_ref or f"{remote}/{branch}"
     base_check = run_command(
@@ -681,6 +694,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--base-ref", help=argparse.SUPPRESS)
     parser.add_argument("--title", help="pull-request title for submit-pr")
     parser.add_argument("--body-file", type=Path, help="pull-request body for submit-pr")
+    parser.add_argument(
+        "--fast",
+        action="store_true",
+        help="run accelerated local preflight with test compilation check instead of monolithic serial unit test execution",
+    )
     return parser.parse_args()
 
 
@@ -720,7 +738,12 @@ def main() -> int:
         else:
             require_clean_worktree()
         check_toolchains()
-        run_local_checks(args.remote, branch, base_ref=base_ref)
+        fast_mode = bool(getattr(args, "fast", False) or os.environ.get("SUB2API_FAST_PREFLIGHT") == "1")
+        if fast_mode:
+            print("Fast preflight enabled (accelerated verification mode).")
+            run_local_checks(args.remote, branch, base_ref=base_ref, fast=True)
+        else:
+            run_local_checks(args.remote, branch, base_ref=base_ref)
         ensure_clean_after_checks()
         print("\nLocal repository preflight passed. No branch was pushed.")
 

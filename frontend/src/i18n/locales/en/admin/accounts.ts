@@ -546,6 +546,10 @@ export default {
         flattenNamespacesDesc:
           'Disabled by default: Codex namespace tool declarations are forwarded as-is on /responses, which is what the ChatGPT Codex backend expects. Enable only when this OAuth account is routed to a relay that rejects namespace tools — flattening renames them to namespace__tool, which breaks models that address collaboration tools as functions.<namespace>.<tool>. Compaction requests always flatten regardless of this switch.',
         longContextBilling: 'API long-context pricing',
+        rejectExternalHistory: 'Reject external conversation history',
+        rejectExternalHistoryDesc: 'Enabled by default. Accepts history already bound to this account. Other eligible accounts are tried on a mismatch; a new conversation is requested only when none can continue. New conversations are unaffected, and saved ownership survives short-lived cache expiry.',
+        rejectExternalHistoryInherited: 'Inherited from the credential-owning parent account. Change this setting on the parent.',
+        rejectExternalHistoryParentOnly: 'Bulk changes support credential-owning OAuth accounts only. Shadows inherit the parent setting and must be excluded from this bulk change.',
         longContextBillingDesc:
           'Disabled by default. Enable only when this account\'s upstream charges OpenAI API long-context rates above the model threshold.',
         responsesWebsocketsV2: 'Responses WebSocket v2',

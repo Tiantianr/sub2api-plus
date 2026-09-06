@@ -2025,6 +2025,24 @@
         />
       </div>
 
+      <div v-if="account?.platform === 'openai' && account?.type === 'oauth'" class="border-t border-gray-200 pt-4 dark:border-dark-600">
+        <div class="flex items-center justify-between gap-4">
+          <div class="min-w-0">
+            <label class="input-label mb-0" for="edit-openai-external-history">{{ t('admin.accounts.openai.rejectExternalHistory') }}</label>
+            <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+              {{ t(isSparkShadow ? 'admin.accounts.openai.rejectExternalHistoryInherited' : 'admin.accounts.openai.rejectExternalHistoryDesc') }}
+            </p>
+          </div>
+          <Toggle
+            v-if="!isSparkShadow"
+            id="edit-openai-external-history"
+            v-model="openAIRejectExternalHistory"
+            data-testid="openai-external-history-toggle"
+            :aria-label="t('admin.accounts.openai.rejectExternalHistory')"
+          />
+        </div>
+      </div>
+
       <!-- OpenAI API 长上下文计费开关 -->
       <div
         v-if="account?.platform === 'openai' && !isSparkShadow && !hideAccountLongContextBilling && (account?.type === 'oauth' || account?.type === 'setup-token' || account?.type === 'apikey')"
@@ -3255,6 +3273,7 @@ const openaiOAuthSessionSharingEnabled = ref(false)
 // OpenAI Codex namespace 工具摊平兼容开关（仅 OAuth），缺省关闭即原样保留
 const openaiFlattenNamespacesEnabled = ref(false)
 const openAILongContextBillingEnabled = ref(false)
+const openAIRejectExternalHistory = ref(true)
 // OpenAI 订阅档位（Plus/Pro/Free）手动覆盖值,存于 credentials.plan_type;'' 表示清空/自动识别
 const editPlanType = ref<string>('')
 const openAICompactMode = ref<OpenAICompactMode>('auto')
@@ -3730,6 +3749,7 @@ const syncFormFromAccount = (newAccount: Account | null) => {
   openaiOAuthSessionSharingEnabled.value = false
   openaiFlattenNamespacesEnabled.value = false
   openAILongContextBillingEnabled.value = false
+  openAIRejectExternalHistory.value = extra?.openai_oauth_reject_external_history !== false
   editPlanType.value = ''
   openAICompactMode.value = 'auto'
   openAIResponsesMode.value = 'auto'
@@ -5181,6 +5201,11 @@ const handleSubmit = async () => {
         delete newExtra.openai_long_context_billing_enabled
       } else {
         newExtra.openai_long_context_billing_enabled = openAILongContextBillingEnabled.value
+      }
+      if (props.account.type === 'oauth' && !isSparkShadow.value) {
+        newExtra.openai_oauth_reject_external_history = openAIRejectExternalHistory.value
+      } else {
+        delete newExtra.openai_oauth_reject_external_history
       }
 		if (!isSparkShadow.value) {
 			const currentCredentials = (updatePayload.credentials as Record<string, unknown>) ||

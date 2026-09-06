@@ -549,6 +549,9 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 	}
 
 	writeClientMessage := func(message []byte) error {
+		if err := s.persistOpenAIHistoryResponsePayload(openAIHistoryTurnContext(ctx, hooks), account, message); err != nil {
+			return NewOpenAIWSClientCloseError(coderws.StatusInternalError, "conversation ownership unavailable", err)
+		}
 		writeCtx, cancel := newOpenAIWSDownstreamWriteContext(ctx, hooks, s.openAIWSWriteTimeout())
 		defer cancel()
 		message = restoreCodexToolNamesFromContext(c, message)
