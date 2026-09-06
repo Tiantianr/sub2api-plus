@@ -50,11 +50,13 @@ jobs:
           GHCR_IMAGE="ghcr.io/$OWNER_LOWER/sub2api-plus:$OCI_TAG"
           DATE="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
 
-          echo "tag=$TAG_NAME" >> "$GITHUB_OUTPUT"
-          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-          echo "oci_tag=$OCI_TAG" >> "$GITHUB_OUTPUT"
-          echo "ghcr_image=$GHCR_IMAGE" >> "$GITHUB_OUTPUT"
-          echo "date=$DATE" >> "$GITHUB_OUTPUT"
+          {
+            echo "tag=$TAG_NAME"
+            echo "version=$VERSION"
+            echo "oci_tag=$OCI_TAG"
+            echo "ghcr_image=$GHCR_IMAGE"
+            echo "date=$DATE"
+          } >> "$GITHUB_OUTPUT"
           echo "Release target: $TAG_NAME ($GHCR_IMAGE)"
 
       - name: Set up Docker Buildx
