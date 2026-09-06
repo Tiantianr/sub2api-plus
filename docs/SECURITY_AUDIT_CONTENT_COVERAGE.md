@@ -50,11 +50,17 @@ classifications.
 
 The canonical document also exposes `HistoryBearing` for OpenAI OAuth history
 admission. This is structural conversation metadata, not an alternate content
-extractor or an authorization proof. Historical message attribution, assistant
-and tool content, and opaque continuation/compaction items remain visible to
+extractor or an authorization proof. Assistant and tool content, and opaque
+continuation/compaction items remain visible to
 this classification even when they yield no text. Instructions and declarations
 alone do not make a new conversation historical. History classification never
 removes canonical segments, images or incomplete reasons from either engine.
+The audit `Current` flag is not evidence of a prior conversation turn. Multiple
+user messages, including Codex project instructions, environment context and
+the first question, do not establish history by their count or position alone.
+Their text, roles, sources, `Current` flags and audit receipt requirements stay
+unchanged. Explicit response references, existing ownership and incomplete
+extraction still retain their separate admission checks.
 The validated Codex bootstrap exception uses the existing strict wire validator
 after the immutable ingress audit; it does not rewrite the audited body.
 
