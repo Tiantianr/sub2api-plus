@@ -171,6 +171,7 @@ func TestOpenAIHistoryCodexContextDoesNotBypassContinuationChecks(t *testing.T) 
 			{name: "assistant", extraItem: `{"type":"message","role":"assistant","content":[]}`},
 			{name: "tool_output", extraItem: `{"type":"function_call_output","call_id":"call_1","output":""}`},
 			{name: "incomplete_sibling", extraItem: `{"role":"user","content":[{"type":"future_content","text":"unknown content"}]}`},
+			{name: "incomplete_tool_declaration", extraItem: `{"type":"additional_tools","role":"developer"}`},
 		} {
 			t.Run(fmt.Sprintf("advanced_%t/%s", advanced, tc.name), func(t *testing.T) {
 				svc, repo := newHistoryTestService(t, advanced)

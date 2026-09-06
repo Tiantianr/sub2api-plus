@@ -55,6 +55,10 @@ continuation/compaction items remain visible to
 this classification even when they yield no text. Instructions and declarations
 alone do not make a new conversation historical. History classification never
 removes canonical segments, images or incomplete reasons from either engine.
+Codex `input[].additional_tools` items are tool declarations, not prior tool
+calls or outputs. Their schemas still enter both engines as tool definitions;
+missing/unsupported content still makes extraction incomplete and real history
+siblings retain history admission.
 The audit `Current` flag is not evidence of a prior conversation turn. Multiple
 user messages, including Codex project instructions, environment context and
 the first question, do not establish history by their count or position alone.
