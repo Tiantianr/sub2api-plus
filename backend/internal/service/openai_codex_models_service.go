@@ -311,7 +311,7 @@ const (
 	configuredCodexGrokContext         = 500_000
 	configuredCodexGrokBuildContext    = 256_000
 	configuredCodexGPT56MaxContext     = 872_000
-	configuredCodexGPT6AstraContext    = 1_050_000
+	configuredCodexGPT6AstraMaxContext = 872_000
 	configuredCodexToolOutputMaxTokens = 10_000
 )
 
@@ -390,6 +390,10 @@ type configuredCodexModelDescriptor struct {
 	ModelSpecialty                    any                             `json:"model_specialty"`
 	ToolMode                          any                             `json:"tool_mode"`
 	MultiAgentVersion                 any                             `json:"multi_agent_version"`
+	MultiAgentReasoningEffort         any                             `json:"multi_agent_reasoning_effort"`
+	PreferWebSockets                  bool                            `json:"prefer_websockets"`
+	MinimalClientVersion              any                             `json:"minimal_client_version"`
+	RequiresSandboxedReview           bool                            `json:"requires_sandboxed_review"`
 }
 
 type codexModelMetadataOverride struct {
@@ -481,7 +485,7 @@ func newConfiguredCodexModelDescriptor(modelID string) configuredCodexModelDescr
 		}
 		if isOpenAICodexReasoningGPTModel(modelID) {
 			defaultReasoningLevel := "medium"
-			if getNormalizedCodexModel(modelID) == "gpt-5.6-sol" {
+			if getNormalizedCodexModel(modelID) == "gpt-5.6-sol" || isOpenAIGPT6AstraModel(modelID) {
 				defaultReasoningLevel = "low"
 			}
 			descriptor.DefaultReasoningLevel = &defaultReasoningLevel
@@ -492,8 +496,22 @@ func newConfiguredCodexModelDescriptor(modelID string) configuredCodexModelDescr
 				descriptor.MaxContextWindow = configuredCodexGPT56MaxContext
 			}
 			if isOpenAIGPT6AstraModel(modelID) {
-				descriptor.ContextWindow = configuredCodexGPT6AstraContext
-				descriptor.MaxContextWindow = configuredCodexGPT6AstraContext
+				descriptor.Priority = 1
+				descriptor.ContextWindow = configuredCodexFallbackContext
+				descriptor.MaxContextWindow = configuredCodexGPT6AstraMaxContext
+				descriptor.ModelMessages.InstructionsTemplate = openai.CodexBaseInstructionsForModel("gpt-6-astra")
+				descriptor.InputModalities = []string{"text", "image"}
+				descriptor.SupportsImageDetailOriginal = true
+				descriptor.WebSearchToolType = "text_and_image"
+				applyPatchToolType := "freeform"
+				descriptor.ApplyPatchToolType = &applyPatchToolType
+				descriptor.ToolMode = "code_mode_only"
+				descriptor.MultiAgentVersion = "v2"
+				descriptor.MultiAgentReasoningEffort = "xhigh"
+				descriptor.PreferWebSockets = true
+				descriptor.MinimalClientVersion = "0.153.0"
+				descriptor.NodeREPLAutoReviewRequired = true
+				descriptor.CompHash = "3000"
 			}
 		}
 		if SupportsVerbosity(modelID) {
@@ -581,7 +599,7 @@ func configuredCodexGPTReasoningLevels(modelID string) []configuredCodexReasonin
 			Description: "Maximum reasoning depth for complex tasks",
 		})
 	}
-	if normalized == "gpt-5.6-sol" || normalized == "gpt-5.6-terra" {
+	if isOpenAIGPT6AstraModel(modelID) || normalized == "gpt-5.6-sol" || normalized == "gpt-5.6-terra" {
 		levels = append(levels, configuredCodexReasoningLevel{
 			Effort:      "ultra",
 			Description: "Maximum reasoning with automatic task delegation",
