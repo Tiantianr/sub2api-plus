@@ -118,6 +118,10 @@ git merge --no-ff 'vX.Y.Z+custom.NNN'
 | `v0.1.178+custom.901` | `v0.1.178+custom.001` | 已发布 |
 | `v0.1.178+custom.001` | 同名上游版本 | 已发布回退基线 |
 
+当前版本已同步 LuckyKuang 的 `v0.2.0+custom.003`，对应提交
+`6ba64e382edf9fa7c33fb3e37afe6ba219ce2003`。本次个人版本 `v0.2.0+custom.904` 完成了这次源码同步，并保留本地
+`gpt-6` 兼容别名、Pi 身份模拟、WebSocket 连接池隔离和个人分发链接。
+
 ## 一键更新边界
 
 本 fork 已将一键更新源切换到 `Tiantianr/sub2api-plus`，并已完成

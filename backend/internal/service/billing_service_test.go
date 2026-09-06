@@ -344,6 +344,40 @@ func TestFallbackPricing_OpenAIGPT55ProUsesOfficialPrices(t *testing.T) {
 	require.Zero(t, pricing.OutputPricePerTokenPriority)
 }
 
+func TestBillingServiceGetModelPricing_OpenAIGPT6AstraOverridesStaleDefaultCatalogOnly(t *testing.T) {
+	pricingSvc := &PricingService{pricingData: map[string]*LiteLLMModelPricing{
+		"gpt-6-astra": {
+			InputCostPerToken:               1e-6,
+			OutputCostPerToken:              2e-6,
+			CacheReadInputTokenCost:         3e-7,
+			LongContextInputTokenThreshold:  999_999,
+			LongContextInputCostMultiplier:  1.1,
+			LongContextOutputCostMultiplier: 1.2,
+		},
+		"gpt-5.6-sol": {
+			InputCostPerToken:  7e-6,
+			OutputCostPerToken: 31e-6,
+		},
+	}}
+	svc := NewBillingService(&config.Config{}, pricingSvc)
+
+	astra, err := svc.GetModelPricing("gpt-6-astra")
+	require.NoError(t, err)
+	require.InDelta(t, 10e-6, astra.InputPricePerToken, 1e-12)
+	require.InDelta(t, 50e-6, astra.OutputPricePerToken, 1e-12)
+	require.InDelta(t, 1e-6, astra.CacheReadPricePerToken, 1e-12)
+	require.InDelta(t, 12.5e-6, astra.CacheCreationPricePerToken, 1e-12)
+	require.Equal(t, 272_000, astra.LongContextInputThreshold)
+	require.InDelta(t, 2.0, astra.LongContextInputMultiplier, 1e-12)
+	require.InDelta(t, 1.5, astra.LongContextOutputMultiplier, 1e-12)
+
+	// Astra's official default policy must not rewrite another model's catalog price.
+	sol, err := svc.GetModelPricing("gpt-5.6-sol")
+	require.NoError(t, err)
+	require.InDelta(t, 7e-6, sol.InputPricePerToken, 1e-12)
+	require.InDelta(t, 31e-6, sol.OutputPricePerToken, 1e-12)
+}
+
 // 回归测试 #2293：长上下文计费触发时，cache_read_tokens 也应应用 LongContextInputMultiplier。
 // 修复前：CacheReadCost = tokens * 0.25e-6 （漏乘倍率，少计费用）。
 // 修复后：CacheReadCost = tokens * 0.25e-6 * LongContextInputMultiplier(=2.0)。

@@ -1,42 +1,36 @@
-Sub2API Plus v0.2.0+custom.903
+Sub2API Plus v0.2.0+custom.904
 
 ## Highlights
 
-- Add official outbound Pi client identity emulation across ChatGPT privacy, PAT verification, model manifest query, and gateway forwarding paths without leaking Codex version headers.
-- Isolate WebSocket connection pool by client identity (User-Agent, originator, version), dial with processed headers, and discard stale prewarmed connections.
-- Enable API Key account Codex fingerprint convergence on Chat Completions and Messages gateway bridge endpoints.
-- Unify frontend OpenAI client identity presets (`OpenAIIdentityPresetSelector`) with authentic Pi User-Agent format and token boundary matching.
+- Synchronize upstream `v0.2.0+custom.003` for canonical GPT-6 Astra support across OpenAI discovery, Codex catalogs, client configurations, request metadata, and billing.
+- Add database migration `265_channel_monitor_gpt6_astra.sql` to register default channel monitor configuration for GPT-6 Astra.
+- Preserve local Pi outbound identity emulation, WebSocket connection pool isolation, and custom repository distribution settings.
+- Place GPT-6 Astra first in model whitelists and preset mappings while retaining GPT-5.6 Sol as default account test model.
 
 ## Changed
 
-- Outbound client identity (`ApplyOutboundClientIdentity`) enforces stripping `Version` header for Pi or empty versions across all ChatGPT endpoints, PAT validation, and OAuth code exchange.
-- Upstream model manifest query URL omits `client_version` query parameter when version is empty.
-- Inbound request classifier decouples Pi from built-in Codex client profiles to avoid inappropriate credential requirements.
-- WebSocket connection pool ties handshake compatibility and routing affinity to actual dialed headers, updating acquire history and discarding stale prewarm connections.
-- Refactored frontend identity preset selection across Settings, Create Account, and Edit Account modals using the shared component and strict token boundaries.
-
-## Fixed
-
-- Prevent cross-identity WebSocket connection reuse between Codex and Pi clients.
-- Stop sending empty `Version: ` header during OAuth authorization code exchange for Pi identity.
-- Fix missing fingerprint convergence for API Key accounts on Chat Completions and Messages bridge routes.
-- Prevent overly permissive prefix matching (`startsWith('pi')`, `startsWith('codex-tui')`) in frontend identity recognition.
+- Listed GPT-6 Astra first while retaining GPT-5.6 Sol as the account-test model.
+- Imported official Codex Astra instructions, default low reasoning level, multi-agent Ultra preset, and client capability metadata.
+- Enabled official Standard, Flex, Fast, prompt-cache, and whole-request long-context pricing for OpenAI Platform API-key traffic.
+- Preserved local `gpt-6` alias and Astra suffix compatibility normalization.
 
 ## Compatibility and migration
 
-- Fully backward-compatible; no database schema migrations required.
-- Inbound Codex endpoints reject unauthorized non-official profiles when strict profile whitelisting is enabled.
-- Roll back application code to `v0.2.0+custom.902` if required.
+- Applied forward-only migration `265_channel_monitor_gpt6_astra.sql` to register channel monitor defaults for GPT-6 Astra.
+- Existing model pricing and configured GPT-5.6 Sol rates remain unchanged.
+- At 272,001 total input tokens and above, Astra input and cache tokens are billed at 2x and output tokens at 1.5x.
+- Roll back application code to `v0.2.0+custom.903` if required.
 - Personal images and binary archives remain Linux arm64 only.
 
 ## Known issues
 
 - Invoicing remains unsupported for direct online recharges.
 - Production deployment and configuration changes remain separate operations and are not part of release publication.
+- Fast/priority processing is unavailable for GPT-6 Astra with EU data residency.
 
 ## Upstream baseline
 
-Plus release: v0.2.0+custom.002
-Plus commit: cd1d8438cbe19358936605af7e6b20954283bf15
+Plus release: v0.2.0+custom.003
+Plus commit: 6ba64e382edf9fa7c33fb3e37afe6ba219ce2003
 Official release: v0.2.0
 Official commit: aa236488351eb71e120fc2b6fb32e36b0374c918

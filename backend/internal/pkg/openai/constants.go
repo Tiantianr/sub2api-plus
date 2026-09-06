@@ -18,9 +18,9 @@ type Model struct {
 
 // DefaultModels OpenAI models list
 var DefaultModels = []Model{
-	{ID: "gpt-5.6-sol", Object: "model", Created: 1780876800, OwnedBy: "openai", Type: "model", DisplayName: "GPT-5.6 Sol"},
 	{ID: "gpt-6-astra", Object: "model", Created: 1788480000, OwnedBy: "openai", Type: "model", DisplayName: "GPT-6 Astra"},
 	{ID: "gpt-6", Object: "model", Created: 1788480000, OwnedBy: "openai", Type: "model", DisplayName: "GPT-6 (Astra)"},
+	{ID: "gpt-5.6-sol", Object: "model", Created: 1780876800, OwnedBy: "openai", Type: "model", DisplayName: "GPT-5.6 Sol"},
 	{ID: "gpt-5.6", Object: "model", Created: 1780876800, OwnedBy: "openai", Type: "model", DisplayName: "GPT-5.6 (Sol)"},
 	{ID: "gpt-5.6-terra", Object: "model", Created: 1780876800, OwnedBy: "openai", Type: "model", DisplayName: "GPT-5.6 Terra"},
 	{ID: "gpt-5.6-luna", Object: "model", Created: 1780876800, OwnedBy: "openai", Type: "model", DisplayName: "GPT-5.6 Luna"},
@@ -56,8 +56,8 @@ const CodexUsageProbeModel = "codex-auto-review"
 //go:embed instructions.txt
 var DefaultInstructions string
 
-// instructionsGPT51 / instructionsGPT52 / instructionsGPT55 为 gpt-5.1 / gpt-5.2 / gpt-5.5
-// 非 codex 模型对应的真实 Codex 编码 agent base prompt，用于模型感知的 instructions 选择。
+// instructionsGPT51 / instructionsGPT52 / instructionsGPT55 / instructionsGPT6Astra
+// 为对应模型的真实 Codex 编码 agent base prompt，用于模型感知的 instructions 选择。
 // GPT-5.5 同时作为最新版本的 fallback（覆盖 5.3 / 5.4 等未单独维护 prompt 的版本）。
 //
 //go:embed instructions_gpt5_1.txt
@@ -69,6 +69,9 @@ var instructionsGPT52 string
 //go:embed instructions_gpt5_5.txt
 var instructionsGPT55 string
 
+//go:embed instructions_gpt6_astra.txt
+var instructionsGPT6Astra string
+
 // latestCodexInstructions 返回当前已知最新版本的 Codex base instructions，
 // 当前为 GPT-5.5；若 5.5 prompt 意外为空则回退到 DefaultInstructions 保证非空。
 func latestCodexInstructions() string {
@@ -79,6 +82,7 @@ func latestCodexInstructions() string {
 }
 
 // CodexBaseInstructionsForModel 按模型返回最匹配的真实 Codex base instructions：
+//   - gpt-6-astra → GPT-6 Astra prompt（服务层先将本地兼容别名归一化）
 //   - 含 "codex" 的模型（gpt-5-codex / gpt-5.x-codex / codex-max / spark 等）→ GPT-5-Codex prompt
 //   - gpt-5.5 系非 codex 模型 → GPT-5.5 prompt
 //   - gpt-5.2 系非 codex 模型 → GPT-5.2 prompt
@@ -89,6 +93,10 @@ func latestCodexInstructions() string {
 func CodexBaseInstructionsForModel(model string) string {
 	m := strings.ToLower(strings.TrimSpace(model))
 	switch {
+	case isGPT6AstraInstructionsModel(m):
+		if v := strings.TrimSpace(instructionsGPT6Astra); v != "" {
+			return instructionsGPT6Astra
+		}
 	case strings.Contains(m, "codex"):
 		return DefaultInstructions
 	case strings.HasPrefix(m, "gpt-5.5"):
@@ -103,4 +111,26 @@ func CodexBaseInstructionsForModel(model string) string {
 		}
 	}
 	return latestCodexInstructions()
+}
+
+func isGPT6AstraInstructionsModel(model string) bool {
+	if slash := strings.LastIndexByte(model, '/'); slash >= 0 {
+		model = model[slash+1:]
+	}
+	model = strings.ReplaceAll(model, "_", "-")
+	if model == "gpt-6" || model == "gpt-6-astra" {
+		return true
+	}
+	for _, prefix := range []string{"gpt-6-astra-", "gpt-6-"} {
+		if suffix, ok := strings.CutPrefix(model, prefix); ok {
+			if suffix == "max" || suffix == "none" || suffix == "minimal" || suffix == "low" || suffix == "medium" || suffix == "high" || suffix == "xhigh" {
+				return true
+			}
+			parts := strings.Split(suffix, "-")
+			if len(parts) == 3 && len(parts[0]) == 4 && len(parts[1]) == 2 && len(parts[2]) == 2 {
+				return true
+			}
+		}
+	}
+	return false
 }
