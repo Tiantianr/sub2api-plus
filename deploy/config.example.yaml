@@ -393,6 +393,8 @@ gateway:
     payload_log_sample_rate: 0.2
     # 调度与粘连参数
     lb_top_k: 7
+    # 仅控制短期粘性缓存；OAuth 长期历史归属保存在 PostgreSQL，不随此 TTL 过期。
+    # 账号 extra.openai_oauth_reject_external_history 默认 true，详见 OPENAI_HISTORY_ADMISSION_CN.md。
     sticky_session_ttl_seconds: 3600
     # 会话哈希迁移兼容开关：新 key 未命中时回退读取旧 SHA-256 key
     session_hash_read_old_fallback: true

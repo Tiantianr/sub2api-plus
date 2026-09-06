@@ -66,6 +66,7 @@ type Document struct {
 	Segments           []Segment
 	Images             []Image
 	ContentBearing     bool
+	HistoryBearing     bool
 	Incomplete         bool
 	IncompleteReasons  []IncompleteReason
 	incompletePath     []string
@@ -342,6 +343,7 @@ func extractAnthropic(document *Document, root map[string]any) {
 }
 
 func appendAnthropicContent(document *Document, value any, role string, current bool) {
+	markHistoryAttribution(document, role, SourceMessage, current)
 	switch typed := value.(type) {
 	case string:
 		appendText(document, typed, role, SourceMessage, current, true)
@@ -378,6 +380,7 @@ func appendAnthropicContent(document *Document, value any, role string, current 
 			appendStructured(document, thinking, "assistant", SourceReasoning, current, true)
 			markUnknownNonEmptyFields(document, typed, "type", "thinking", "signature")
 		case typeName == "redacted_thinking":
+			document.HistoryBearing = true
 			markUnknownNonEmptyFields(document, typed, "type", "data")
 			return
 		case typeName == "image" || typeName == "image_url" || typeName == "input_image":
@@ -421,6 +424,7 @@ func appendAnthropicContent(document *Document, value any, role string, current 
 }
 
 func appendToolOutput(document *Document, value any, current bool) {
+	document.HistoryBearing = true
 	if !hasNonEmptyValue(value) {
 		return
 	}
@@ -682,6 +686,12 @@ func appendResponsesItem(document *Document, value any, current bool) {
 	case map[string]any:
 		typeName := normalizedType(typed["type"])
 		role := normalizedRole(typed["role"])
+		markHistoryAttribution(document, role, SourceMessage, current)
+		switch typeName {
+		case "", "message", "agent_message", "input_text", "input_image", "input_audio", "input_file", "input_video":
+		default:
+			document.HistoryBearing = true
+		}
 		switch typeName {
 		case "agent_message":
 			author, authorOK := typed["author"].(string)
@@ -1779,6 +1789,7 @@ func appendContent(document *Document, value any, role string, source Source, cu
 }
 
 func appendStructured(document *Document, value any, role string, source Source, current, controlled bool) {
+	markHistoryAttribution(document, role, source, current)
 	if value == nil {
 		return
 	}
@@ -1821,7 +1832,19 @@ func structuredText(value any) (string, bool, error) {
 	return string(raw), true, nil
 }
 
+func markHistoryAttribution(document *Document, role string, source Source, current bool) {
+	if document == nil || role == "system" || role == "developer" ||
+		source == SourceInstruction || source == SourceToolDefinition || source == SourcePromptVariable {
+		return
+	}
+	if !current || role == "assistant" || role == "model" || role == "tool" || role == "function" ||
+		source == SourceToolCall || source == SourceToolOutput || source == SourceReasoning {
+		document.HistoryBearing = true
+	}
+}
+
 func appendText(document *Document, text, role string, source Source, current, controlled bool) {
+	markHistoryAttribution(document, role, source, current)
 	if document == nil || strings.TrimSpace(text) == "" {
 		return
 	}
@@ -1831,6 +1854,7 @@ func appendText(document *Document, text, role string, source Source, current, c
 }
 
 func appendImageValues(document *Document, value any, role string, source Source, current, controlled, mediaContext bool) {
+	markHistoryAttribution(document, role, source, current)
 	if document == nil || value == nil {
 		return
 	}

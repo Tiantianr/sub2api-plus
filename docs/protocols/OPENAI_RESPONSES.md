@@ -39,6 +39,70 @@ retain their existing precedence.
 Responses and Compact traffic. Callers should use `prompt_cache_options.ttl`
 with `30m`; `mode: explicit` disables the implicit cache breakpoint.
 
+## OAuth History Admission
+
+Credential-owning OpenAI OAuth accounts default
+`extra.openai_oauth_reject_external_history` to `true`, including accounts that
+omit the field. An explicit boolean `false` disables only this candidate gate.
+Spark shadows inherit the parent's policy; API-key, setup-token and other
+provider accounts are unaffected. Create, edit and opt-in bulk editing expose
+the setting. Bulk policy changes must target OAuth credential owners, not
+shadows. Invalid boolean values are rejected by management writes.
+
+A fresh conversation is eligible even when its newly generated session ID has
+no binding. A `previous_response_id`, recognized historical message/tool/state
+input, or an existing conversation binding requires history admission. Shared
+canonical extraction supplies the history classification; system/developer
+instructions and tool declarations alone are not history. Validated call-less
+Codex automation/delegation bootstrap input retains its existing new-user-input
+exception. This is ID-based routing, not proof of where every text segment was
+generated; pasted ordinary user text cannot be reliably identified as history.
+
+For historical requests, a strict OAuth candidate must match the recorded
+credential owner and identity. Unknown ownership or another owner excludes
+that candidate without acquiring its slot, contacting it, or marking it
+unhealthy. Other candidates remain eligible under their own policies. A durable
+owner is preferred over weighted sticky routing, subject to all existing
+permissions, capability, health, quota and concurrency gates. Retries use the
+original ownership snapshot; newly written sticky routes do not authorize the
+original history. A missing response binding cannot be hidden by a matching
+session binding. Disabling this policy does not bypass HTTP response-user
+ownership checks, OAuth sharing scopes, moderation or existing replay safety.
+
+PostgreSQL `openai_conversation_bindings` stores user-scoped session/response
+key hashes and account/credential metadata, never prompts or tool content.
+The mappings have no idle TTL. One request reuses its durable ownership lookup
+across candidate checks. Redis and process-cache expiry, process restarts and
+multi-day inactivity therefore do not lose recorded ownership. HTTP response
+authorization uses the same durable records. Account cooldown and quota changes
+do not delete them. Normal OAuth refresh preserves ownership; a different
+upstream OAuth identity or sharing scope invalidates the old identity snapshot.
+User/account deletion removes the associated records. Response ownership cannot
+be reassigned; mutable session routing uses conditional writes to avoid silent
+concurrent overwrites. Real upstream response IDs are persisted before being
+exposed to clients, including streaming and WebSocket delivery.
+
+Coverage includes Responses HTTP and Compact, all Responses WebSocket modes,
+Chat Completions/Messages compatibility and upstream history-bearing token
+counting. Token counting checks admission but never creates conversation
+ownership. Each later WS content request is audited and checked before upstream
+writes. A connection that can no longer use its selected account requests
+reconnection for normal candidate selection, not immediate conversation reset.
+
+If this gate excluded otherwise serviceable candidates and no eligible account
+can continue, HTTP returns `400`, type `invalid_request_error`, code
+`external_history_not_allowed`, with message
+`当前没有可接续此历史对话的账号，请新建对话后重试。` Messages uses its existing
+Anthropic-compatible error envelope. WebSocket uses an error event. Ownership
+storage failures return a service error, and concurrent routing conflicts are
+retryable conflicts; neither is reported as an external-history denial.
+
+An upgrade can backfill still-authorized cached response ownership. A legacy
+group-only session cache is not user ownership evidence and is not promoted.
+Already expired legacy bindings cannot be reconstructed. Preserving gateway
+ownership also does not extend the provider's response or connection lifetime.
+See the [deployment notes](../../deploy/OPENAI_HISTORY_ADMISSION_CN.md).
+
 ## Prompt Cache Identity and Usage
 
 Current Codex clients can supply the canonical `session-id`, `thread-id`, and
@@ -66,7 +130,7 @@ raw Chat Completions forwarding does not receive Responses-only cache fields.
 
 Under the default hard-affinity mode, account priority changes do not replace a
 valid active session route. The optional sticky-weighted scheduler mode remains
-score-based by design. If the configured health/concurrency sticky escape
+score-based except for a durable OAuth history owner as described above. If the configured health/concurrency sticky escape
 temporarily bypasses a degraded account, a movable Responses continuation does
 not fall back to that account through its older response ID; the temporary
 candidate order is derived from the shared session identity, while the

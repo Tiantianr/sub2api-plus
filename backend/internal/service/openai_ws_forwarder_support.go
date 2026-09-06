@@ -535,6 +535,9 @@ func (s *OpenAIGatewayService) resolveAccountByPreviousResponseIDForCapability(
 	}
 
 	accountID, err := store.GetResponseAccount(ctx, derefGroupID(groupID), responseID)
+	if historyAccountID := openAIHistoryStickyAccountID(ctx, ""); historyAccountID > 0 {
+		accountID, err = historyAccountID, nil
+	}
 	if err != nil || accountID <= 0 {
 		accountID, err = s.getOpenAIOAuthSharedResponseAccount(ctx, groupID, responseID)
 		if err != nil {
@@ -668,6 +671,9 @@ func (s *OpenAIGatewayService) resolveAccountByPreviousResponseIDForCapability(
 	}
 	if !openAIOAuthSessionPolicyAllowsSchedulingGroup(account, groupID) {
 		return 0, nil, "", nil, ErrOpenAIOAuthSessionAccessDenied
+	}
+	if openAIHistoryCandidateFailureReason(ctx, account) != "" {
+		return 0, nil, "", nil, nil
 	}
 	if err := s.validateOpenAISharedPreviousResponseAccountSelection(ctx, groupID, responseID, account); err != nil {
 		return 0, nil, "", nil, err

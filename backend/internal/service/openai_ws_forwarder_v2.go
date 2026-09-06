@@ -552,6 +552,9 @@ func (s *OpenAIGatewayService) forwardOpenAIWSV2(
 		if responseID == "" && eventResponseID != "" {
 			responseID = eventResponseID
 		}
+		if err := s.persistOpenAIHistoryResponse(ctx, account, responseID); err != nil {
+			return nil, err
+		}
 
 		outputObservation := apicompat.ObserveResponsesOutput(message)
 		timing.Observe(startTime, outputObservation)

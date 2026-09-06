@@ -631,6 +631,10 @@ export default {
         flattenNamespacesDesc:
           '默认关闭：/responses 上的 namespace 工具声明原样转发，这正是 ChatGPT Codex 后端期望的形态。仅当该 OAuth 账号指向不认识 namespace 的兼容上游时才开启——摊平会把工具改名为 namespace__tool，使按 functions.<命名空间>.<工具> 寻址的模型（如 gpt-5.6 多智能体）无法调用。压缩（compact）请求不受该开关影响，始终摊平。',
         longContextBilling: 'API 长上下文计费',
+        rejectExternalHistory: '拒绝外部历史请求',
+        rejectExternalHistoryDesc: '默认开启。仅接收已绑定到此账号的历史对话；不匹配时继续尝试其他账号，没有可接续账号时提示新建对话。新对话不受影响，已保存的归属不会随短期缓存过期。',
+        rejectExternalHistoryInherited: '继承母账号的历史准入设置，请在母账号中修改。',
+        rejectExternalHistoryParentOnly: '批量修改仅支持凭据所属的 OAuth 母账号；影子账号自动继承，请勿将影子账号包含在本项批量修改中。',
         longContextBillingDesc: '默认关闭。仅当该账号的上游会按模型阈值收取 OpenAI API 长上下文费率时开启。',
         responsesWebsocketsV2: 'Responses WebSocket v2',
         responsesWebsocketsV2Desc:

@@ -9,6 +9,7 @@ import (
 )
 
 type bulkOpenAISettings struct {
+	externalHistory         bool
 	longContextBilling      bool
 	endpointCapabilities    bool
 	responsesMode           bool
@@ -17,13 +18,19 @@ type bulkOpenAISettings struct {
 }
 
 func (s bulkOpenAISettings) any() bool {
-	return s.longContextBilling || s.endpointCapabilities || s.responsesMode
+	return s.externalHistory || s.longContextBilling || s.endpointCapabilities || s.responsesMode
 }
 
 func normalizeBulkOpenAISettings(input *BulkUpdateAccountsInput) (bulkOpenAISettings, error) {
 	var settings bulkOpenAISettings
 	if input == nil {
 		return settings, nil
+	}
+	if _, exists := input.Extra[OpenAIOAuthRejectExternalHistoryKey]; exists {
+		settings.externalHistory = true
+		if err := validateOpenAIHistoryExtra(input.Extra); err != nil {
+			return settings, err
+		}
 	}
 
 	if _, exists := input.Extra[openAILongContextBillingEnabledKey]; exists {
@@ -161,6 +168,9 @@ func validateBulkOpenAISettingsTargets(
 		account, ok := targetsByID[accountID]
 		if !ok || account == nil {
 			return 0, invalidBulkOpenAITarget(accountID, "account does not exist")
+		}
+		if settings.externalHistory && (!account.IsOpenAIOAuth() || account.IsCredentialShadow()) {
+			return 0, invalidBulkOpenAITarget(accountID, "external history admission requires a credential-owning OpenAI OAuth account")
 		}
 
 		if settings.longContextBilling {

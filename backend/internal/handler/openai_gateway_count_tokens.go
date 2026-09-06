@@ -74,6 +74,10 @@ func (h *OpenAIGatewayHandler) ResponsesInputTokens(c *gin.Context) {
 		h.openAISecurityAuditError(c, decision)
 		return
 	}
+	sessionHash := h.gatewayService.GenerateSessionHash(c, body)
+	if !h.prepareOpenAIHistory(c, apiKey, service.ContentModerationProtocolOpenAIResponses, body, sessionHash, false, true) {
+		return
+	}
 
 	subscription, _ := middleware2.GetSubscriptionFromContext(c)
 	if err := h.billingCacheService.CheckBillingEligibility(c.Request.Context(), apiKey.User, apiKey, apiKey.Group, subscription, service.QuotaPlatform(c.Request.Context(), apiKey)); err != nil {
@@ -97,7 +101,6 @@ func (h *OpenAIGatewayHandler) ResponsesInputTokens(c *gin.Context) {
 	// Token counting is not billed, so it must not be excluded by the profit gate.
 	c.Request = c.Request.WithContext(service.WithOpenAIProfitControlSuppressed(c.Request.Context()))
 	requestPlatform := openAICompatibleRequestPlatform(c.Request.Context(), apiKey)
-	sessionHash := h.gatewayService.GenerateSessionHash(c, body)
 	requestStart := time.Now()
 	account, err := h.gatewayService.SelectAccountForTokenCount(
 		c.Request.Context(),
@@ -109,6 +112,9 @@ func (h *OpenAIGatewayHandler) ResponsesInputTokens(c *gin.Context) {
 	)
 	service.SetOpsLatencyMs(c, service.OpsAuthLatencyMsKey, time.Since(requestStart).Milliseconds())
 	if err != nil {
+		if h.handleOpenAIHistoryError(c, err, false, false) {
+			return
+		}
 		reqLog.Warn("openai_input_tokens.account_select_failed", zap.Error(openAICompatibleSelectionErrorForLog(err, requestPlatform)))
 		cls := classifyOpenAICompatibleNoAccountErrorFromGin(c, h.gatewayService, apiKey, routingModel, reqModel)
 		if !cls.ModelNotFound {
@@ -249,6 +255,14 @@ func (h *OpenAIGatewayHandler) CountTokens(c *gin.Context) {
 
 	setOpsRequestContext(c, reqModel, false)
 	setOpsEndpointContext(c, "", int16(service.RequestTypeFromLegacy(false, false)))
+	if decision := h.checkSecurityAudit(c, reqLog, apiKey, subject, service.ContentModerationProtocolAnthropicMessages, reqModel, body); decision != nil && !decision.AllowNextStage {
+		h.anthropicSecurityAuditError(c, decision)
+		return
+	}
+	sessionHash := h.gatewayService.GenerateSessionHash(c, body)
+	if !h.prepareOpenAIHistory(c, apiKey, service.ContentModerationProtocolAnthropicMessages, body, sessionHash, true, true) {
+		return
+	}
 
 	channelMapping, _ := h.gatewayService.ResolveChannelMappingAndRestrict(c.Request.Context(), apiKey.GroupID, reqModel)
 	mappedBodyForMessages := newOpenAIModelMappedBodyCache(body, h.gatewayService.ReplaceModelInBody)
@@ -266,7 +280,6 @@ func (h *OpenAIGatewayHandler) CountTokens(c *gin.Context) {
 	// count_tokens 不计费：显式豁免利润门，避免高倍率账号池被门排除后连
 	// token 计数都返回 no available accounts。
 	c.Request = c.Request.WithContext(service.WithOpenAIProfitControlSuppressed(c.Request.Context()))
-	sessionHash := h.gatewayService.GenerateSessionHash(c, body)
 	currentRoutingModel := routingModel
 	if preferredMappedModel != "" {
 		currentRoutingModel = preferredMappedModel
@@ -290,6 +303,9 @@ func (h *OpenAIGatewayHandler) CountTokens(c *gin.Context) {
 		)
 		service.SetOpsLatencyMs(c, service.OpsAuthLatencyMsKey, time.Since(requestStart).Milliseconds())
 		if err != nil {
+			if h.handleOpenAIHistoryError(c, err, true, false) {
+				return
+			}
 			if errors.Is(err, service.ErrOpenAIOAuthSessionAccessDenied) {
 				h.anthropicErrorResponse(c, http.StatusForbidden, "permission_error", "This OpenAI account is restricted to authorized API key groups.")
 				return

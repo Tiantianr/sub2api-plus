@@ -249,13 +249,14 @@ class PullRequestUpdateTest(unittest.TestCase):
 
 class MainFlowTest(unittest.TestCase):
     @staticmethod
-    def args(action: str) -> argparse.Namespace:
+    def args(action: str, fast: bool = False) -> argparse.Namespace:
         return argparse.Namespace(
             action=action,
             remote="origin",
             base_ref=None,
             title=None,
             body_file=None,
+            fast=fast,
         )
 
     def test_check_rejects_dirty_worktree_before_preflight(self) -> None:
@@ -327,6 +328,31 @@ class MainFlowTest(unittest.TestCase):
 
         check.assert_called_once_with()
         preflight.assert_called_once_with("origin", "feature", base_ref=None)
+
+    def test_fast_check_runs_fast_preflight(self) -> None:
+        args = self.args("check", fast=True)
+        with (
+            mock.patch.object(push_cli, "parse_args", return_value=args),
+            mock.patch.object(
+                push_cli,
+                "github_gate",
+                return_value="LuckyKuang/sub2api-plus",
+            ),
+            mock.patch.object(push_cli, "current_branch", return_value="feature"),
+            mock.patch.object(
+                push_cli,
+                "repository_default_branch",
+                return_value="main",
+            ),
+            mock.patch.object(push_cli, "require_clean_worktree"),
+            mock.patch.object(push_cli, "check_toolchains") as check,
+            mock.patch.object(push_cli, "run_local_checks") as preflight,
+            mock.patch.object(push_cli, "ensure_clean_after_checks"),
+        ):
+            self.assertEqual(0, push_cli.main())
+
+        check.assert_called_once_with()
+        preflight.assert_called_once_with("origin", "feature", base_ref=None, fast=True)
 
     def test_fast_push_never_runs_preflight(self) -> None:
         args = self.args("push")

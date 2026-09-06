@@ -2194,6 +2194,9 @@ func (s *OpenAIGatewayService) handleStreamingResponsePassthrough(
 			if responseID == "" {
 				responseID = extractOpenAIResponseIDFromJSONBytes(dataBytes)
 			}
+			if err := s.persistOpenAIHistoryResponse(ctx, account, responseID); err != nil {
+				return resultWithUsage(), err
+			}
 			imageCounter.AddSSEData(dataBytes)
 			if sanitizedData, sanitized := sanitizeOpenAIResponseFailedEventForClient(
 				dataBytes,
@@ -2398,6 +2401,9 @@ func (s *OpenAIGatewayService) handleNonStreamingResponsePassthrough(
 	if err != nil {
 		return nil, fmt.Errorf("restore OpenAI Responses client tools: %w", err)
 	}
+	if err := s.persistOpenAIHistoryResponsePayload(ctx, account, body); err != nil {
+		return nil, err
+	}
 	if !writeOpenAICompactSSEBridge(c, resp.StatusCode, body) {
 		c.Data(resp.StatusCode, contentType, body)
 	}
@@ -2476,6 +2482,9 @@ func (s *OpenAIGatewayService) handlePassthroughSSEToJSON(resp *http.Response, c
 		if contentType == "" {
 			contentType = "text/event-stream"
 		}
+	}
+	if err := s.persistOpenAIHistoryResponsePayload(c.Request.Context(), account, body); err != nil {
+		return nil, err
 	}
 	if !writeOpenAICompactSSEBridge(c, resp.StatusCode, body) {
 		c.Data(resp.StatusCode, contentType, body)

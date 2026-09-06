@@ -133,6 +133,30 @@
         </div>
       </div>
 
+      <div v-if="allOpenAIOAuthOnly" class="border-t border-gray-200 pt-4 dark:border-dark-600">
+        <div class="mb-3 flex items-center justify-between gap-4">
+          <label class="input-label mb-0" for="bulk-openai-external-history-enabled">{{ t('admin.accounts.openai.rejectExternalHistory') }}</label>
+          <input
+            id="bulk-openai-external-history-enabled"
+            v-model="enableOpenAIExternalHistory"
+            type="checkbox"
+            aria-controls="bulk-openai-external-history"
+            class="rounded border-gray-300 text-primary-600 focus:ring-primary-500"
+          />
+        </div>
+        <div class="flex items-center justify-between gap-4" :class="!enableOpenAIExternalHistory && 'opacity-50'">
+          <p class="min-w-0 text-xs text-gray-500 dark:text-gray-400">{{ t('admin.accounts.openai.rejectExternalHistoryDesc') }}</p>
+          <Toggle
+            id="bulk-openai-external-history"
+            v-model="openAIRejectExternalHistory"
+            :disabled="!enableOpenAIExternalHistory"
+            :aria-label="t('admin.accounts.openai.rejectExternalHistory')"
+            data-testid="bulk-openai-external-history-toggle"
+          />
+        </div>
+        <p class="mt-2 text-xs text-gray-500 dark:text-gray-400">{{ t('admin.accounts.openai.rejectExternalHistoryParentOnly') }}</p>
+      </div>
+
       <!-- OpenAI API long-context billing -->
       <div
         v-if="allOpenAIPassthroughCapable"
@@ -1399,6 +1423,7 @@ import type {
 import BaseDialog from '@/components/common/BaseDialog.vue'
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
 import Select from '@/components/common/Select.vue'
+import Toggle from '@/components/common/Toggle.vue'
 import ProxySelector from '@/components/common/ProxySelector.vue'
 import GroupSelector from '@/components/common/GroupSelector.vue'
 import ModelWhitelistSelector from '@/components/account/ModelWhitelistSelector.vue'
@@ -1570,6 +1595,7 @@ const enableGroups = ref(false)
 const enableOpenAIPassthrough = ref(false)
 const enableOpenAIFlattenNamespaces = ref(false)
 const enableOpenAILongContextBilling = ref(false)
+const enableOpenAIExternalHistory = ref(false)
 const enableOpenAIEndpointCapabilities = ref(false)
 const enableOpenAIResponsesMode = ref(false)
 const enableOpenAIWSMode = ref(false)
@@ -1604,6 +1630,7 @@ const openaiPassthroughEnabled = ref(false)
 // Codex namespace 工具摊平兼容开关（仅 OAuth），缺省关闭即原样保留
 const openaiFlattenNamespacesEnabled = ref(false)
 const openAILongContextBillingEnabled = ref(false)
+const openAIRejectExternalHistory = ref(true)
 const openAIEndpointCapabilities = ref<OpenAIEndpointCapability[]>([
   'chat_completions',
   'embeddings'
@@ -1895,6 +1922,9 @@ const buildUpdatePayload = (): Record<string, unknown> | null => {
     const extra = ensureExtra()
     extra.openai_long_context_billing_enabled = openAILongContextBillingEnabled.value
   }
+  if (enableOpenAIExternalHistory.value && allOpenAIOAuthOnly.value) {
+    ensureExtra().openai_oauth_reject_external_history = openAIRejectExternalHistory.value
+  }
 
   if (applyOpenAIEndpointCapabilities) {
     credentials.openai_capabilities =
@@ -2092,6 +2122,7 @@ const handleSubmit = async () => {
     enableOpenAIPassthrough.value ||
     enableOpenAIFlattenNamespaces.value ||
     (enableOpenAILongContextBilling.value && allOpenAIPassthroughCapable.value) ||
+    (enableOpenAIExternalHistory.value && allOpenAIOAuthOnly.value) ||
     (enableOpenAIEndpointCapabilities.value && allOpenAIAPIKey.value) ||
     (enableOpenAIResponsesMode.value && allOpenAIAPIKey.value) ||
     enableModelRestriction.value ||
@@ -2248,6 +2279,7 @@ watch(
       enableOpenAIPassthrough.value = false
       enableOpenAIFlattenNamespaces.value = false
       enableOpenAILongContextBilling.value = false
+      enableOpenAIExternalHistory.value = false
       enableOpenAIEndpointCapabilities.value = false
       enableOpenAIResponsesMode.value = false
       enableOpenAIWSMode.value = false
@@ -2264,6 +2296,7 @@ watch(
       openaiPassthroughEnabled.value = false
       openaiFlattenNamespacesEnabled.value = false
       openAILongContextBillingEnabled.value = false
+      openAIRejectExternalHistory.value = true
       openAIEndpointCapabilities.value = ['chat_completions', 'embeddings']
       openAIResponsesMode.value = 'auto'
       modelRestrictionMode.value = 'whitelist'

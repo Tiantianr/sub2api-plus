@@ -30,6 +30,7 @@ type openAIWSClientFrameConn struct {
 	// model identifier they supplied for the current turn.
 	restoreResponseModel func([]byte) []byte
 	restoreToolNames     func([]byte) []byte
+	beforeWrite          func([]byte) error
 	afterWrite           func(coderws.MessageType, []byte, error)
 }
 
@@ -663,6 +664,11 @@ func (c *openAIWSClientFrameConn) WriteFrame(ctx context.Context, msgType coderw
 			payload = c.restoreToolNames(payload)
 		}
 	}
+	if c.beforeWrite != nil {
+		if err := c.beforeWrite(payload); err != nil {
+			return err
+		}
+	}
 	writeErr := c.conn.Write(ctx, msgType, payload)
 	if c.afterWrite != nil {
 		c.afterWrite(msgType, payload, writeErr)
@@ -1017,6 +1023,12 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 		controlCtx:           ctx,
 		interTurnIdleTimeout: s.openAIWSIngressInterTurnIdleTimeout(),
 		interTurnStarted:     make(chan struct{}, 1),
+		beforeWrite: func(payload []byte) error {
+			if err := s.persistOpenAIHistoryResponsePayload(openAIHistoryTurnContext(ctx, hooks), account, payload); err != nil {
+				return NewOpenAIWSClientCloseError(coderws.StatusInternalError, "conversation ownership unavailable", err)
+			}
+			return nil
+		},
 		restoreResponseModel: func(payload []byte) []byte {
 			eventType := strings.TrimSpace(gjson.GetBytes(payload, "type").String())
 			if !openAIWSEventMayContainModel(eventType) {

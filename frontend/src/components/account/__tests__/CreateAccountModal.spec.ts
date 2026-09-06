@@ -239,6 +239,33 @@ describe('CreateAccountModal OpenAI long-context billing', () => {
     expect(wrapper.find('[data-testid="create-openai-ws-mode"]').exists()).toBe(true)
   })
 
+  it('defaults OAuth external history rejection on and hides it for API keys', async () => {
+    const wrapper = mountModal()
+    await selectButtonByText(wrapper, 'OpenAI')
+    expect(wrapper.get('[data-testid="openai-external-history-toggle"]').attributes('aria-checked')).toBe('true')
+    await selectButtonByText(wrapper, 'API Key')
+    expect(wrapper.find('[data-testid="openai-external-history-toggle"]').exists()).toBe(false)
+  })
+
+  it('preserves existing history policy on untouched authorization imports', async () => {
+    const wrapper = await openCodexImportStep()
+    await wrapper.get('[data-testid="import-codex-session"]').trigger('click')
+    await flushPromises()
+    expect(importCodexSessionMock).toHaveBeenCalledOnce()
+    expect(importCodexSessionMock.mock.calls[0]?.[0]?.extra?.openai_oauth_reject_external_history).toBeUndefined()
+  })
+
+  it('submits an explicit history opt-out on authorization import', async () => {
+    const wrapper = mountModal()
+    await selectButtonByText(wrapper, 'OpenAI')
+    await wrapper.get('[data-testid="openai-external-history-toggle"]').trigger('click')
+    await wrapper.get('form#create-account-form input[type="text"]').setValue('OAuth import')
+    await wrapper.get('form#create-account-form').trigger('submit.prevent')
+    await wrapper.get('[data-testid="import-codex-session"]').trigger('click')
+    await flushPromises()
+    expect(importCodexSessionMock.mock.calls[0]?.[0]?.extra?.openai_oauth_reject_external_history).toBe(false)
+  })
+
   it('keeps the account toggle when any selected group disables tier pricing', async () => {
     authIsSimpleMode.value = false
     const wrapper = mountModal([
