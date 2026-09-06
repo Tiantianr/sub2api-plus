@@ -2243,7 +2243,7 @@ func (s *OpenAIGatewayService) selectAccountWithScheduler(
 			return selection, decision, nil
 		}
 		if strings.TrimSpace(previousResponseID) != "" && selection.Account.IsOpenAIOAuthSessionSharingEnabled() &&
-			!(previousResponseCanMove && !decision.StickyPreviousHit) {
+			(!previousResponseCanMove || decision.StickyPreviousHit) {
 			if err := s.validateOpenAISharedPreviousResponseAccountSelection(ctx, groupID, previousResponseID, selection.Account); err != nil {
 				if selection.Acquired && selection.ReleaseFunc != nil {
 					selection.ReleaseFunc()
