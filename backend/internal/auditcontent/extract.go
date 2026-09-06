@@ -689,7 +689,7 @@ func appendResponsesItem(document *Document, value any, current bool) {
 		role := normalizedRole(typed["role"])
 		markHistoryAttribution(document, role, SourceMessage)
 		switch typeName {
-		case "", "message", "agent_message", "input_text", "input_image", "input_audio", "input_file", "input_video":
+		case "", "message", "agent_message", "input_text", "input_image", "input_audio", "input_file", "input_video", "additional_tools":
 		default:
 			document.HistoryBearing = true
 		}
@@ -882,6 +882,8 @@ func appendResponsesItem(document *Document, value any, current bool) {
 			markUnknownNonEmptyFields(document, typed, "type", "id", "status", "call_id", "result")
 			return
 		case "additional_tools":
+			// Codex declares tools inside input on a fresh turn; these are not
+			// prior tool calls or outputs. Still audit every tool definition.
 			tools, exists := typed["tools"]
 			if !exists {
 				markIncompleteContent(document)

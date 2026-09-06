@@ -5,6 +5,7 @@ package handler
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"net/http"
 	"os"
 	"testing"
@@ -13,6 +14,7 @@ import (
 	"github.com/LuckyKuang/sub2api-plus/internal/securityaudit"
 	"github.com/LuckyKuang/sub2api-plus/internal/service"
 	"github.com/stretchr/testify/require"
+	"github.com/tidwall/gjson"
 )
 
 func codexHistoryFirstTurn(t *testing.T) []byte {
@@ -20,6 +22,22 @@ func codexHistoryFirstTurn(t *testing.T) []byte {
 	body, err := os.ReadFile("../auditcontent/testdata/codex_first_turn.json")
 	require.NoError(t, err)
 	return body
+}
+
+func assertCodexHistoryInputPreserved(t *testing.T, input, forwarded string) {
+	t.Helper()
+	var items []map[string]any
+	require.NoError(t, json.Unmarshal([]byte(input), &items))
+	// The existing Codex adapter strips message IDs, not their content or the
+	// additional_tools declaration. History admission must not change either.
+	for _, item := range items {
+		if item["type"] == "message" {
+			delete(item, "id")
+		}
+	}
+	expected, err := json.Marshal(items)
+	require.NoError(t, err)
+	require.JSONEq(t, string(expected), forwarded)
 }
 
 func TestOpenAIHistoryCodexFirstTurnPreservesBothAuditContracts(t *testing.T) {
@@ -39,8 +57,31 @@ func TestOpenAIHistoryCodexFirstTurnPreservesBothAuditContracts(t *testing.T) {
 	require.NoError(t, err)
 	require.Contains(t, snapshot.ScanText, "# AGENTS.md")
 	require.Contains(t, snapshot.ScanText, "Run the focused Go tests.")
+	require.Contains(t, snapshot.ScanText, "Read a project file.")
 	require.Contains(t, snapshot.ScanText, "How many candies")
 	require.NotContains(t, snapshot.ScanText, "<environment_context>")
+}
+
+func TestOpenAIHistoryCodexAdditionalToolsSampledModels(t *testing.T) {
+	for _, model := range []string{"gpt-5.6-luna", "gpt-6-astra"} {
+		t.Run(model, func(t *testing.T) {
+			var request map[string]json.RawMessage
+			require.NoError(t, json.Unmarshal(codexHistoryFirstTurn(t), &request))
+			encodedModel, err := json.Marshal(model)
+			require.NoError(t, err)
+			request["model"] = encodedModel
+			body, err := json.Marshal(request)
+			require.NoError(t, err)
+			upstream := &historyHTTPUpstream{}
+			h, repo := newHistoryHTTPHandler(t, false, service.AccountTypeOAuth, upstream)
+			c, recorder := historyHTTPContext(t, string(body))
+			h.Responses(c)
+			require.Equal(t, http.StatusOK, recorder.Code, recorder.Body.String())
+			require.Equal(t, []int64{1}, upstream.calls())
+			require.Positive(t, repo.writes)
+			require.Equal(t, "additional_tools", gjson.GetBytes(upstream.bodies[0], "input.0.type").String())
+		})
+	}
 }
 
 type historyFirstTurnModerationBlock struct {

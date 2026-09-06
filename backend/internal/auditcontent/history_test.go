@@ -15,6 +15,11 @@ func TestConversationHistoryClassificationPreservesCanonicalContent(t *testing.T
 		history              bool
 	}{
 		{"new_responses", "openai_responses", `{"model":"gpt-5.1","instructions":"policy","tools":[{"type":"function","name":"read","parameters":{"type":"object"}}],"input":"hello"}`, false},
+		{"additional_tools_declaration", "openai_responses", `{"input":[{"type":"additional_tools","id":"tools_1","role":"developer","tools":[{"type":"function","name":"read","description":"Read a file"}]},{"role":"user","content":"hello"}]}`, false},
+		{"additional_tools_only", "openai_responses", `{"input":[{"type":"additional_tools","tools":[{"type":"function","name":"read","description":"Read a file"}]}]}`, false},
+		{"additional_tools_with_call", "openai_responses", `{"input":[{"type":"additional_tools","role":"developer","tools":[]},{"type":"function_call","call_id":"call_1","name":"read","arguments":"{}"},{"role":"user","content":"next"}]}`, true},
+		{"additional_tools_with_output", "openai_responses", `{"input":[{"type":"additional_tools","role":"developer","tools":[]},{"type":"function_call_output","call_id":"call_1","output":""},{"role":"user","content":"next"}]}`, true},
+		{"mcp_list_tools_is_history", "openai_responses", `{"input":[{"type":"mcp_list_tools","server_label":"docs","tools":[{"name":"read","description":"Read a file"}]},{"role":"user","content":"next"}]}`, true},
 		{"responses_user_context", "openai_responses", `{"input":[{"role":"user","content":"project rules"},{"role":"user","content":"environment"},{"role":"user","content":"first question"}]}`, false},
 		{"responses_user_fragments", "openai_responses", `{"input":["project context",{"type":"input_text","text":"first question"}]}`, false},
 		{"responses_trailing_instruction", "openai_responses", `{"input":[{"role":"user","content":"first question"},{"role":"developer","content":"policy"}]}`, false},
@@ -48,14 +53,20 @@ func TestCodexFirstTurnHistoryDoesNotChangeAuditAttribution(t *testing.T) {
 	require.NoError(t, err)
 	require.False(t, document.HistoryBearing)
 	require.False(t, document.Incomplete)
+	var definitions []Segment
 	var users []Segment
 	for _, segment := range document.Segments {
+		if segment.Source == SourceToolDefinition {
+			definitions = append(definitions, segment)
+		}
 		if segment.Role == "user" {
 			users = append(users, segment)
 			require.Equal(t, SourceMessage, segment.Source)
 			require.True(t, segment.ClientControlled)
 		}
 	}
+	require.NotEmpty(t, definitions)
+	require.Contains(t, definitions[0].Text, "Read a project file.")
 	require.Len(t, users, 3)
 	require.Contains(t, users[0].Text, "# AGENTS.md")
 	require.Contains(t, users[1].Text, "<environment_context>")

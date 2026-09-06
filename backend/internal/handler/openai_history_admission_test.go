@@ -115,6 +115,8 @@ func TestOpenAIHistoryHTTPRoutingAndAdmission(t *testing.T) {
 				input := gjson.Get(tc.body, "input")
 				if input.Type == gjson.String && tc.accountType == service.AccountTypeOAuth {
 					require.Equal(t, input.String(), gjson.GetBytes(upstream.bodies[0], "input.0.content").String())
+				} else if tc.name == "codex_first_turn" {
+					assertCodexHistoryInputPreserved(t, input.Raw, gjson.GetBytes(upstream.bodies[0], "input").Raw)
 				} else {
 					require.JSONEq(t, input.Raw, gjson.GetBytes(upstream.bodies[0], "input").Raw)
 				}
@@ -318,7 +320,7 @@ func TestOpenAIHistoryWebSocketTurns(t *testing.T) {
 				upstream.mu.Lock()
 				forwarded := bytes.Clone(upstream.bodies[0])
 				upstream.mu.Unlock()
-				require.JSONEq(t, gjson.Get(first, "input").Raw, gjson.GetBytes(forwarded, "input").Raw)
+				assertCodexHistoryInputPreserved(t, gjson.Get(first, "input").Raw, gjson.GetBytes(forwarded, "input").Raw)
 			}
 			previous := "resp_history_1"
 			if tc.unknownPrevious {

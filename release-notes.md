@@ -1,22 +1,21 @@
-Sub2API Plus v0.2.0+custom.907
+Sub2API Plus v0.2.0+custom.908
 
 ## Highlights
 
-- Fix OpenAI OAuth history admission to permit multi-user context messages on Codex first turn.
-- Codex first turns with project instructions, environment context, and prompts no longer falsely trigger external history rejection.
+- Support Codex in-input `additional_tools` declarations during fresh-turn OpenAI OAuth history admission.
+- Tool declarations declared within input items are treated as tool definitions and no longer falsely rejected as external history.
 - Immutable security audit and moderation extraction contracts remain preserved and fail-closed.
 
 ## Changed
 
-- Canonical extraction `HistoryBearing` classification decoupled from audit `Current` segment marker.
-- History classification strictly flags assistant/model messages, tool calls/outputs, reasoning, opaque state, and continuation references.
-- Multiple user messages alone do not establish prior conversation turns or require historical session affinity.
-- Added real-payload Codex first-turn test suite for canonical extraction, HTTP routing, and WebSocket turns.
+- Canonical extractor recognizes `additional_tools` items on fresh turns alongside messages and agent messages.
+- Audits tool schemas inside `additional_tools` under `SourceToolDefinition` while ensuring missing schemas or history siblings fail closed.
+- Real-payload Codex test suite extended to cover in-input `additional_tools`, sampled models, and WebSocket turns.
 
 ## Compatibility and migration
 
 - Forward-only database migration schema unchanged.
-- Roll back application code to `v0.2.0+custom.906` if required.
+- Roll back application code to `v0.2.0+custom.907` if required.
 - Personal images and binary archives remain Linux arm64 only.
 
 ## Known issues

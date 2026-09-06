@@ -58,7 +58,9 @@ A fresh conversation is eligible even when its newly generated session ID has
 no binding. A `previous_response_id`, recognized historical message/tool/state
 input, or an existing conversation binding requires history admission. Shared
 canonical extraction supplies the history classification; system/developer
-instructions and tool declarations alone are not history. Multiple user
+instructions and tool declarations alone are not history. This includes Codex's in-input
+`additional_tools` declaration carrier, not just top-level `tools`; its tool
+schemas keep their canonical audit coverage. Multiple user
 messages alone are not evidence of prior turns: Codex sends project rules and
 environment context before its first question. Audit current-message selection
 is independent of this classification and is unchanged. Assistant/tool/state
