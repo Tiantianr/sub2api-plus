@@ -9,8 +9,8 @@ derives the OCI image tag by preserving the leading `v` and replacing only
 `+` with `-`.
 
 ```text
-Git/GitHub: v0.2.0+custom.904
-GHCR:       ghcr.io/tiantianr/sub2api-plus:v0.2.0-custom.904
+Git/GitHub: v0.2.0+custom.905
+GHCR:       ghcr.io/tiantianr/sub2api-plus:v0.2.0-custom.905
 ```
 
 Pin the GHCR version tag for reproducible deployments. See
@@ -39,6 +39,7 @@ Personal images and binary archives target Linux arm64 only.
 | `sub2api-datamanagementd.service` | datamanagementd systemd service unit file |
 | `DATAMANAGEMENTD_CN.md` | datamanagementd 部署与联动说明（中文） |
 | `config.example.yaml` | Example configuration file |
+| `OPENAI_HISTORY_ADMISSION_CN.md` | OAuth history admission defaults, durable ownership, and upgrade behavior |
 | `EDGE_SECURITY.md` | Reverse proxy, CDN/WAF, trusted proxy, and ingress hardening guide |
 | `CLOUDFLARE_IP_ACCESS_CONTROL_CN.md` | Cloudflare + Nginx binary deployment and global IP blocking tutorial (Chinese) |
 
@@ -537,13 +538,13 @@ Replace the immutable tag with another value reported by `list-versions` when
 needed:
 
 ```bash
-curl -sSL https://raw.githubusercontent.com/Tiantianr/sub2api-plus/main/deploy/install.sh | sudo bash -s -- install --version 'v0.2.0+custom.904'
+curl -sSL https://raw.githubusercontent.com/Tiantianr/sub2api-plus/main/deploy/install.sh | sudo bash -s -- install --version 'v0.2.0+custom.905'
 ```
 
 Roll back an existing binary installation to an earlier published version:
 
 ```bash
-curl -sSL https://raw.githubusercontent.com/Tiantianr/sub2api-plus/main/deploy/install.sh | sudo bash -s -- rollback 'v0.2.0+custom.903'
+curl -sSL https://raw.githubusercontent.com/Tiantianr/sub2api-plus/main/deploy/install.sh | sudo bash -s -- rollback 'v0.2.0+custom.904'
 ```
 
 Upgrade to the latest release:
@@ -567,13 +568,13 @@ curl -sSL https://raw.githubusercontent.com/Tiantianr/sub2api-plus/main/deploy/i
 For a downloaded `install.sh`, invoke one operation at a time. For example:
 
 ```bash
-sudo ./install.sh install --version 'v0.2.0+custom.904'
+sudo ./install.sh install --version 'v0.2.0+custom.905'
 ```
 
 Roll back a downloaded-script installation one operation at a time:
 
 ```bash
-sudo ./install.sh rollback 'v0.2.0+custom.903'
+sudo ./install.sh rollback 'v0.2.0+custom.904'
 ```
 
 Or uninstall while preserving `/etc/sub2api`:

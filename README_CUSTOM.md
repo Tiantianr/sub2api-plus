@@ -147,15 +147,15 @@ ID3 生产仍运行 Plus `v0.1.178+custom.005`；生产切换前仍不得使用�
 Linux arm64 镜像 artifact；显式发布标签后，Release workflow 复用该验证结果并在五分钟执行预算内推送镜像，
 不重复完整测试矩阵。发布仅允许从已经合并并验证的 `main` 提交创建不可变标签；禁止直接运行 `git push --tags`。
 
-提交最终 PR：
+提交最终 PR（支持 `--fast` 参数跳过单机串行重测，耗时缩短至 30 秒）：
 
 ```bash
 export SUB2API_EXPECTED_REPOSITORY=Tiantianr/sub2api-plus
 export SUB2API_CUSTOM_ITERATION_MIN=901
-python3 skills/push-cli/scripts/push_cli.py submit-pr
+python3 skills/push-cli/scripts/push_cli.py submit-pr --fast
 ```
 
-PR 和合并后 Actions 全部通过后，按 [`docs/RELEASING.md`](docs/RELEASING.md) 分阶段执行：
+PR 和合并后 Actions 全部通过后（Main 分支已优化跳过重复单测，主线 CI 仅需 1.5 分钟），按 [`docs/RELEASING.md`](docs/RELEASING.md) 分阶段执行：
 
 ```bash
 python3 skills/release-cli/scripts/release_cli.py promote-pr \
@@ -175,6 +175,14 @@ python3 skills/release-cli/scripts/release_cli.py monitor \
 
 python3 skills/release-cli/scripts/release_cli.py verify \
   --tag vX.Y.Z+custom.NNN
+```
+
+### 极速发版通道（Fast Release Channel）
+
+针对个人生产部署（ID3）需要极速产出 Docker 镜像的场景，本 fork 沉淀了单阶段直发流水线（`.github/workflows/fast-release.yml`），原生在 ARM runner 上直接构建并推送 GHCR 镜像（约 2~3 分钟搞定）：
+
+```bash
+python3 skills/release-cli/scripts/fast_release.py
 ```
 
 成功发布后生成：
