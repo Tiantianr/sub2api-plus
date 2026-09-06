@@ -49,6 +49,11 @@ provider accounts are unaffected. Create, edit and opt-in bulk editing expose
 the setting. Bulk policy changes must target OAuth credential owners, not
 shadows. Invalid boolean values are rejected by management writes.
 
+Slim scheduling snapshots preserve the effective boolean, including explicit
+`false` and the missing-field default `true`. An older OAuth snapshot without
+this boolean is a cache miss and follows the existing database rebuild path;
+it must not turn an account's stored opt-out into an admission denial.
+
 A fresh conversation is eligible even when its newly generated session ID has
 no binding. A `previous_response_id`, recognized historical message/tool/state
 input, or an existing conversation binding requires history admission. Shared
@@ -96,6 +101,18 @@ can continue, HTTP returns `400`, type `invalid_request_error`, code
 Anthropic-compatible error envelope. WebSocket uses an error event. Ownership
 storage failures return a service error, and concurrent routing conflicts are
 retryable conflicts; neither is reported as an external-history denial.
+
+With Ops monitoring enabled, history admission failures enter the existing
+failed-request log used by Usage. SSE and WebSocket failures retain their
+logical error status even after wire HTTP 200/101, including a later-turn
+`conversation_reconnect_required`. Policy rejections are local routing
+decisions, excluded from availability metrics and not attributed to upstream
+account failures. They retain request/user/model context and the client-facing
+reason, without copying conversation content or ownership records. Existing
+user visibility, ownership isolation and token-count filtering still apply.
+The admin Usage error list includes these business-limited rows in `all` or
+`excluded`, not its default SLA-oriented `errors` filter. The user list includes
+their own policy rejections.
 
 An upgrade can backfill still-authorized cached response ownership. A legacy
 group-only session cache is not user ownership evidence and is not promoted.

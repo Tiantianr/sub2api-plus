@@ -2210,7 +2210,7 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 	requestPlatform := openAICompatibleRequestPlatform(ctx, apiKey)
 	if requestPlatform == service.PlatformOpenAI {
 		if err := h.gatewayService.PrepareOpenAIHistoryRequest(c, service.ContentModerationProtocolOpenAIResponses, firstMessage, sessionHash); err != nil {
-			writeOpenAIHistoryWSError(ctx, wsConn, err, false)
+			writeOpenAIHistoryWSError(c, ctx, wsConn, err, false)
 			closeOpenAIClientWS(wsConn, coderws.StatusInternalError, "conversation ownership unavailable")
 			return
 		}
@@ -2420,7 +2420,7 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 			requestPlatform,
 		)
 		if err != nil {
-			if writeOpenAIHistoryWSError(ctx, wsConn, err, false) {
+			if writeOpenAIHistoryWSError(c, ctx, wsConn, err, false) {
 				closeOpenAIClientWS(wsConn, coderws.StatusTryAgainLater, "conversation admission failed")
 				return
 			}
@@ -2553,7 +2553,7 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 				failedAccountIDs[account.ID] = struct{}{}
 				continue
 			}
-			writeOpenAIHistoryWSError(ctx, wsConn, err, false)
+			writeOpenAIHistoryWSError(c, ctx, wsConn, err, false)
 			closeOpenAIClientWS(wsConn, coderws.StatusTryAgainLater, "conversation ownership unavailable")
 			return
 		}
@@ -2704,11 +2704,12 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 					// upgrade request concurrently with downstream/usage readers.
 					turnContext := c.Copy()
 					if err := h.gatewayService.PrepareOpenAIHistoryRequest(turnContext, service.ContentModerationProtocolOpenAIResponses, payload, turnSessionHash); err != nil {
+						writeOpenAIHistoryWSError(c, ctx, wsConn, err, false)
 						return service.NewOpenAIWSClientCloseError(coderws.StatusInternalError, "conversation ownership unavailable", err)
 					}
 					turnHistoryCtx := service.ContextWithOpenAIHistory(ctx, turnContext.Request.Context())
 					if err := h.gatewayService.ValidateOpenAIHistoryTurn(turnHistoryCtx, account); err != nil {
-						writeOpenAIHistoryWSError(ctx, wsConn, err, true)
+						writeOpenAIHistoryWSError(c, ctx, wsConn, err, true)
 						return service.NewOpenAIWSClientCloseError(coderws.StatusTryAgainLater, "reconnect to select an eligible account", err)
 					}
 					turnHistory.Store(&turnHistoryCtx)

@@ -66,6 +66,11 @@ history admission and cannot bypass either audit engine or user/group response
 authorization. A storage failure cannot authorize history or be disguised as
 an ordinary cache miss.
 
+History admission failures use the existing failed-request logging path after
+the audit boundary, including HTTP/SSE and WebSocket turn failures. Logging
+does not extract a second copy of conversation content, persist ownership
+details in client-visible errors, or authorize an upstream retry.
+
 | Protocol family | Canonical text sources | Current-content rule | Explicit no-text or control cases |
 | --- | --- | --- | --- |
 | OpenAI Chat Completions | `instructions`; `tools` and `functions`; `messages[].content`; `messages[].reasoning_content`; `tool_calls[].function.arguments`; `function_call.arguments`; tool/function-role results, including structured content | Last message is current; if the tail contains tool/function results, every consecutive trailing result is current; system/developer context is current audit context. Assistant reasoning is classified as reasoning, while user-role reasoning retains direct-user attribution. | Recognized image/video content blocks |

@@ -12,6 +12,8 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+const opsOpenAIHistoryErrorKey = "ops_openai_history_error"
+
 func (h *OpenAIGatewayHandler) prepareOpenAIHistory(c *gin.Context, apiKey *service.APIKey, protocol string, body []byte, sessionHash string, anthropic bool, readOnly ...bool) bool {
 	if openAICompatibleRequestPlatform(c.Request.Context(), apiKey) != service.PlatformOpenAI {
 		return true
@@ -47,9 +49,7 @@ func (h *OpenAIGatewayHandler) handleOpenAIHistoryError(c *gin.Context, err erro
 	if !ok {
 		return false
 	}
-	if errors.Is(err, service.ErrOpenAIExternalHistory) {
-		service.MarkOpsClientBusinessLimited(c, service.OpsClientBusinessLimitedReasonLocalPolicyDenied)
-	}
+	markOpenAIHistoryOpsError(c, status, errType, code, message)
 	if anthropic {
 		h.anthropicStreamingAwareError(c, status, errType, message, streamStarted)
 	} else {
@@ -58,8 +58,8 @@ func (h *OpenAIGatewayHandler) handleOpenAIHistoryError(c *gin.Context, err erro
 	return true
 }
 
-func writeOpenAIHistoryWSError(ctx context.Context, conn *coderws.Conn, err error, reconnect bool) bool {
-	_, errType, code, message, ok := openAIHistoryErrorDetails(err)
+func writeOpenAIHistoryWSError(c *gin.Context, ctx context.Context, conn *coderws.Conn, err error, reconnect bool) bool {
+	status, errType, code, message, ok := openAIHistoryErrorDetails(err)
 	if !ok {
 		return false
 	}
@@ -67,6 +67,7 @@ func writeOpenAIHistoryWSError(ctx context.Context, conn *coderws.Conn, err erro
 		code = "conversation_reconnect_required"
 		message = "This account cannot continue the supplied history; reconnect to select another account."
 	}
+	markOpenAIHistoryOpsError(c, status, errType, code, message)
 	payload, marshalErr := json.Marshal(gin.H{"type": "error", "error": gin.H{
 		"type": errType, "code": code, "message": message,
 	}})
@@ -76,4 +77,24 @@ func writeOpenAIHistoryWSError(ctx context.Context, conn *coderws.Conn, err erro
 		_ = conn.Write(writeCtx, coderws.MessageText, payload)
 	}
 	return true
+}
+
+func markOpenAIHistoryOpsError(c *gin.Context, status int, errType, code, message string) {
+	c.Set(opsOpenAIHistoryErrorKey, service.OpsStreamError{Code: code, Message: message})
+	if isOpsOpenAIHistoryRejection(c, message) {
+		service.MarkOpsClientBusinessLimited(c, service.OpsClientBusinessLimitedReasonLocalPolicyDenied)
+	}
+	// Persist the logical failure status even after HTTP 200/101. The business
+	// limit marker still excludes policy rejections from availability metrics.
+	service.MarkOpsStreamFailure(c, errType, code, message, status)
+}
+
+func isOpsOpenAIHistoryRejection(c *gin.Context, message string) bool {
+	if c == nil {
+		return false
+	}
+	value, _ := c.Get(opsOpenAIHistoryErrorKey)
+	local, ok := value.(service.OpsStreamError)
+	return ok && local.Message == message &&
+		(local.Code == "external_history_not_allowed" || local.Code == "conversation_reconnect_required")
 }

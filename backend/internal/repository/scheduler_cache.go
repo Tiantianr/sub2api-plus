@@ -300,6 +300,13 @@ func (c *schedulerCache) GetSnapshot(ctx context.Context, bucket service.Schedul
 		if err != nil {
 			return nil, false, err
 		}
+		if account.IsOpenAIOAuth() {
+			if _, valid := account.Extra[service.OpenAIOAuthRejectExternalHistoryKey].(bool); !valid {
+				// Older projections dropped explicit opt-outs. Rebuild from the
+				// repository instead of interpreting missing metadata as enabled.
+				return nil, false, nil
+			}
+		}
 		if err := applySchedulerLastUsed(account, lastUsedValues[i]); err != nil {
 			return nil, false, err
 		}
@@ -863,7 +870,7 @@ func (c *schedulerCache) mgetChunked(ctx context.Context, keys []string) ([]any,
 }
 
 func buildSchedulerMetadataAccount(account service.Account) service.Account {
-	return service.Account{
+	metadata := service.Account{
 		ID:                      account.ID,
 		Name:                    account.Name,
 		Platform:                account.Platform,
@@ -893,6 +900,15 @@ func buildSchedulerMetadataAccount(account service.Account) service.Account {
 		Credentials:             filterSchedulerCredentials(account.Credentials),
 		Extra:                   filterSchedulerExtra(account.Extra),
 	}
+	if account.IsOpenAIOAuth() {
+		if metadata.Extra == nil {
+			metadata.Extra = make(map[string]any)
+		}
+		// Materialize the default too, so complete metadata is distinguishable
+		// from an old projection without changing the stored account settings.
+		metadata.Extra[service.OpenAIOAuthRejectExternalHistoryKey] = account.IsOpenAIOAuthRejectExternalHistoryEnabled()
+	}
+	return metadata
 }
 
 func filterSchedulerAccountGroups(accountGroups []service.AccountGroup) []service.AccountGroup {
@@ -994,6 +1010,7 @@ func filterSchedulerExtra(extra map[string]any) map[string]any {
 		"session_idle_timeout_minutes",
 		"openai_oauth_responses_websockets_v2_enabled",
 		"openai_oauth_responses_websockets_v2_mode",
+		service.OpenAIOAuthRejectExternalHistoryKey,
 		"openai_apikey_responses_websockets_v2_enabled",
 		"openai_apikey_responses_websockets_v2_mode",
 		"responses_websockets_v2_enabled",
