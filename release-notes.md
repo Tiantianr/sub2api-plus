@@ -1,23 +1,22 @@
-Sub2API Plus v0.2.0+custom.906
+Sub2API Plus v0.2.0+custom.907
 
 ## Highlights
 
-- Preserve OpenAI OAuth history admission policy in slim scheduler cache projections.
-- Incomplete cached OAuth snapshots without history admission boolean are treated as cache misses and rebuilt from database.
-- Record history admission rejections into Ops failed-request logs as local routing business limitations.
+- Fix OpenAI OAuth history admission to permit multi-user context messages on Codex first turn.
+- Codex first turns with project instructions, environment context, and prompts no longer falsely trigger external history rejection.
+- Immutable security audit and moderation extraction contracts remain preserved and fail-closed.
 
 ## Changed
 
-- Slim scheduler cache metadata includes explicit opt-outs for `openai_oauth_reject_external_history`.
-- Cached snapshots missing history admission flags trigger repository rebuild instead of defaulting to rejection.
-- Ops error logging captures history admission rejections for HTTP, SSE, and WebSocket turns while excluding them from upstream availability failure metrics.
-- Admin Usage error requests include policy rejections under `all` and `excluded` filters.
+- Canonical extraction `HistoryBearing` classification decoupled from audit `Current` segment marker.
+- History classification strictly flags assistant/model messages, tool calls/outputs, reasoning, opaque state, and continuation references.
+- Multiple user messages alone do not establish prior conversation turns or require historical session affinity.
+- Added real-payload Codex first-turn test suite for canonical extraction, HTTP routing, and WebSocket turns.
 
 ## Compatibility and migration
 
 - Forward-only database migration schema unchanged.
-- Slim scheduler cache auto-rebuilds without manual Redis flushing.
-- Roll back application code to `v0.2.0+custom.905` if required.
+- Roll back application code to `v0.2.0+custom.906` if required.
 - Personal images and binary archives remain Linux arm64 only.
 
 ## Known issues

@@ -5,10 +5,12 @@ package service
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"sync"
 	"testing"
 	"time"
@@ -113,6 +115,8 @@ const historyFreshBody = `{"model":"gpt-5.1","input":"hello"}`
 const historyReplayBody = `{"model":"gpt-5.1","input":[{"role":"assistant","content":"previous reply"},{"role":"user","content":"continue"}]}`
 
 func TestOpenAIHistoryAdmissionCandidateMatrix(t *testing.T) {
+	codexFirstTurn, err := os.ReadFile("../auditcontent/testdata/codex_first_turn.json")
+	require.NoError(t, err)
 	for _, advanced := range []bool{false, true} {
 		for _, tc := range []struct {
 			name   string
@@ -123,6 +127,7 @@ func TestOpenAIHistoryAdmissionCandidateMatrix(t *testing.T) {
 			denied bool
 		}{
 			{"new_session", historyFreshBody, false, false, 1, false},
+			{"codex_first_turn", string(codexFirstTurn), false, false, 1, false},
 			{"own_history", historyReplayBody, true, false, 1, false},
 			{"external_history", historyReplayBody, false, false, 0, true},
 			{"mixed_pool", historyReplayBody, false, true, 2, false},
@@ -148,6 +153,56 @@ func TestOpenAIHistoryAdmissionCandidateMatrix(t *testing.T) {
 					require.NotNil(t, selection)
 					require.Equal(t, tc.want, selection.Account.ID)
 				}
+			})
+		}
+	}
+}
+
+func TestOpenAIHistoryCodexContextDoesNotBypassContinuationChecks(t *testing.T) {
+	firstTurn, err := os.ReadFile("../auditcontent/testdata/codex_first_turn.json")
+	require.NoError(t, err)
+	for _, advanced := range []bool{false, true} {
+		for _, tc := range []struct {
+			name, extraItem, previousID string
+			bound                       bool
+		}{
+			{name: "existing_owner", bound: true},
+			{name: "unknown_response", previousID: "resp_unknown"},
+			{name: "assistant", extraItem: `{"type":"message","role":"assistant","content":[]}`},
+			{name: "tool_output", extraItem: `{"type":"function_call_output","call_id":"call_1","output":""}`},
+			{name: "incomplete_sibling", extraItem: `{"role":"user","content":[{"type":"future_content","text":"unknown content"}]}`},
+		} {
+			t.Run(fmt.Sprintf("advanced_%t/%s", advanced, tc.name), func(t *testing.T) {
+				svc, repo := newHistoryTestService(t, advanced)
+				var excluded map[int64]struct{}
+				if tc.bound {
+					first := historyTestRequest(t, svc, 11, ContentModerationProtocolOpenAIResponses, "codex-session", string(firstTurn))
+					selected, err := selectHistoryTestAccount(svc, first, nil)
+					require.NoError(t, err)
+					require.Equal(t, int64(1), selected.Account.ID)
+					excluded = map[int64]struct{}{1: {}}
+				}
+				var payload map[string]json.RawMessage
+				require.NoError(t, json.Unmarshal(firstTurn, &payload))
+				if tc.extraItem != "" {
+					var input []json.RawMessage
+					require.NoError(t, json.Unmarshal(payload["input"], &input))
+					input = append(input, json.RawMessage(tc.extraItem))
+					payload["input"], err = json.Marshal(input)
+					require.NoError(t, err)
+				}
+				if tc.previousID != "" {
+					payload["previous_response_id"], err = json.Marshal(tc.previousID)
+					require.NoError(t, err)
+				}
+				body, err := json.Marshal(payload)
+				require.NoError(t, err)
+				bindingCount := len(repo.bindings)
+				request := historyTestRequest(t, svc, 11, ContentModerationProtocolOpenAIResponses, "codex-session", string(body))
+				selected, err := selectHistoryTestAccount(svc, request, excluded)
+				require.ErrorIs(t, err, ErrOpenAIExternalHistory)
+				require.Nil(t, selected)
+				require.Len(t, repo.bindings, bindingCount)
 			})
 		}
 	}

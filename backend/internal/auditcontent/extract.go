@@ -235,6 +235,7 @@ func appendChatMessages(document *Document, messagesValue any, messagesExist boo
 		case "tool", "function":
 			source = SourceToolOutput
 		}
+		markHistoryAttribution(document, role, source)
 		if source == SourceToolOutput {
 			appendToolOutput(document, message["content"], current)
 		} else {
@@ -343,7 +344,7 @@ func extractAnthropic(document *Document, root map[string]any) {
 }
 
 func appendAnthropicContent(document *Document, value any, role string, current bool) {
-	markHistoryAttribution(document, role, SourceMessage, current)
+	markHistoryAttribution(document, role, SourceMessage)
 	switch typed := value.(type) {
 	case string:
 		appendText(document, typed, role, SourceMessage, current, true)
@@ -686,7 +687,7 @@ func appendResponsesItem(document *Document, value any, current bool) {
 	case map[string]any:
 		typeName := normalizedType(typed["type"])
 		role := normalizedRole(typed["role"])
-		markHistoryAttribution(document, role, SourceMessage, current)
+		markHistoryAttribution(document, role, SourceMessage)
 		switch typeName {
 		case "", "message", "agent_message", "input_text", "input_image", "input_audio", "input_file", "input_video":
 		default:
@@ -699,6 +700,7 @@ func appendResponsesItem(document *Document, value any, current bool) {
 				markIncompleteContent(document)
 			}
 			role = responsesAgentMessageRole(author)
+			markHistoryAttribution(document, role, SourceMessage)
 			source := SourceMessage
 			if role == "system" || role == "developer" {
 				source = SourceInstruction
@@ -1789,7 +1791,7 @@ func appendContent(document *Document, value any, role string, source Source, cu
 }
 
 func appendStructured(document *Document, value any, role string, source Source, current, controlled bool) {
-	markHistoryAttribution(document, role, source, current)
+	markHistoryAttribution(document, role, source)
 	if value == nil {
 		return
 	}
@@ -1832,19 +1834,21 @@ func structuredText(value any) (string, bool, error) {
 	return string(raw), true, nil
 }
 
-func markHistoryAttribution(document *Document, role string, source Source, current bool) {
+func markHistoryAttribution(document *Document, role string, source Source) {
 	if document == nil || role == "system" || role == "developer" ||
 		source == SourceInstruction || source == SourceToolDefinition || source == SourcePromptVariable {
 		return
 	}
-	if !current || role == "assistant" || role == "model" || role == "tool" || role == "function" ||
+	// Audit current-content boundaries do not establish prior conversation turns:
+	// Codex can send several user context messages before its first prompt.
+	if role == "assistant" || role == "model" || role == "tool" || role == "function" ||
 		source == SourceToolCall || source == SourceToolOutput || source == SourceReasoning {
 		document.HistoryBearing = true
 	}
 }
 
 func appendText(document *Document, text, role string, source Source, current, controlled bool) {
-	markHistoryAttribution(document, role, source, current)
+	markHistoryAttribution(document, role, source)
 	if document == nil || strings.TrimSpace(text) == "" {
 		return
 	}
@@ -1854,7 +1858,7 @@ func appendText(document *Document, text, role string, source Source, current, c
 }
 
 func appendImageValues(document *Document, value any, role string, source Source, current, controlled, mediaContext bool) {
-	markHistoryAttribution(document, role, source, current)
+	markHistoryAttribution(document, role, source)
 	if document == nil || value == nil {
 		return
 	}

@@ -5,6 +5,7 @@ package handler
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -94,6 +95,7 @@ func TestOpenAIHistoryHTTPRoutingAndAdmission(t *testing.T) {
 		wantAccounts            []int64
 	}{
 		{"new", `{"model":"gpt-5.1","input":"hello"}`, service.AccountTypeOAuth, false, 200, []int64{1}},
+		{"codex_first_turn", string(codexHistoryFirstTurn(t)), service.AccountTypeOAuth, false, 200, []int64{1}},
 		{"strict_external", `{"model":"gpt-5.1","input":[{"role":"assistant","content":"old"},{"role":"user","content":"next"}]}`, service.AccountTypeOAuth, false, 400, nil},
 		{"mixed_pool", `{"model":"gpt-5.1","input":[{"role":"assistant","content":"old"},{"role":"user","content":"next"}]}`, service.AccountTypeOAuth, true, 200, []int64{2}},
 		{"api_key_unchanged", `{"model":"gpt-5.1","input":[{"role":"assistant","content":"old"},{"role":"user","content":"next"}]}`, service.AccountTypeAPIKey, false, 200, []int64{1}},
@@ -219,6 +221,7 @@ func TestOpenAIHistoryWebSocketTurns(t *testing.T) {
 	for _, tc := range []struct {
 		name            string
 		firstHistory    bool
+		codexFirstTurn  bool
 		unknownPrevious bool
 		blockAudit      bool
 		failSecond      bool
@@ -226,6 +229,8 @@ func TestOpenAIHistoryWebSocketTurns(t *testing.T) {
 		{name: "reject_external_first_turn", firstHistory: true},
 		{name: "reject_unknown_response_on_later_turn", unknownPrevious: true},
 		{name: "continue_owned_response"},
+		{name: "codex_first_turn_then_owned_response", codexFirstTurn: true},
+		{name: "codex_first_turn_audit_block", codexFirstTurn: true, blockAudit: true},
 		{name: "audit_before_history", firstHistory: true, blockAudit: true},
 		{name: "current_turn_failover_keeps_original_owner", failSecond: true},
 	} {
@@ -264,6 +269,15 @@ func TestOpenAIHistoryWebSocketTurns(t *testing.T) {
 			require.NoError(t, err)
 			defer func() { _ = conn.CloseNow() }()
 			first := `{"type":"response.create","model":"gpt-5.1","input":"hello"}`
+			if tc.codexFirstTurn {
+				var event map[string]json.RawMessage
+				require.NoError(t, json.Unmarshal(codexHistoryFirstTurn(t), &event))
+				event["type"] = json.RawMessage(`"response.create"`)
+				event["stream"] = json.RawMessage(`true`)
+				encoded, err := json.Marshal(event)
+				require.NoError(t, err)
+				first = string(encoded)
+			}
 			if tc.firstHistory {
 				first = `{"type":"response.create","model":"gpt-5.1","input":[{"role":"assistant","content":"old"},{"role":"user","content":"next"}]}`
 			}
@@ -279,7 +293,7 @@ func TestOpenAIHistoryWebSocketTurns(t *testing.T) {
 				}
 			}
 			frame := readTerminal()
-			if tc.firstHistory {
+			if tc.firstHistory || tc.blockAudit {
 				if !tc.blockAudit {
 					require.Equal(t, "external_history_not_allowed", gjson.GetBytes(frame, "error.code").String())
 					_ = conn.CloseNow()
@@ -294,10 +308,18 @@ func TestOpenAIHistoryWebSocketTurns(t *testing.T) {
 				require.Zero(t, writes)
 				if tc.blockAudit {
 					require.Zero(t, lookups)
+					require.Equal(t, int64(1), engine.evaluates.Load())
+					require.Equal(t, "error", gjson.GetBytes(frame, "type").String())
 				}
 				return
 			}
 			require.Equal(t, "resp_history_1", gjson.GetBytes(frame, "response.id").String())
+			if tc.codexFirstTurn {
+				upstream.mu.Lock()
+				forwarded := bytes.Clone(upstream.bodies[0])
+				upstream.mu.Unlock()
+				require.JSONEq(t, gjson.Get(first, "input").Raw, gjson.GetBytes(forwarded, "input").Raw)
+			}
 			previous := "resp_history_1"
 			if tc.unknownPrevious {
 				previous = "resp_unknown"

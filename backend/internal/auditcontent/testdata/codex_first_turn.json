@@ -1,0 +1,31 @@
+{
+  "model": "gpt-5.1",
+  "instructions": "You are a coding assistant.",
+  "input": [
+    {
+      "type": "message",
+      "role": "developer",
+      "content": [{"type": "input_text", "text": "Follow the project instructions."}]
+    },
+    {
+      "type": "message",
+      "role": "user",
+      "content": [{"type": "input_text", "text": "# AGENTS.md instructions for /workspace/example\n\n<INSTRUCTIONS>\nRun the focused Go tests.\n</INSTRUCTIONS>"}]
+    },
+    {
+      "type": "message",
+      "role": "user",
+      "content": [{"type": "input_text", "text": "<environment_context>\n<cwd>/workspace/example</cwd>\n<shell>bash</shell>\n</environment_context>"}]
+    },
+    {
+      "type": "message",
+      "role": "user",
+      "content": [{"type": "input_text", "text": "How many candies guarantee an apple and a peach of different shapes?"}]
+    }
+  ],
+  "tools": [{"type": "function", "name": "read_file", "description": "Read a project file.", "parameters": {"type": "object", "properties": {"path": {"type": "string"}}, "required": ["path"]}}],
+  "parallel_tool_calls": true,
+  "reasoning": {"effort": "medium", "summary": "auto"},
+  "store": false,
+  "stream": false
+}
