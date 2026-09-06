@@ -73,7 +73,8 @@ procedures are documented in [`docs/RELEASING.md`](docs/RELEASING.md).
 | `v0.1.183+custom.927` | `v0.1.183` | `e8cb019fabf8b55199436229044cbf9aa7a82564` | published |
 | `v0.2.0+custom.901` | `v0.2.0` | `aa236488351eb71e120fc2b6fb32e36b0374c918` | published |
 | `v0.2.0+custom.902` | `v0.2.0` | `aa236488351eb71e120fc2b6fb32e36b0374c918` | published |
-| `v0.2.0+custom.903` | `v0.2.0` | `aa236488351eb71e120fc2b6fb32e36b0374c918` | planned |
+| `v0.2.0+custom.903` | `v0.2.0` | `aa236488351eb71e120fc2b6fb32e36b0374c918` | published |
+| `v0.2.0+custom.904` | `v0.2.0` | `aa236488351eb71e120fc2b6fb32e36b0374c918` | planned |
 
 `v0.1.166+custom.007` is marked invalid because its tag contains embedded and
 documented version `0.1.166+custom.006`. Remote Release and OCI artifact status
@@ -82,9 +83,9 @@ still require a maintainer audit. Do not reuse or retag `.007`.
 ## Current Version
 
 ```text
-Git/GitHub: v0.2.0+custom.903
-Application: 0.2.0+custom.903
-GHCR: ghcr.io/tiantianr/sub2api-plus:v0.2.0-custom.903
+Git/GitHub: v0.2.0+custom.904
+Application: 0.2.0+custom.904
+GHCR: ghcr.io/tiantianr/sub2api-plus:v0.2.0-custom.904
 ```
 
 ## Naming
@@ -118,6 +119,16 @@ same release-preparation change.
 The `v0.2.0+custom.901` synchronization imports the published Plus tag
 `v0.2.0+custom.002` at commit
 `cd1d8438cbe19358936605af7e6b20954283bf15`.
+
+The `v0.2.0+custom.904` release incorporates the published Plus tag
+`v0.2.0+custom.003` at commit
+`6ba64e382edf9fa7c33fb3e37afe6ba219ce2003`. This synchronization preserves
+the local `gpt-6` and recognized Astra suffix compatibility forms, Pi outbound
+identity emulation, WebSocket identity isolation, and the personal distribution
+repository settings while importing the upstream Astra catalog, pricing,
+cache, monitor-validation, and documentation updates. The upstream monitor
+migration is recorded locally as `265_channel_monitor_gpt6_astra.sql` because
+the local migration sequence already uses prefixes through `264`.
 
 Historical `-custom.NNN` Git naming was migrated to the canonical
 `+custom.NNN` form. OCI tags continue to use `-custom.NNN` because OCI tags do
