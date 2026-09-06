@@ -1902,7 +1902,7 @@ func newOpenAIHandlerForPreviousResponseIDValidation(t *testing.T, cache *concur
 	}
 }
 
-func newOpenAIWSHandlerTestServer(t *testing.T, h *OpenAIGatewayHandler, subject middleware.AuthSubject) *httptest.Server {
+func newOpenAIWSHandlerTestServer(t *testing.T, h *OpenAIGatewayHandler, subject middleware.AuthSubject, middlewares ...gin.HandlerFunc) *httptest.Server {
 	t.Helper()
 	attachDisabledIPAccessControlForWebSocketTest(h)
 	groupID := int64(2)
@@ -1917,7 +1917,7 @@ func newOpenAIWSHandlerTestServer(t *testing.T, h *OpenAIGatewayHandler, subject
 		c.Set(string(middleware.ContextKeyUser), subject)
 		c.Next()
 	})
-	router.GET("/openai/v1/responses", h.ResponsesWebSocket)
+	router.GET("/openai/v1/responses", append(middlewares, h.ResponsesWebSocket)...)
 	return httptest.NewServer(router)
 }
 

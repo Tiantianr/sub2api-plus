@@ -1,23 +1,23 @@
-Sub2API Plus v0.2.0+custom.905
+Sub2API Plus v0.2.0+custom.906
 
 ## Highlights
 
-- Add OpenAI OAuth history admission policy and conversation bindings to prevent cross-account history bleed.
-- Introduce database migration `266_openai_conversation_bindings.sql` for long-term session-to-account ownership tracking.
-- Optimize CI and release workflows with fast local preflight and single-stage rapid arm64 image publishing channel.
+- Preserve OpenAI OAuth history admission policy in slim scheduler cache projections.
+- Incomplete cached OAuth snapshots without history admission boolean are treated as cache misses and rebuilt from database.
+- Record history admission rejections into Ops failed-request logs as local routing business limitations.
 
 ## Changed
 
-- OpenAI OAuth accounts now default to rejecting external history requests unless explicitly disabled.
-- Frontend account creation, editing, and bulk-editing modals support the history admission policy toggle.
-- Accelerated main push CI by skipping redundant test shards and lint already verified in pull requests.
-- Added `--fast` preflight mode to `push-cli` and provided `fast-release.yml` direct publish workflow.
+- Slim scheduler cache metadata includes explicit opt-outs for `openai_oauth_reject_external_history`.
+- Cached snapshots missing history admission flags trigger repository rebuild instead of defaulting to rejection.
+- Ops error logging captures history admission rejections for HTTP, SSE, and WebSocket turns while excluding them from upstream availability failure metrics.
+- Admin Usage error requests include policy rejections under `all` and `excluded` filters.
 
 ## Compatibility and migration
 
-- Added forward-only migration `266_openai_conversation_bindings.sql`.
-- Account settings default to `openai_oauth_reject_external_history=true`.
-- Roll back application code to `v0.2.0+custom.904` if required.
+- Forward-only database migration schema unchanged.
+- Slim scheduler cache auto-rebuilds without manual Redis flushing.
+- Roll back application code to `v0.2.0+custom.905` if required.
 - Personal images and binary archives remain Linux arm64 only.
 
 ## Known issues

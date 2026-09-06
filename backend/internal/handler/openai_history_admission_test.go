@@ -230,6 +230,8 @@ func TestOpenAIHistoryWebSocketTurns(t *testing.T) {
 		{name: "current_turn_failover_keeps_original_owner", failSecond: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
+			setupOpsErrorLogTestQueue(t, 4)
+			ops := service.NewOpsService(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 			upstream := &historyHTTPUpstream{stream: true, failSecond: tc.failSecond}
 			h, repo := newHistoryHTTPHandler(t, false, service.AccountTypeOAuth, upstream)
 			h.cfg.Gateway.OpenAIWS.Enabled = true
@@ -251,7 +253,10 @@ func TestOpenAIHistoryWebSocketTurns(t *testing.T) {
 				engine.decisions = []*securityaudit.PromptDecision{{Kind: securityaudit.DecisionBlock, AllowNextStage: false}}
 			}
 			h.securityAuditCoordinator = securityaudit.NewCoordinator(nil, engine)
-			server := newOpenAIWSHandlerTestServer(t, h, middleware.AuthSubject{UserID: 100})
+			server := newOpenAIWSHandlerTestServer(t, h, middleware.AuthSubject{UserID: 100}, func(c *gin.Context) {
+				c.Header("X-Request-Id", "history-ws-request")
+				c.Next()
+			}, OpsErrorLoggerMiddleware(ops))
 			defer server.Close()
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()
@@ -277,6 +282,10 @@ func TestOpenAIHistoryWebSocketTurns(t *testing.T) {
 			if tc.firstHistory {
 				if !tc.blockAudit {
 					require.Equal(t, "external_history_not_allowed", gjson.GetBytes(frame, "error.code").String())
+					_ = conn.CloseNow()
+					entry := takeHistoryOpsLog(t)
+					assertHistoryOpsRejection(t, entry, 101, 2, "history-ws-request")
+					require.Contains(t, entry.ErrorBody, "external_history_not_allowed")
 				}
 				require.Empty(t, upstream.calls())
 				repo.mu.Lock()
@@ -307,6 +316,12 @@ func TestOpenAIHistoryWebSocketTurns(t *testing.T) {
 				require.Equal(t, []int64{1, 1}, upstream.calls())
 			}
 			require.Equal(t, int64(2), engine.evaluates.Load())
+			if tc.unknownPrevious || tc.failSecond {
+				_ = conn.CloseNow()
+				entry := takeHistoryOpsLog(t)
+				assertHistoryOpsRejection(t, entry, 101, 2, "history-ws-request")
+				require.Contains(t, entry.ErrorBody, gjson.GetBytes(frame, "error.code").String())
+			}
 		})
 	}
 }
